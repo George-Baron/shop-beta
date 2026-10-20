@@ -1,0 +1,1156 @@
+<!doctype html>
+<html lang="en"<!--HTMLATTR-->>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script>
+// Runs before first paint: restores dark/light mode and the last department theme (no flash of the wrong design).
+(function () {
+  try {
+    var r = document.documentElement;
+    var m = JSON.parse(localStorage.getItem('sb_mode') || 'null'); if (m) r.setAttribute('data-mode', m);
+    if (!r.getAttribute('data-store')) { var m2 = /^\/d\/([a-z-]+)/.exec(location.pathname); var s = m2 ? m2[1] : JSON.parse(localStorage.getItem('sb_store') || 'null'); if (s) r.setAttribute('data-store', s); }
+  } catch (e) { /* storage blocked */ }
+})();
+</script>
+<!--SEO-->
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&family=Poppins:wght@600;700;800&display=swap">
+<style>
+:root{
+ --bg:#fff;--surface:#fff;--surface-2:#f6f7f9;--text:#16181d;--muted:#667085;--border:#e5e8ee;
+ --accent:#f26a21;--accent-ink:#fff;--accent-soft:#fff0e6;--accent-2:#ffb27a;
+ --head-bg:#fff;--head-ink:#16181d;--hero-bg:linear-gradient(135deg,#fdeee3,#fff 70%);--hero-ink:#16181d;--hero-muted:#5b6270;
+ --radius:14px;--radius-sm:10px;--shadow:0 1px 2px rgba(16,24,40,.06),0 6px 20px rgba(16,24,40,.06);
+ --font:'Plus Jakarta Sans',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;--display:var(--font);--ok:#16a34a;--warn:#d97706;--bad:#dc2626;
+}
+[data-store=fashion]{--accent:#f26a21;--accent-soft:#fff0e6;--hero-bg:linear-gradient(120deg,#fff1e6 0%,#fffaf6 55%,#fff 100%)}
+[data-store=supermarket]{--accent:#16a34a;--accent-soft:#e3f6ea;--accent-2:#facc15;--head-bg:#0b4a2a;--head-ink:#fff;--hero-bg:linear-gradient(120deg,#0b4a2a,#13803f 85%);--hero-ink:#fff;--hero-muted:#cfeedd;--radius:12px}
+[data-store=beauty]{--accent:#d6246e;--accent-soft:#fde7f1;--accent-2:#7c3aed;--hero-bg:linear-gradient(120deg,#fde9ee,#f7e6f6 60%,#fff);--display:'Playfair Display',Georgia,serif;--radius:18px}
+[data-store=electronics]{--bg:#0a0d0c;--surface:#121715;--surface-2:#0e1311;--text:#f2f6f4;--muted:#9aa8a1;--border:#232b28;--accent:#22c55e;--accent-ink:#04130a;--accent-soft:#0f2a1a;--head-bg:#0a0d0c;--head-ink:#f2f6f4;--hero-bg:radial-gradient(ellipse at 80% 20%,#0f3d22,#0a0d0c 65%);--hero-ink:#f2f6f4;--hero-muted:#a9b8b0;--shadow:0 1px 0 rgba(255,255,255,.03),0 8px 24px rgba(0,0,0,.5)}
+[data-store=pharmacy]{--accent:#2563eb;--accent-soft:#e6efff;--surface-2:#f3f7ff;--hero-bg:linear-gradient(120deg,#d7e8ff,#eef5ff 70%,#fff);--radius:12px}
+[data-store=food]{--accent:#f97316;--accent-soft:#fff0dd;--accent-2:#facc15;--bg:#fffaf0;--surface-2:#fff4dc;--hero-bg:linear-gradient(120deg,#fde58a,#fff3c4 70%,#fffaf0);--radius:22px;--display:'Poppins','Plus Jakarta Sans',system-ui,sans-serif}
+[data-mode=dark]:not([data-store=electronics]){--bg:#0f1114;--surface:#171a1f;--surface-2:#12151a;--text:#eef0f4;--muted:#98a2b3;--border:#272c34;--head-bg:#12151a;--head-ink:#eef0f4;--hero-ink:#eef0f4;--hero-muted:#a8b0bd;--hero-bg:linear-gradient(120deg,#1b1f27,#12151a);--accent-soft:#2a1d14;--shadow:0 8px 24px rgba(0,0,0,.45)}
+[data-mode=dark][data-store=supermarket]{--head-bg:#06301b}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased;transition:background .2s}
+img{max-width:100%;display:block}a{color:inherit;text-decoration:none}button,input,select,textarea{font:inherit;color:inherit}
+h1,h2,h3{font-family:var(--display);line-height:1.2;margin:0 0 .5em}h1{font-size:clamp(28px,4vw,46px);letter-spacing:-.02em}h2{font-size:clamp(20px,2.4vw,26px)}h3{font-size:18px}
+.wrap{max-width:1200px;margin:0 auto;padding:0 16px}.mu{color:var(--muted)}.hide{display:none!important}.sr{position:absolute;left:-9999px}
+.loading-page{min-height:50vh;display:grid;place-items:center}.loading-page::after{content:'';width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+/* buttons & forms */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--accent);color:var(--accent-ink);border:1px solid var(--accent);border-radius:999px;padding:11px 22px;font-weight:700;cursor:pointer;transition:transform .1s,filter .15s}
+.btn:hover{filter:brightness(1.06)}.btn:active{transform:scale(.98)}.btn:disabled{opacity:.5;cursor:not-allowed}.btn.sm{padding:7px 14px;font-size:13px}.btn.lg{padding:14px 30px;font-size:16px}
+.btn.ghost{background:transparent;color:var(--text);border-color:var(--border)}.btn.ghost:hover{border-color:var(--accent);color:var(--accent)}.btn.block{width:100%}
+input,select,textarea{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:11px 13px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+label.f{display:block;font-weight:600;font-size:13px;margin-bottom:12px}label.f>input,label.f>select,label.f>textarea{margin-top:5px;font-weight:400}
+.row{display:grid;gap:12px}.row.c2{grid-template-columns:1fr 1fr}.row.c3{grid-template-columns:repeat(3,1fr)}@media(max-width:600px){.row.c2,.row.c3{grid-template-columns:1fr}}
+.err{color:var(--bad);font-size:13px;margin:6px 0}.note{background:var(--accent-soft);border-radius:var(--radius-sm);padding:10px 14px;font-size:14px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* header */
+.ann{background:var(--accent);color:var(--accent-ink);text-align:center;font-size:13px;font-weight:600;padding:7px 12px}
+.head{background:var(--head-bg);color:var(--head-ink);position:sticky;top:0;z-index:40;border-bottom:1px solid var(--border)}
+.head-in{display:flex;align-items:center;gap:16px;padding:12px 16px;max-width:1200px;margin:0 auto}
+.logo{display:flex;align-items:center;gap:8px;font-weight:800;font-size:20px;font-family:var(--display);white-space:nowrap}.logo .mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:var(--accent);color:var(--accent-ink);font-size:18px}
+.search{flex:1;max-width:560px;position:relative}.search input{border-radius:999px;padding-left:16px;padding-right:44px;background:var(--surface-2)}
+[data-store=supermarket] .search input{background:#fff;color:#16181d}[data-store=supermarket] .search button{color:#16181d}
+.search button{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:0;cursor:pointer;font-size:16px;padding:6px 10px}
+.icons{display:flex;gap:6px;margin-left:auto}.ibtn{position:relative;background:none;border:0;color:inherit;cursor:pointer;font-size:20px;padding:8px;border-radius:10px;display:grid;place-items:center}.ibtn:hover{background:rgba(127,127,127,.15)}
+.ibtn .dot{position:absolute;top:2px;right:0;background:var(--accent);color:var(--accent-ink);font-size:10px;font-weight:800;min-width:17px;height:17px;border-radius:9px;display:grid;place-items:center;padding:0 4px}
+.menu-btn{display:none}
+.tabs-dept{background:var(--surface-2);border-bottom:1px solid var(--border)}
+.tabs-in{display:flex;gap:6px;max-width:1200px;margin:0 auto;padding:8px 16px;overflow-x:auto;scrollbar-width:none}
+.tabs-in::-webkit-scrollbar{display:none}
+.dtab{display:flex;align-items:center;gap:7px;padding:8px 16px;border-radius:999px;font-weight:700;font-size:14px;white-space:nowrap;color:var(--muted);border:1px solid transparent}
+.dtab:hover{color:var(--text);background:var(--surface)}.dtab.on{background:var(--accent);color:var(--accent-ink)}
+.nav2{display:flex;gap:22px;max-width:1200px;margin:0 auto;padding:0 16px 10px;font-size:14px;font-weight:600}.nav2 a{opacity:.85}.nav2 a:hover,.nav2 a.on{opacity:1;color:var(--accent)}
+[data-store=supermarket] .nav2 a:hover,[data-store=supermarket] .nav2 a.on{color:var(--accent-2)}
+@media(max-width:760px){.head-in{flex-wrap:wrap;gap:10px}.search{order:5;flex-basis:100%;max-width:none}.nav2{display:none}.logo span.t{font-size:18px}}
+/* hero */
+.hero{background:var(--hero-bg);color:var(--hero-ink);overflow:hidden}
+.hero-in{max-width:1200px;margin:0 auto;padding:46px 16px;display:grid;grid-template-columns:1.05fr 1fr;gap:20px;align-items:center;min-height:340px}
+.hero h1{margin-bottom:12px}.hero p{color:var(--hero-muted);font-size:17px;max-width:460px;margin:0 0 22px}
+.hero .eyebrow{font-size:12px;letter-spacing:.2em;text-transform:uppercase;font-weight:800;color:var(--accent);margin-bottom:10px}
+.hero-art{position:relative;height:300px;display:grid;place-items:center}
+.hero-art .big{font-size:150px;line-height:1;filter:drop-shadow(0 18px 24px rgba(0,0,0,.25));animation:float 5s ease-in-out infinite}
+.hero-art .sm1,.hero-art .sm2,.hero-art .sm3{position:absolute;font-size:64px;filter:drop-shadow(0 10px 14px rgba(0,0,0,.2));animation:float 6s ease-in-out infinite}
+.hero-art .sm1{left:6%;top:12%;animation-delay:-1s}.hero-art .sm2{right:4%;top:8%;animation-delay:-2.5s}.hero-art .sm3{right:14%;bottom:2%;animation-delay:-4s}
+@keyframes float{50%{transform:translateY(-12px)}}@media(prefers-reduced-motion:reduce){*{animation:none!important}}
+@media(max-width:760px){.hero-in{grid-template-columns:1fr;padding:28px 16px;min-height:0}.hero-art{height:200px;order:-1}.hero-art .big{font-size:100px}.hero-art .sm1,.hero-art .sm2,.hero-art .sm3{font-size:42px}}
+/* sections */
+section.blk{padding:30px 0}.sec-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px}.sec-head a{font-size:13px;font-weight:700;color:var(--accent)}
+.cats{display:flex;gap:18px;overflow-x:auto;padding:6px 2px 12px;scrollbar-width:none}.cats::-webkit-scrollbar{display:none}
+.cat{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:8px;width:92px;text-align:center;font-size:13px;font-weight:600}
+.cat .ci{width:68px;height:68px;border-radius:50%;background:var(--accent-soft);display:grid;place-items:center;font-size:30px;transition:transform .15s}.cat:hover .ci{transform:translateY(-3px)}
+.cats.square .cat{width:104px}.cats.square .cat .ci{border-radius:16px;width:92px;height:80px;border:1px solid var(--border);background:var(--surface)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px}
+@media(max-width:560px){.grid{grid-template-columns:repeat(2,1fr);gap:10px}}
+.pcard{position:relative;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;transition:box-shadow .15s,transform .15s}
+.pcard:hover{box-shadow:var(--shadow);transform:translateY(-2px)}.pimg{position:relative;display:block;aspect-ratio:1/1;background:var(--surface-2)}.pimg img{width:100%;height:100%;object-fit:cover}
+.emoji-tile{width:100%;height:100%;display:grid;place-items:center;font-size:72px;background:linear-gradient(135deg,var(--accent-soft),var(--surface-2))}
+.emoji-tile[data-h="1"]{background:linear-gradient(135deg,var(--surface-2),var(--accent-soft))}.emoji-tile[data-h="2"]{background:radial-gradient(circle at 30% 30%,var(--accent-soft),var(--surface-2))}
+.emoji-tile span{filter:drop-shadow(0 8px 10px rgba(0,0,0,.18))}
+.badge{position:absolute;top:10px;left:10px;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:var(--accent);color:var(--accent-ink)}.badge.new{background:#7c3aed;color:#fff}.badge.out{background:#667085;color:#fff;left:auto;right:10px}
+.wish{position:absolute;top:8px;right:8px;width:34px;height:34px;border-radius:50%;border:0;background:var(--surface);box-shadow:var(--shadow);cursor:pointer;font-size:18px;display:grid;place-items:center;color:var(--muted);z-index:2}.wish.on{color:#e11d48}
+.pbody{padding:12px;display:flex;flex-direction:column;gap:5px;flex:1}.pname{font-weight:600;font-size:14px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.6em}
+.pprice{display:flex;gap:8px;align-items:baseline}.pprice b{font-size:16px}.pprice s{color:var(--muted);font-size:12px}.pbody .add{margin-top:auto}
+.stars{color:#f5a524;font-size:13px;letter-spacing:1px}.stars i{color:var(--border);font-style:normal}.stars small{color:var(--muted);letter-spacing:0;margin-left:4px}.stars.none{color:var(--muted);font-size:12px;letter-spacing:0}
+.trust{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.trust .t{display:flex;gap:12px;align-items:center;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px}.trust .t span{font-size:26px}.trust b{display:block;font-size:14px}.trust small{color:var(--muted)}
+@media(max-width:700px){.trust{grid-template-columns:1fr}}
+.promo2{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:700px){.promo2{grid-template-columns:1fr}}
+.promo{border-radius:var(--radius);padding:24px;background:linear-gradient(120deg,var(--accent-soft),var(--surface-2));border:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;min-height:140px;overflow:hidden}.promo h3{margin:0 0 4px}.promo p{margin:0 0 12px;color:var(--muted);font-size:14px}.promo .pe{font-size:64px}
+.banner{border-radius:var(--radius);background:linear-gradient(110deg,var(--accent),var(--accent-2));color:var(--accent-ink);padding:28px;display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}.banner h3{margin:0 0 4px;font-size:22px}.banner p{margin:0;opacity:.9}.banner .btn{background:#fff;color:#111;border-color:#fff}
+/* footer */
+footer.foot{background:var(--surface-2);border-top:1px solid var(--border);margin-top:40px;padding:36px 0 90px}
+.foot-grid{display:grid;grid-template-columns:1.4fr repeat(3,1fr);gap:24px}@media(max-width:760px){.foot-grid{grid-template-columns:1fr 1fr}}
+.foot h4{margin:0 0 10px;font-size:14px}.foot a{display:block;color:var(--muted);font-size:14px;padding:3px 0}.foot a:hover{color:var(--accent)}
+.news{display:flex;gap:8px;margin-top:10px}.news input{border-radius:999px}.legal{margin-top:24px;padding-top:16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;color:var(--muted);font-size:13px}
+.wa{position:fixed;right:16px;bottom:16px;z-index:60;width:54px;height:54px;border-radius:50%;background:#25d366;color:#fff;display:grid;place-items:center;font-size:28px;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+/* shop page */
+.crumbs{font-size:13px;color:var(--muted);padding:14px 0}.crumbs a:hover{color:var(--accent)}
+.shop{display:grid;grid-template-columns:250px 1fr;gap:24px;align-items:start}@media(max-width:860px){.shop{grid-template-columns:1fr}.filters{display:none}.filters.open{display:block}}
+.filters{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;position:sticky;top:130px}.filters h4{margin:16px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}.filters h4:first-child{margin-top:0}
+.chk{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:14px;cursor:pointer}.chk input{width:auto}
+.chips{display:flex;flex-wrap:wrap;gap:6px}.chip{border:1px solid var(--border);border-radius:999px;padding:4px 12px;font-size:13px;cursor:pointer;background:var(--surface)}.chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.shop-top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}.shop-top select{width:auto}
+.pager{display:flex;gap:6px;justify-content:center;margin-top:24px;flex-wrap:wrap}.pager button{min-width:38px}
+.empty{text-align:center;padding:50px 16px;color:var(--muted)}.empty .em{font-size:50px}
+/* product page */
+.pd{display:grid;grid-template-columns:1.05fr 1fr;gap:32px;align-items:start}@media(max-width:800px){.pd{grid-template-columns:1fr}}
+.gal .main{aspect-ratio:1/1;border-radius:var(--radius);overflow:hidden;background:var(--surface-2);border:1px solid var(--border);position:relative;cursor:zoom-in}.gal .main img,.gal .main .emoji-tile{width:100%;height:100%;object-fit:cover;transition:transform .2s;transform-origin:var(--zx,50%) var(--zy,50%)}.gal .main.zoom img{transform:scale(2)}.gal .main .emoji-tile{font-size:160px}
+.thumbs{display:flex;gap:8px;margin-top:10px}.thumbs button{width:64px;height:64px;border-radius:10px;border:2px solid var(--border);padding:0;overflow:hidden;background:var(--surface-2);cursor:pointer}.thumbs button.on{border-color:var(--accent)}.thumbs img{width:100%;height:100%;object-fit:cover}
+.pd h1{font-size:clamp(24px,3vw,34px)}.pd .price{font-size:28px;font-weight:800;margin:10px 0}.pd .price s{font-size:16px;color:var(--muted);font-weight:500;margin-left:8px}.pd .price .save{font-size:13px;color:var(--ok);margin-left:8px;font-weight:700}
+.opt-label{font-weight:700;font-size:13px;margin:14px 0 6px}.stock{font-size:13px;font-weight:700}.stock.in{color:var(--ok)}.stock.low{color:var(--warn)}.stock.out{color:var(--bad)}
+.qty{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:999px;overflow:hidden}.qty button{width:36px;height:36px;border:0;background:none;cursor:pointer;font-size:18px}.qty span{min-width:30px;text-align:center;font-weight:700}
+.buy{display:flex;gap:10px;margin:18px 0;flex-wrap:wrap}
+.tabs2{display:flex;gap:4px;border-bottom:1px solid var(--border);margin:32px 0 16px}.tabs2 button{background:none;border:0;padding:10px 16px;font-weight:700;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent}.tabs2 button.on{color:var(--accent);border-color:var(--accent)}
+.rev{padding:14px 0;border-bottom:1px solid var(--border)}.rev b{margin-right:8px}.dist{display:grid;grid-template-columns:44px 1fr 28px;gap:8px;align-items:center;font-size:13px;margin:3px 0}.bar{height:8px;border-radius:4px;background:var(--border);overflow:hidden}.bar i{display:block;height:100%;background:#f5a524}
+.starpick button{background:none;border:0;font-size:26px;color:var(--border);cursor:pointer}.starpick button.on{color:#f5a524}
+/* drawer / modal / toast */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:80;opacity:0;pointer-events:none;transition:opacity .2s}.scrim.on{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(420px,100%);background:var(--surface);z-index:90;transform:translateX(100%);transition:transform .25s;display:flex;flex-direction:column;box-shadow:var(--shadow)}.drawer.on{transform:none}
+.drawer header{display:flex;justify-content:space-between;align-items:center;padding:16px 18px;border-bottom:1px solid var(--border)}.drawer header h3{margin:0}.drawer .body{flex:1;overflow:auto;padding:14px 18px}.drawer footer{padding:16px 18px;border-top:1px solid var(--border)}
+.line{display:grid;grid-template-columns:64px 1fr auto;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}.line .lt{width:64px;height:64px;border-radius:10px;overflow:hidden}.line .lt .emoji-tile{font-size:30px}.line .rm{background:none;border:0;color:var(--muted);cursor:pointer;font-size:12px;padding:0}
+.sum{display:flex;justify-content:space-between;padding:4px 0;font-size:14px}.sum.total{font-size:18px;font-weight:800;border-top:1px solid var(--border);margin-top:6px;padding-top:10px}
+.free-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin:6px 0}.free-bar i{display:block;height:100%;background:var(--ok);transition:width .3s}
+.modal{position:fixed;inset:0;z-index:100;display:none;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.5)}.modal.on{display:flex}.modal .box{background:var(--surface);border-radius:var(--radius);padding:24px;width:min(460px,100%);max-height:90vh;overflow:auto;box-shadow:var(--shadow)}
+#toasts{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:120;display:grid;gap:8px;justify-items:center}.toast{background:#111;color:#fff;padding:10px 18px;border-radius:999px;font-size:14px;font-weight:600;box-shadow:var(--shadow);transition:opacity .3s}.toast.out{opacity:0}.toast.bad{background:var(--bad)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+.page{padding:28px 0}.prose{max-width:760px}.prose h2{margin-top:1.6em}.prose p,.prose li{color:var(--muted)}
+.cookie{position:fixed;left:16px;right:16px;bottom:16px;z-index:70;max-width:560px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow);display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:14px}
+/* themed homepage variants */
+[data-store=supermarket] .hero h1{color:#fff}[data-store=supermarket] .hero h1 em{color:#facc15;font-style:normal}
+[data-store=supermarket] .btn{border-radius:10px}[data-store=supermarket] .dtab.on{background:#facc15;color:#0b4a2a}
+[data-store=supermarket] .ann{background:#facc15;color:#0b4a2a}
+.deal-strip{background:#e8f7ee;border-radius:var(--radius);padding:18px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.deal-strip h3{margin:0}.deal-strip .big{font-size:44px}
+[data-store=beauty] .hero h1{font-weight:700}[data-store=beauty] .cat .ci{border-radius:50%;width:78px;height:78px;border:3px solid #fff;box-shadow:var(--shadow);font-size:34px}[data-store=beauty] .btn{border-radius:8px}
+[data-store=electronics] .pcard{background:linear-gradient(180deg,#151b19,#101513)}[data-store=electronics] .hero h1 em{color:var(--accent);font-style:normal}[data-store=electronics] .cat .ci{background:#0f2a1a;border:1px solid #1c4a2e}[data-store=electronics] .btn.ghost{color:var(--text)}[data-store=electronics] .banner{background:linear-gradient(110deg,#0f3d22,#0a0d0c);border:1px solid #1c4a2e;color:var(--text)}
+[data-store=pharmacy] .hero{border-bottom:1px solid #cfe0fb}[data-store=pharmacy] .promo{background:linear-gradient(110deg,#e6efff,#fff)}[data-store=pharmacy] .btn{border-radius:8px}
+[data-store=food] .btn{box-shadow:0 4px 0 rgba(0,0,0,.12)}[data-store=food] .pcard,[data-store=food] .promo,[data-store=food] .banner{border-width:2px}[data-store=food] .hero h1{font-weight:800}
+[data-store=food] .wavy{height:36px;background:radial-gradient(circle at 18px -4px,transparent 18px,var(--accent-soft) 19px) 0 0/36px 36px repeat-x}
+[data-store=food] .cat .ci{border-radius:24px}
+.rm{background:none;border:0;cursor:pointer;padding:0;color:var(--muted);font-size:12px}
+/* ===== admin styles (only apply on /admin) ===== */
+body.is-admin{background:var(--surface-2)}
+body.is-admin .adm{display:grid;min-height:100vh;grid-template-columns:minmax(0,1fr)}
+body.is-admin .side{background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:30}
+body.is-admin .side-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:10px 14px;gap:10px}
+body.is-admin .side-top b{font-size:17px}
+body.is-admin .side-top .who{font-size:12px;color:var(--muted)}
+body.is-admin .side nav{display:flex;gap:4px;overflow-x:auto;padding:0 10px 10px;scrollbar-width:none}
+body.is-admin .side nav a{display:flex;align-items:center;gap:8px;padding:9px 13px;border-radius:10px;font-weight:600;font-size:13.5px;white-space:nowrap;color:var(--muted);position:relative;cursor:pointer}
+body.is-admin .side nav a:hover{background:var(--surface-2);color:var(--text)}
+body.is-admin .side nav a.on{background:var(--accent-soft);color:var(--accent)}
+body.is-admin .side nav .dot{background:var(--accent);color:#fff;border-radius:9px;font-size:11px;padding:0 6px;line-height:17px}
+body.is-admin .main{padding:18px 14px 60px;max-width:1200px;width:100%;margin:0 auto}
+@media(min-width:900px){body.is-admin .adm{grid-template-columns:230px minmax(0,1fr)}
+body.is-admin .side{position:sticky;top:0;height:100vh;border-bottom:0;border-right:1px solid var(--border);display:flex;flex-direction:column}
+body.is-admin .side nav{flex-direction:column;overflow:auto;padding:6px 12px;flex:1}
+body.is-admin .main{padding:28px 32px 60px}}
+body.is-admin .hd{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+body.is-admin .hd h1{font-size:24px;margin:0}
+body.is-admin .grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+body.is-admin .stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px}
+body.is-admin .stat .l{font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+body.is-admin .stat .v{font-size:24px;font-weight:800;margin-top:4px}
+body.is-admin .stat .s{font-size:12px;color:var(--muted)}
+body.is-admin .cols{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+@media(min-width:900px){body.is-admin .cols{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)}}
+body.is-admin .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:14px;overflow:hidden}
+body.is-admin .panel h3{margin:0 0 10px;font-size:15px}
+body.is-admin .tw{overflow-x:auto}
+body.is-admin table.t{width:100%;border-collapse:collapse;font-size:13.5px}
+body.is-admin table.t th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+body.is-admin table.t td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+body.is-admin table.t tr:last-child td{border-bottom:0}
+body.is-admin table.t tr.click{cursor:pointer}
+body.is-admin table.t tr.click:hover td{background:var(--surface-2)}
+body.is-admin .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;background:var(--surface-2);border:1px solid var(--border)}
+body.is-admin .pill.pending{background:#fef3c7;color:#92400e;border-color:#fde68a}
+body.is-admin .pill.paid,body.is-admin .pill.processing{background:#dbeafe;color:#1e40af;border-color:#bfdbfe}
+body.is-admin .pill.shipped{background:#e0e7ff;color:#3730a3;border-color:#c7d2fe}
+body.is-admin .pill.delivered{background:#dcfce7;color:#166534;border-color:#bbf7d0}
+body.is-admin .pill.cancelled{background:#fee2e2;color:#991b1b;border-color:#fecaca}
+body.is-admin .pill.low{background:#fee2e2;color:#991b1b}
+body.is-admin .rbar{display:flex;align-items:flex-end;gap:5px;height:120px;margin-top:8px}
+body.is-admin .rbar i{flex:1;background:var(--accent);border-radius:4px 4px 0 0;min-height:2px;opacity:.85}
+body.is-admin .rbar i:hover{opacity:1}
+body.is-admin .barx{display:flex;gap:5px;font-size:10px;color:var(--muted)}
+body.is-admin .barx span{flex:1;text-align:center}
+body.is-admin .tbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+body.is-admin .tbar input,body.is-admin .tbar select{width:auto;min-width:160px;padding:8px 11px}
+body.is-admin .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+body.is-admin .fgrid .full{grid-column:1/-1}
+@media(max-width:600px){body.is-admin .fgrid{grid-template-columns:1fr}}
+body.is-admin .modal .box.wide{width:min(760px,100%)}
+body.is-admin .box h2{margin-top:0}
+body.is-admin .acts{display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap}
+body.is-admin .thumb{width:44px;height:44px;border-radius:10px;background:var(--surface-2);display:grid;place-items:center;font-size:24px;overflow:hidden}
+body.is-admin .thumb img{width:100%;height:100%;object-fit:cover}
+body.is-admin .imgs{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}
+body.is-admin .imgs .im{position:relative}
+body.is-admin .imgs .im img{width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid var(--border)}
+body.is-admin .imgs .im button{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:0;background:#111;color:#fff;cursor:pointer;line-height:1;font-size:12px}
+body.is-admin .vrow{display:grid;grid-template-columns:1fr 1fr 80px 34px;gap:6px;margin-bottom:6px}
+body.is-admin .login{max-width:380px;margin:12vh auto;padding:0 16px}
+body.is-admin .chk{display:flex;gap:8px;align-items:center;font-weight:600;font-size:13.5px;margin:6px 0}
+body.is-admin .chk input{width:auto}
+body.is-admin .kv{display:grid;grid-template-columns:120px 1fr;gap:4px 10px;font-size:14px}
+body.is-admin .kv b{color:var(--muted);font-weight:600}
+body.is-admin .tl{list-style:none;margin:8px 0;padding:0}
+body.is-admin .tl li{padding:6px 0 6px 18px;border-left:2px solid var(--border);font-size:13px;position:relative}
+body.is-admin .tl li::before{content:'';position:absolute;left:-6px;top:11px;width:10px;height:10px;border-radius:50%;background:var(--accent)}
+body.is-admin .mu2{color:var(--muted);font-size:12.5px}
+@media print{body.is-admin *{visibility:hidden}
+body.is-admin .box,body.is-admin .box *{visibility:visible}
+body.is-admin .box{position:absolute;left:0;top:0;width:100%;box-shadow:none}
+body.is-admin .acts,body.is-admin .nop{display:none!important}}
+
+
+</style>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🛍%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+<div id="adm"></div>
+<div id="shell"><div class="loading-page"></div></div>
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Shopping cart" aria-hidden="true"></aside>
+<div class="modal" id="modal" role="dialog" aria-modal="true"></div>
+<div id="toasts" aria-live="polite"></div>
+<noscript><main style="max-width:700px;margin:40px auto;padding:0 16px;font-family:system-ui"><!--PRERENDER--><p>Please enable JavaScript to shop.</p></main></noscript>
+<script>
+(function () {
+'use strict';
+/* ===== core.js ===== */
+// Shared state and helpers (no framework, no inline handlers: the CSP forbids them).
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const e = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const naira = (n) => '₦' + Number(n || 0).toLocaleString('en-NG');
+const store = { cfg: null, user: null };
+
+async function api(path, opts = {}) {
+  const o = { method: opts.method || 'GET', headers: {}, credentials: 'same-origin' };
+  if (opts.body !== undefined) { o.method = opts.method || 'POST'; o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(opts.body); }
+  let r; try { r = await fetch(path, o); } catch { throw new Error('Network problem. Check your connection and try again.'); }
+  let d = {}; try { d = await r.json(); } catch { /* empty */ }
+  if (!r.ok || d.error) { const err = new Error(d.error || 'Something went wrong.'); err.status = r.status; throw err; }
+  return d;
+}
+
+const ls = {
+  get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } },
+};
+
+/* ---- toasts ---- */
+function toast(msg, kind = '') {
+  const box = $('#toasts'); if (!box) return;
+  const t = document.createElement('div'); t.className = 'toast ' + kind; t.textContent = msg; box.appendChild(t);
+  setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, 2800);
+}
+
+/* ---- cart (stored in the browser; the server re-prices everything at checkout) ---- */
+const listeners = new Set();
+const onChange = (fn) => listeners.add(fn);
+const emit = () => listeners.forEach((f) => f());
+const cart = {
+  items: ls.get('sb_cart', []),
+  save() { ls.set('sb_cart', this.items); emit(); },
+  count() { return this.items.reduce((s, i) => s + i.qty, 0); },
+  add(productId, variantId, qty = 1) {
+    const it = this.items.find((i) => i.productId === productId && (i.variantId || null) === (variantId || null));
+    if (it) it.qty = Math.min(99, it.qty + qty); else this.items.push({ productId, variantId: variantId || null, qty });
+    this.save();
+  },
+  set(productId, variantId, qty) {
+    const i = this.items.findIndex((x) => x.productId === productId && (x.variantId || null) === (variantId || null));
+    if (i < 0) return; if (qty <= 0) this.items.splice(i, 1); else this.items[i].qty = Math.min(99, qty); this.save();
+  },
+  clear() { this.items = []; this.save(); },
+  coupon: ls.get('sb_coupon', ''),
+  setCoupon(c) { this.coupon = c || ''; ls.set('sb_coupon', this.coupon); emit(); },
+};
+
+/* ---- wishlist (local, merged into the account when signed in) ---- */
+const wish = {
+  ids: new Set(ls.get('sb_wish', [])),
+  has(id) { return this.ids.has(id); },
+  async toggle(id) {
+    const on = !this.ids.has(id); if (on) this.ids.add(id); else this.ids.delete(id);
+    ls.set('sb_wish', [...this.ids]); emit();
+    if (store.user) { try { await api('/api/wishlist/' + id, { method: on ? 'POST' : 'DELETE', body: on ? {} : undefined }); } catch { /* local copy kept */ } }
+    return on;
+  },
+};
+
+function recent(id) { if (id === undefined) return ls.get('sb_recent', []); const l = ls.get('sb_recent', []).filter((x) => x !== id); l.unshift(id); ls.set('sb_recent', l.slice(0, 12)); }
+
+/* ---- shared UI snippets ---- */
+const stars = (r, n) => {
+  const full = Math.round(r || 0);
+  return `<span class="stars" aria-label="${r || 0} out of 5">${'★'.repeat(full)}<i>${'★'.repeat(5 - full)}</i>${n != null ? `<small>(${n})</small>` : ''}</span>`;
+};
+const tile = (p, cls = '') => p.image
+  ? `<img class="${cls}" src="${e(p.image)}" alt="${e(p.name)}" loading="lazy">`
+  : `<div class="emoji-tile ${cls}" data-h="${p.id % 6}" aria-hidden="true"><span>${e(p.emoji || '📦')}</span></div>`;
+
+function productCard(p) {
+  const hot = p.off ? `<span class="badge off">-${p.off}%</span>` : p.new_arrival ? '<span class="badge new">New</span>' : '';
+  const out = p.stock <= 0 ? '<span class="badge out">Sold out</span>' : '';
+  return `<article class="pcard">
+    <a class="pimg" href="/product/${e(p.slug)}" data-link>${tile(p)}${hot}${out}</a>
+    <button class="wish ${wish.has(p.id) ? 'on' : ''}" data-wish="${p.id}" aria-label="Save to wishlist" aria-pressed="${wish.has(p.id)}">${wish.has(p.id) ? '♥' : '♡'}</button>
+    <div class="pbody">
+      <a class="pname" href="/product/${e(p.slug)}" data-link>${e(p.name)}</a>
+      ${p.rating_n ? stars(p.rating, p.rating_n) : '<span class="stars none">No reviews yet</span>'}
+      <div class="pprice"><b>${naira(p.price)}</b>${p.compare_price > p.price ? `<s>${naira(p.compare_price)}</s>` : ''}</div>
+      <button class="btn sm add" data-quick="${p.id}" ${p.stock <= 0 ? 'disabled' : ''}>${p.stock <= 0 ? 'Sold out' : 'Add to cart'}</button>
+    </div></article>`;
+}
+
+function setStoreTheme(slug) {
+  const r = document.documentElement;
+  if (slug) { r.setAttribute('data-store', slug); ls.set('sb_store', slug); } else r.removeAttribute('data-store');
+}
+const getStoreSlug = () => document.documentElement.getAttribute('data-store') || ls.get('sb_store', 'fashion');
+
+/* ===================== STOREFRONT ===================== */
+function startStore() {
+/* ===== cartui.js ===== */
+let open = false, data = null, cfgRef = null, busy = 0;
+function initCart(cfg) {
+  cfgRef = cfg;
+  const d = $('#drawer');
+  d.addEventListener('click', async (ev) => {
+    const t = ev.target;
+    if (t.closest('#cclose')) return closeCart();
+    const m = t.closest('[data-qty]');
+    if (m) { const [pid, vid, delta] = m.dataset.qty.split(','); const line = data.lines.find((l) => l.productId == pid && (l.variantId || '') == vid); cart.set(Number(pid), vid ? Number(vid) : null, (line ? line.qty : 1) + Number(delta)); return; }
+    const r = t.closest('[data-rm]'); if (r) { const [pid, vid] = r.dataset.rm.split(','); cart.set(Number(pid), vid ? Number(vid) : null, 0); return; }
+    if (t.closest('#capply')) { const code = $('#ccode').value.trim(); if (!code) return; cart.setCoupon(code); return; }
+    if (t.closest('#cclear')) { cart.setCoupon(''); return; }
+    if (t.closest('#cgo')) { closeCart(); go('/checkout'); }
+  });
+  d.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && ev.target.id === 'ccode') { ev.preventDefault(); $('#capply').click(); } });
+  onChange(() => { if (open) refresh(); });
+}
+function closeCart() { open = false; $('#drawer').classList.remove('on'); $('#drawer').setAttribute('aria-hidden', 'true'); $('#scrim').classList.remove('on'); }
+function openCart() { open = true; $('#drawer').classList.add('on'); $('#drawer').setAttribute('aria-hidden', 'false'); $('#scrim').classList.add('on'); refresh(); }
+async function priceNow(extra = {}) {
+  return api('/api/cart/price', { body: { items: cart.items, coupon: cart.coupon, ...extra } });
+}
+async function refresh() {
+  const my = ++busy; const d = $('#drawer');
+  if (!d.innerHTML) d.innerHTML = '<div class="loading-page"></div>';
+  if (!cart.items.length) { data = { lines: [] }; return paint(); }
+  try { const r = await priceNow(); if (my !== busy) return; data = r;
+    // drop items the server says no longer exist, and cap quantities to stock
+    let changed = false;
+    for (const i of r.issues || []) { if (/no longer available/.test(i.message)) { const idx = cart.items.findIndex((x) => x.productId === i.productId); if (idx >= 0) { cart.items.splice(idx, 1); changed = true; } } }
+    for (const l of r.lines) { const it = cart.items.find((x) => x.productId === l.productId && (x.variantId || null) === (l.variantId || null)); if (it && it.qty !== l.qty) { it.qty = l.qty; changed = true; } }
+    if (changed) { cart.save(); return; }
+    if (r.couponError) { toast(r.couponError, 'bad'); cart.setCoupon(''); return; }
+    paint(); } catch (er) { d.innerHTML = `<header><h3>Your cart</h3><button class="ibtn" id="cclose" aria-label="Close">✕</button></header><div class="body"><p class="err">${e(er.message)}</p></div>`; }
+}
+function paint() {
+  const d = $('#drawer'); const r = data; const free = Number(cfgRef.settings.free_shipping_threshold || 0);
+  const rem = free ? Math.max(0, free - (r.subtotal - (r.discount || 0))) : 0;
+  d.innerHTML = `<header><h3>Your cart (${cart.count()})</h3><button class="ibtn" id="cclose" aria-label="Close cart">✕</button></header>
+  <div class="body">${!r.lines.length ? '<div class="empty"><div class="em">🛒</div><p>Your cart is empty.</p></div>' : `
+    ${free ? `<div style="font-size:13px">${rem > 0 ? `Add <b>${naira(rem)}</b> more for free delivery` : '🎉 You qualify for free delivery'}</div><div class="free-bar"><i style="width:${Math.min(100, ((r.subtotal - (r.discount || 0)) / free) * 100)}%"></i></div>` : ''}
+    ${r.lines.map((l) => `<div class="line"><a class="lt" href="/product/${e(l.slug)}" data-link>${tile({ id: l.productId, emoji: l.emoji, image: l.image, name: l.name })}</a>
+      <div><a href="/product/${e(l.slug)}" data-link style="font-weight:600;font-size:14px">${e(l.name)}</a><div class="mu" style="font-size:12px">${e(l.variantLabel)}</div>
+      <div class="qty" style="margin-top:6px"><button data-qty="${l.productId},${l.variantId || ''},-1" aria-label="Decrease">−</button><span>${l.qty}</span><button data-qty="${l.productId},${l.variantId || ''},1" aria-label="Increase" ${l.qty >= l.available ? 'disabled' : ''}>+</button></div></div>
+      <div style="text-align:right"><b>${naira(l.price * l.qty)}</b><br><button class="rm" data-rm="${l.productId},${l.variantId || ''}">Remove</button></div></div>`).join('')}`}</div>
+  ${r.lines.length ? `<footer>
+    <div style="display:flex;gap:8px;margin-bottom:10px"><input id="ccode" placeholder="Promo code" value="${e(cart.coupon)}" aria-label="Promo code"><button class="btn ghost sm" id="capply">Apply</button></div>
+    ${r.coupon ? `<div class="sum" style="color:var(--ok)"><span>Code ${e(r.coupon)} <button class="rm" id="cclear" style="color:var(--muted)">(remove)</button></span><span>−${naira(r.discount)}</span></div>` : ''}
+    <div class="sum"><span>Subtotal</span><span>${naira(r.subtotal)}</span></div><div class="sum mu"><span>Delivery</span><span>Calculated at checkout</span></div>
+    <button class="btn lg block" id="cgo" style="margin-top:10px">Checkout · ${naira(r.subtotal - (r.discount || 0))}</button></footer>` : ''}`;
+}
+
+/* ===== shop.js ===== */
+/* ================= listing ================= */
+async function shopView(main, u, cfg) {
+  const q = Object.fromEntries(u.searchParams.entries());
+  const seg = u.pathname.split('/').filter(Boolean); if (seg[0] === 'd' && seg[1]) q.store = seg[1];
+  const params = new URLSearchParams(); for (const k of ['store', 'category', 'q', 'min', 'max', 'size', 'color', 'rating', 'sort', 'page', 'flag', 'instock']) if (q[k]) params.set(k, q[k]);
+  const d = await api('/api/products?' + params.toString());
+  const stObj = cfg.stores.find((s) => s.slug === q.store); const cats = cfg.categories.filter((c) => !q.store || c.store === q.store);
+  const url = (over) => { const p = new URLSearchParams(params); for (const [k, v] of Object.entries(over)) { if (v === '' || v == null) p.delete(k); else p.set(k, v); } if (!('page' in over)) p.delete('page'); return '/shop?' + p.toString(); };
+  const title = q.q ? `Results for “${q.q}”` : q.flag === 'deals' ? 'Deals' : q.flag === 'new' ? 'New arrivals' : q.flag === 'best' ? 'Best sellers' : (cats.find((c) => c.slug === q.category) || {}).name || (stObj ? stObj.name : 'All products');
+  main.innerHTML = `<div class="wrap">
+   <nav class="crumbs" aria-label="Breadcrumb"><a href="/" data-link>Home</a> › ${stObj ? `<a href="/d/${e(stObj.slug)}" data-link>${e(stObj.name)}</a> › ` : ''}${e(title)}</nav>
+   <div class="shop-top"><div><h1 style="font-size:28px;margin:0">${e(title)}</h1><span class="mu">${d.total} product${d.total === 1 ? '' : 's'}</span></div>
+     <div style="display:flex;gap:8px;align-items:center"><button class="btn ghost sm" id="ftoggle" style="display:none">Filters</button>
+     <select id="sort" aria-label="Sort by">${[['', 'Featured'], ['popular', 'Most popular'], ['newest', 'Newest'], ['price_asc', 'Price: low to high'], ['price_desc', 'Price: high to low'], ['rating', 'Top rated'], ['name', 'Name A–Z']].map(([v, l]) => `<option value="${v}" ${q.sort === v || (!q.sort && !v) ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
+   <div class="shop"><aside class="filters" id="filters">
+     <h4>Department</h4><div class="chips"><a class="chip ${!q.store ? 'on' : ''}" href="${url({ store: '', category: '' })}" data-link>All</a>${cfg.stores.map((s) => `<a class="chip ${q.store === s.slug ? 'on' : ''}" href="${url({ store: s.slug, category: '' })}" data-link>${e(s.tab_label)}</a>`).join('')}</div>
+     ${cats.length ? `<h4>Category</h4><div class="chips">${cats.map((c) => `<a class="chip ${q.category === c.slug ? 'on' : ''}" href="${url({ category: q.category === c.slug ? '' : c.slug })}" data-link>${e(c.name)}</a>`).join('')}</div>` : ''}
+     <h4>Price (₦)</h4><div class="row c2"><input id="pmin" type="number" min="0" placeholder="Min" value="${e(q.min || '')}" aria-label="Minimum price"><input id="pmax" type="number" min="0" placeholder="Max" value="${e(q.max || '')}" aria-label="Maximum price"></div><button class="btn sm ghost" id="papply" style="margin-top:8px">Apply</button>
+     ${d.facets.sizes.length ? `<h4>Size</h4><div class="chips">${d.facets.sizes.map((s) => `<a class="chip ${q.size === s ? 'on' : ''}" href="${url({ size: q.size === s ? '' : s })}" data-link>${e(s)}</a>`).join('')}</div>` : ''}
+     ${d.facets.colors.length ? `<h4>Colour</h4><div class="chips">${d.facets.colors.map((s) => `<a class="chip ${q.color === s ? 'on' : ''}" href="${url({ color: q.color === s ? '' : s })}" data-link>${e(s)}</a>`).join('')}</div>` : ''}
+     <h4>Rating</h4><div class="chips">${[4, 3].map((r) => `<a class="chip ${q.rating == r ? 'on' : ''}" href="${url({ rating: q.rating == r ? '' : r })}" data-link>${r}★ &amp; up</a>`).join('')}</div>
+     <h4>Availability</h4><label class="chk"><input type="checkbox" id="instock" ${q.instock ? 'checked' : ''}> In stock only</label>
+     <p style="margin-top:14px"><a href="/shop${q.store ? '?store=' + e(q.store) : ''}" data-link class="mu" style="font-size:13px">Clear all filters</a></p></aside>
+   <div>${d.products.length ? `<div class="grid">${d.products.map(productCard).join('')}</div>` : `<div class="empty"><div class="em">🔎</div><h3>No products found</h3><p>Try removing a filter or searching for something else.</p></div>`}
+   ${d.pages > 1 ? `<nav class="pager" aria-label="Pages">${Array.from({ length: d.pages }, (_, i) => `<a class="btn sm ${d.page === i + 1 ? '' : 'ghost'}" href="${url({ page: i + 1 })}" data-link>${i + 1}</a>`).join('')}</nav>` : ''}</div></div></div>`;
+  $('#sort').addEventListener('change', (ev) => go(url({ sort: ev.target.value })));
+  $('#papply').addEventListener('click', () => go(url({ min: $('#pmin').value, max: $('#pmax').value })));
+  $('#instock').addEventListener('change', (ev) => go(url({ instock: ev.target.checked ? '1' : '' })));
+  const ft = $('#ftoggle'); if (innerWidth <= 860) { ft.style.display = ''; ft.addEventListener('click', () => $('#filters').classList.toggle('open')); }
+  return title;
+}
+
+/* ================= product ================= */
+async function productView(main, slug, cfg) {
+  const d = await api('/api/products/' + encodeURIComponent(slug)); const p = d.product;
+  recent(p.id);
+  const hasVar = p.variants.length > 0;
+  const sizes = [...new Set(p.variants.map((v) => v.size).filter(Boolean))], colors = [...new Set(p.variants.map((v) => v.color).filter(Boolean))];
+  const sel = { size: sizes.length === 1 ? sizes[0] : '', color: colors.length === 1 ? colors[0] : '', qty: 1 };
+  const st = cfg.stores.find((s) => s.slug === p.store);
+  const imgs = p.images.length ? p.images : [];
+  const find = () => p.variants.find((v) => (!sizes.length || v.size === sel.size) && (!colors.length || v.color === sel.color));
+  const stockOf = () => (hasVar ? (find() ? find().stock : null) : p.stock);
+  const rec = recent().filter((i) => i !== p.id);
+  let recProducts = []; if (rec.length) { try { recProducts = (await api('/api/products/by-ids', { body: { ids: rec.slice(0, 8) } })).products; } catch { /* optional */ } }
+  main.innerHTML = `<div class="wrap">
+   <nav class="crumbs"><a href="/" data-link>Home</a> › <a href="/d/${e(p.store)}" data-link>${e(st ? st.name : p.store)}</a> › ${p.category ? `<a href="/shop?store=${e(p.store)}&category=${e(p.category_slug)}" data-link>${e(p.category)}</a> › ` : ''}${e(p.name)}</nav>
+   <div class="pd"><div class="gal"><div class="main" id="gmain">${imgs.length ? `<img src="${e(imgs[0])}" alt="${e(p.name)}">` : tile(p)}</div>${imgs.length > 1 ? `<div class="thumbs">${imgs.map((s, i) => `<button class="${i ? '' : 'on'}" data-img="${e(s)}" aria-label="Image ${i + 1}"><img src="${e(s)}" alt=""></button>`).join('')}</div>` : ''}</div>
+   <div><div class="mu" style="font-size:13px;font-weight:700">${e(p.brand)}</div><h1>${e(p.name)}</h1>
+     <div>${p.rating_n ? stars(p.rating, p.rating_n + ' reviews') : '<span class="mu">No reviews yet</span>'}</div>
+     <div class="price">${naira(p.price)}${p.compare_price > p.price ? `<s>${naira(p.compare_price)}</s><span class="save">Save ${p.off}%</span>` : ''}</div>
+     ${sizes.length ? `<div class="opt-label">${e(p.size_label || 'Size')}</div><div class="chips" id="osize">${sizes.map((s) => `<button class="chip ${sel.size === s ? 'on' : ''}" data-size="${e(s)}">${e(s)}</button>`).join('')}</div>` : ''}
+     ${colors.length ? `<div class="opt-label">Colour</div><div class="chips" id="ocolor">${colors.map((s) => `<button class="chip ${sel.color === s ? 'on' : ''}" data-color="${e(s)}">${e(s)}</button>`).join('')}</div>` : ''}
+     <p class="stock" id="stock" style="margin:14px 0 0"></p>
+     <div class="buy"><div class="qty"><button id="qm" aria-label="Decrease">−</button><span id="qv">1</span><button id="qp" aria-label="Increase">+</button></div>
+       <button class="btn lg" id="addbtn">Add to cart</button><button class="btn ghost lg" data-wish="${p.id}" id="wbtn">${wish.has(p.id) ? '♥ Saved' : '♡ Save'}</button></div>
+     <div class="note">🚚 Delivery fee depends on your state, and is free over ${naira(cfg.settings.free_shipping_threshold)}. 💳 Pay by card, transfer or pay on delivery.</div>
+     <p class="mu" style="font-size:12px;margin-top:10px">SKU ${e(p.sku)}</p></div></div>
+   <div class="tabs2" role="tablist"><button class="on" data-tab="desc">Description</button><button data-tab="rev">Reviews (${p.rating_n})</button></div>
+   <div id="tdesc" class="prose"><p style="color:var(--text)">${e(p.description).replace(/\n/g, '<br>')}</p></div>
+   <div id="trev" class="hide">${reviewsHtml(p)}</div>
+   ${d.related.length ? `<section class="blk"><div class="sec-head"><h2>You may also like</h2></div><div class="grid">${d.related.map(productCard).join('')}</div></section>` : ''}
+   ${recProducts.length ? `<section class="blk"><div class="sec-head"><h2>Recently viewed</h2></div><div class="grid">${recProducts.map(productCard).join('')}</div></section>` : ''}</div>`;
+  const upd = () => {
+    const s = stockOf(), el = $('#stock'); const need = hasVar && (!find());
+    el.className = 'stock ' + (need ? '' : s <= 0 ? 'out' : s <= 5 ? 'low' : 'in');
+    el.textContent = need ? 'Select your options' : s <= 0 ? 'Out of stock' : s <= 5 ? `Only ${s} left!` : 'In stock';
+    $('#addbtn').disabled = need || s <= 0; $('#qv').textContent = sel.qty;
+    if (!need && sel.qty > s) { sel.qty = Math.max(1, s); $('#qv').textContent = sel.qty; }
+  };
+  main.addEventListener('click', (ev) => {
+    const t = ev.target;
+    const sz = t.closest('[data-size]'); if (sz) { sel.size = sel.size === sz.dataset.size ? '' : sz.dataset.size; $$('#osize .chip').forEach((c) => c.classList.toggle('on', c.dataset.size === sel.size)); upd(); }
+    const co = t.closest('[data-color]'); if (co) { sel.color = sel.color === co.dataset.color ? '' : co.dataset.color; $$('#ocolor .chip').forEach((c) => c.classList.toggle('on', c.dataset.color === sel.color)); upd(); }
+    if (t.closest('#qm')) { sel.qty = Math.max(1, sel.qty - 1); upd(); }
+    if (t.closest('#qp')) { const s = stockOf() ?? 99; sel.qty = Math.min(Math.max(1, s), sel.qty + 1, 99); upd(); }
+    const th = t.closest('[data-img]'); if (th) { $('#gmain').innerHTML = `<img src="${e(th.dataset.img)}" alt="${e(p.name)}">`; $$('.thumbs button').forEach((b) => b.classList.toggle('on', b === th)); }
+    const tab = t.closest('[data-tab]'); if (tab) { $$('.tabs2 button').forEach((b) => b.classList.toggle('on', b === tab)); $('#tdesc').classList.toggle('hide', tab.dataset.tab !== 'desc'); $('#trev').classList.toggle('hide', tab.dataset.tab !== 'rev'); }
+    if (t.closest('#addbtn')) { const v = find(); cart.add(p.id, v ? v.id : null, sel.qty); toast('Added to cart'); openCart(); try { if (window.gtag) window.gtag('event', 'add_to_cart', { value: p.price * sel.qty, currency: 'NGN' }); if (window.fbq) window.fbq('track', 'AddToCart'); } catch { /* blocked */ } }
+    const star = t.closest('[data-star]'); if (star) { rating = Number(star.dataset.star); $$('.starpick button').forEach((b) => b.classList.toggle('on', Number(b.dataset.star) <= rating)); }
+  });
+  let rating = 0;
+  main.addEventListener('submit', async (ev) => {
+    if (ev.target.id !== 'rform') return; ev.preventDefault();
+    if (!rating) return toast('Please choose a star rating', 'bad');
+    try { await api('/api/products/' + p.id + '/reviews', { body: { rating, title: ev.target.title.value, body: ev.target.body.value, name: ev.target.name ? ev.target.name.value : '' } }); toast('Thank you for your review!'); go('/product/' + p.slug); } catch (er) { toast(er.message, 'bad'); }
+  });
+  const gm = $('#gmain'); if (imgs.length) { gm.addEventListener('mousemove', (ev) => { const r = gm.getBoundingClientRect(); gm.style.setProperty('--zx', ((ev.clientX - r.left) / r.width * 100) + '%'); gm.style.setProperty('--zy', ((ev.clientY - r.top) / r.height * 100) + '%'); }); gm.addEventListener('mouseenter', () => gm.classList.add('zoom')); gm.addEventListener('mouseleave', () => gm.classList.remove('zoom')); gm.addEventListener('click', () => gm.classList.toggle('zoom')); }
+  upd();
+  ldjson(p, cfg);
+  return p.name;
+}
+function reviewsHtml(p) {
+  const total = p.reviews.length || 1;
+  return `<div class="row c2" style="align-items:start"><div>
+    ${p.reviews.length ? `<div style="font-size:34px;font-weight:800">${p.rating} <span class="stars" style="font-size:20px">★</span></div>${p.dist.map((x) => `<div class="dist"><span>${x.stars} ★</span><div class="bar"><i style="width:${x.n / total * 100}%"></i></div><span>${x.n}</span></div>`).join('')}` : '<p class="mu">No reviews yet. Be the first!</p>'}
+    ${p.reviews.map((r) => `<div class="rev"><b>${e(r.name)}</b>${stars(r.rating)}<div style="font-weight:600">${e(r.title)}</div><div class="mu">${e(r.body)}</div></div>`).join('')}</div>
+    <form id="rform" class="card"><h3>Write a review</h3><div class="starpick" role="radiogroup" aria-label="Rating">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-star="${n}" aria-label="${n} stars">★</button>`).join('')}</div>
+    ${store.user ? '' : '<label class="f">Your name<input name="name" required maxlength="60"></label>'}<label class="f">Title<input name="title" maxlength="80"></label><label class="f">Your review<textarea name="body" rows="3" maxlength="1000" required></textarea></label><button class="btn">Submit review</button></form></div>`;
+}
+function ldjson(p, cfg) {
+  const old = document.getElementById('ldp'); if (old) old.remove();
+  const s = document.createElement('script'); s.type = 'application/ld+json'; s.id = 'ldp';
+  s.textContent = JSON.stringify({ '@context': 'https://schema.org', '@type': 'Product', name: p.name, description: p.description, sku: p.sku, brand: { '@type': 'Brand', name: p.brand }, offers: { '@type': 'Offer', priceCurrency: 'NGN', price: p.price, availability: p.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: location.href }, ...(p.rating_n ? { aggregateRating: { '@type': 'AggregateRating', ratingValue: p.rating, reviewCount: p.rating_n } } : {}) });
+  document.head.appendChild(s);
+}
+
+/* ================= static pages ================= */
+function staticPage(main, name, cfg) {
+  const s = cfg.settings;
+  const P = {
+    about: ['About us', `<p>${e(s.store_name)} brings fashion, groceries, beauty, electronics, health and kitchen essentials together in one friendly Nigerian online store.</p><p>We work with trusted suppliers, check every order before it leaves us, and deliver across all 36 states and the FCT.</p><h2>Why shop with us</h2><ul><li>Genuine products with honest prices</li><li>Pay by card, bank transfer, USSD, or pay on delivery</li><li>Fast support on WhatsApp</li></ul>`],
+    faq: ['Frequently asked questions', `<h2>How do I pay?</h2><p>Pay securely online with Paystack (cards, bank transfer, USSD) or choose pay on delivery where available.</p><h2>How long does delivery take?</h2><p>Lagos: 1–2 days. Other states: 2–8 days depending on location. You will see the estimate at checkout.</p><h2>Can I return an item?</h2><p>Yes, within ${e(s.return_days)} days if it is unused and in its original packaging. See Shipping &amp; Returns.</p><h2>How do I track my order?</h2><p>Use <a href="/track" data-link>Track an order</a> with your order number and email.</p>`],
+    shipping: ['Shipping & Returns', `<h2>Delivery</h2><p>We deliver nationwide. Fees depend on your state and are shown at checkout. Orders over ${naira(s.free_shipping_threshold)} ship free (standard delivery). Express and store pickup options are available in most areas.</p><h2>Returns</h2><p>You can return unused items within ${e(s.return_days)} days of delivery. Contact us on WhatsApp or by email with your order number. Refunds go to your original payment method or bank account within 5–7 working days after we receive the item.</p><h2>Items we cannot take back</h2><p>Opened personal-care and healthcare products, perishable foods, and custom orders, unless faulty.</p>`],
+    privacy: ['Privacy policy', `<p>We collect only what is needed to process your order and improve our service: your name, contact details, delivery address and order history. Payments are handled by Paystack; we never see or store your card details.</p><p>We do not sell your data. You can ask us to delete your account at any time by emailing ${e(s.contact_email)}.</p><h2>Cookies</h2><p>We use cookies to keep you signed in, remember your cart and understand site usage.</p>`],
+    terms: ['Terms of service', `<p>By placing an order you agree to provide accurate information and to pay the total shown at checkout. Prices and stock can change without notice; if an item becomes unavailable we will contact you and refund any payment. Delivery estimates are not guarantees. Our liability is limited to the value of the order.</p>`],
+    contact: ['Contact us', `<p>We reply fast. Reach us on WhatsApp, phone or email, or send a message below.</p><p>📞 ${e(s.contact_phone)}<br>✉️ ${e(s.contact_email)}<br>📍 ${e(s.address)}</p><form id="cform" class="card" style="max-width:520px"><div class="row c2"><label class="f">Name<input name="name" required maxlength="80"></label><label class="f">Email<input name="email" type="email" required></label></div><label class="f">Subject<input name="subject" maxlength="120"></label><label class="f">Message<textarea name="body" rows="4" required maxlength="2000"></textarea></label><input name="website" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px" aria-hidden="true"><button class="btn">Send message</button></form>`],
+  };
+  const pg = P[name]; if (!pg) { main.innerHTML = '<div class="wrap empty"><div class="em">🧭</div><h2>Page not found</h2></div>'; return ''; }
+  main.innerHTML = `<div class="wrap page"><div class="prose"><h1>${e(pg[0])}</h1>${pg[1]}</div></div>`;
+  const f = $('#cform'); if (f) f.addEventListener('submit', async (ev) => { ev.preventDefault(); const b = Object.fromEntries(new FormData(f)); try { await api('/api/contact', { body: b }); f.reset(); toast('Message sent. We will reply soon.'); } catch (er) { toast(er.message, 'bad'); } });
+  return pg[0];
+}
+
+/* ===== home.js ===== */
+// Each department has its own homepage design (from the six reference designs).
+const ART = {
+  fashion: ['👜', '👗', '👟', '🕶'], supermarket: ['🧺', '🥦', '🧃', '🍞'], beauty: ['👩🏾', '💄', '🧴', '🌸'],
+  electronics: ['🎧', '📱', '⌚', '🔋'], pharmacy: ['🏥', '💊', '🩺', '🌡'], food: ['🍲', '🍅', '🧂', '🥖'],
+};
+const TRUST = {
+  fashion: [['🚚', 'Fast Delivery', 'Across Nigeria'], ['🔒', 'Secure Payments', 'Multiple options'], ['↩️', 'Hassle-Free Returns', 'Shop with confidence']],
+  supermarket: [['🔒', 'Secure Payments', ''], ['↩️', 'Easy Returns', ''], ['🎧', 'Customer Support', '']],
+  beauty: [['🚚', 'Fast Delivery', 'Across Nigeria'], ['🔒', 'Secure Payments', 'Cards, transfer, USSD'], ['💬', 'WhatsApp support', 'We reply fast']],
+  electronics: [['🚚', 'Fast Delivery', 'Nationwide'], ['🔒', 'Secure Payments', 'Multiple Options'], ['🕑', '24/7 Support', "We're here to help"]],
+  pharmacy: [['🚚', 'Free Shipping', 'On orders over ₦50,000'], ['🔒', 'Secure Checkout', '100% safe & secure'], ['↩️', 'Easy Returns', 'Within 7 days']],
+  food: [['🚚', 'Fast Delivery', 'Across Nigeria'], ['🔒', 'Secure Payments', 'Multiple Options'], ['😊', 'Friendly Support', "We're here to help"]],
+};
+const trust = (slug) => `<div class="trust">${TRUST[slug].map(([i, t, s]) => `<div class="t"><span>${i}</span><div><b>${t}</b>${s ? `<small>${s}</small>` : ''}</div></div>`).join('')}</div>`;
+const grid = (list) => { const n = list.length >= 5 ? Math.min(10, Math.floor(list.length / 5) * 5) : list.length; return `<div class="grid">${list.slice(0, n).map(productCard).join('')}</div>`; };
+const sec = (title, link, body) => `<section class="blk"><div class="wrap"><div class="sec-head"><h2>${title}</h2>${link ? `<a href="${link}" data-link>View all →</a>` : ''}</div>${body}</div></section>`;
+const cats = (d, cls) => `<div class="cats ${cls || ''}">${d.categories.map((c) => `<a class="cat" href="/shop?store=${e(d.store.slug)}&category=${e(c.slug)}" data-link><span class="ci">${e(c.icon)}</span>${e(c.name)}</a>`).join('')}</div>`;
+const art = (slug) => { const [a, b, c, d] = ART[slug]; return `<div class="hero-art" aria-hidden="true"><span class="big">${a}</span><span class="sm1">${b}</span><span class="sm2">${c}</span><span class="sm3">${d}</span></div>`; };
+const shopLink = (s) => `/shop?store=${e(s.slug)}`;
+const promos = (d) => `<div class="promo2"><div class="promo"><div><h3>${e(d.store.promo1_title)}</h3><p>${e(d.store.promo1_sub)}</p><a class="btn sm" href="${shopLink(d.store)}&flag=deals" data-link>Shop now →</a></div><span class="pe">${e(d.store.icon)}</span></div>
+ <div class="promo"><div><h3>${e(d.store.promo2_title)}</h3><p>${e(d.store.promo2_sub)}</p><a class="btn sm" href="${shopLink(d.store)}&flag=new" data-link>Shop now →</a></div><span class="pe">${e(ART[d.store.slug][2])}</span></div></div>`;
+const banner = (d) => `<div class="banner"><div><h3>${e(d.store.banner_title)}</h3><p>${e(d.store.banner_sub)}</p></div><a class="btn" href="${shopLink(d.store)}" data-link>Shop now →</a></div>`;
+const none = '<div class="empty"><div class="em">🛒</div><p>Products are coming soon.</p></div>';
+
+const hero = {
+  fashion: (d) => `<div class="hero"><div class="hero-in"><div><h1>${e(d.store.hero_title).replace('In One Place', '<br>In One Place')}</h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('fashion')}</div></div>`,
+  supermarket: (d) => `<div class="hero"><div class="hero-in"><div><h1>More Choices,<br><em>Better Living</em></h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('supermarket')}</div></div>`,
+  beauty: (d) => `<div class="hero"><div class="hero-in"><div><div class="eyebrow">Shop-Beta · Beauty</div><h1>${e(d.store.hero_title)}</h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('beauty')}</div></div>`,
+  electronics: (d) => `<div class="hero"><div class="hero-in"><div><h1>Premium Products<br><em>Great Prices</em></h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('electronics')}</div></div>`,
+  pharmacy: (d) => `<div class="hero"><div class="hero-in"><div><h1>${e(d.store.hero_title)}</h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('pharmacy')}</div></div>`,
+  food: (d) => `<div class="hero"><div class="hero-in"><div><h1>${e(d.store.hero_title).replace(', ', ',<br>')}</h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('food')}</div></div><div class="wavy"></div>`,
+};
+const body = {
+  fashion: (d) => `${sec('Shop by category', '', cats(d))}${sec('Best Sellers', shopLink(d.store) + '&flag=best', d.bestsellers.length ? grid(d.bestsellers) : none)}${sec('New In', shopLink(d.store) + '&flag=new', d.newArrivals.length ? grid(d.newArrivals.slice(0, 4)) : none)}<section class="blk"><div class="wrap">${trust('fashion')}</div></section>`,
+  supermarket: (d) => `${sec('Shop by category', '', cats(d))}${sec('Featured Deals', shopLink(d.store) + '&flag=deals', d.deals.length ? grid(d.deals) : grid(d.featured))}<section class="blk"><div class="wrap"><div class="deal-strip"><div><h3>${e(d.store.banner_title)}</h3><p class="mu" style="margin:0">${e(d.store.banner_sub)}</p></div><span class="big">🚚</span><a class="btn" href="/page/shipping" data-link>Learn More →</a></div></div></section>${sec('Fresh & popular', shopLink(d.store), grid(d.bestsellers.slice(0, 4)))}<section class="blk"><div class="wrap">${trust('supermarket')}</div></section>`,
+  beauty: (d) => `${sec('Shop by category', '', cats(d))}${sec('Trending Now', shopLink(d.store) + '&flag=best', d.bestsellers.length ? grid(d.bestsellers) : none)}<section class="blk"><div class="wrap">${banner(d)}</div></section>${sec('Just arrived', shopLink(d.store) + '&flag=new', grid(d.newArrivals.slice(0, 4)))}<section class="blk"><div class="wrap">${trust('beauty')}</div></section>`,
+  electronics: (d) => `${sec('Shop by category', '', cats(d))}${sec('Top Picks For You', shopLink(d.store), d.featured.length ? grid(d.featured) : none)}<section class="blk"><div class="wrap">${promos(d)}</div></section>${sec('Deals', shopLink(d.store) + '&flag=deals', grid(d.deals.slice(0, 4)))}<section class="blk"><div class="wrap">${trust('electronics')}</div></section>`,
+  pharmacy: (d) => `${sec('Shop by Category', shopLink(d.store), cats(d, 'square'))}<section class="blk"><div class="wrap">${promos(d)}</div></section>${sec('Featured products', shopLink(d.store), grid(d.featured))}<section class="blk"><div class="wrap">${trust('pharmacy')}</div></section>`,
+  food: (d) => `${sec('Shop by category', '', cats(d))}${sec('Popular Products', shopLink(d.store), grid(d.bestsellers.length ? d.bestsellers : d.featured))}<section class="blk"><div class="wrap">${promos(d)}</div></section><section class="blk"><div class="wrap">${trust('food')}</div></section>`,
+};
+
+async function home(main, slug) {
+  const d = await api('/api/home/' + encodeURIComponent(slug));
+  const k = hero[slug] ? slug : 'fashion';
+  main.innerHTML = hero[k](d) + body[k](d);
+  return d.store.name;
+}
+
+/* ===== account.js ===== */
+const STATUS = { pending: 'Order placed', paid: 'Paid', processing: 'Being prepared', shipped: 'Shipped', delivered: 'Delivered', cancelled: 'Cancelled' };
+const FLOW = ['pending', 'paid', 'processing', 'shipped', 'delivered'];
+const fmt = (t) => new Date(t * 1000).toLocaleString('en-NG', { dateStyle: 'medium', timeStyle: 'short' });
+const field = (id, label, o = {}) => `<label class="f">${label}<input id="${id}" ${o.type ? `type="${o.type}"` : ''} ${o.req ? 'required' : ''} ${o.auto ? `autocomplete="${o.auto}"` : ''} ${o.ph ? `placeholder="${e(o.ph)}"` : ''} value="${e(o.val || '')}" ${o.max ? `maxlength="${o.max}"` : ''}></label>`;
+
+async function view(main, seg, u, cfg) {
+  const name = seg[0];
+  if (name === 'checkout') return checkout(main, cfg);
+  if (name === 'order') return orderPage(main, seg[1], u, cfg);
+  if (name === 'login' || name === 'register') return authPage(main, name, u, cfg);
+  if (name === 'forgot') return forgotPage(main, u);
+  if (name === 'account') return account(main, u, cfg);
+  if (name === 'wishlist') return wishlist(main);
+  if (name === 'track') return track(main);
+  return '';
+}
+
+/* ---------------- checkout ---------------- */
+async function checkout(main, cfg) {
+  if (!cart.items.length) { main.innerHTML = '<div class="wrap empty"><div class="em">🛒</div><h2>Your cart is empty</h2><p><a class="btn" href="/" data-link>Continue shopping</a></p></div>'; return 'Checkout'; }
+  const user = store.user; let addrs = []; if (user) { try { addrs = (await api('/api/addresses')).addresses; } catch { /* optional */ } }
+  const saved = ls.get('sb_checkout', {}); const A = addrs[0] || {};
+  const st = { state: A.state || saved.state || '', delivery: 'standard', payment: '', data: null };
+  main.innerHTML = `<div class="wrap page"><h1>Checkout</h1>${user ? '' : '<p class="note">Checking out as a guest. <a href="/login?next=/checkout" data-link style="color:var(--accent);font-weight:700">Sign in</a> to use saved addresses and track orders.</p>'}
+   <form id="cof" class="row" style="grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:24px;align-items:start" novalidate>
+    <div style="display:grid;gap:18px">
+     <div class="card"><h3>1. Contact</h3><div class="row c2">${field('cn', 'Full name', { req: 1, auto: 'name', val: user ? user.name : saved.name, max: 80 })}${field('cp', 'Phone', { req: 1, type: 'tel', auto: 'tel', ph: '0801 234 5678', val: (user && user.phone) || saved.phone })}</div>${field('ce', 'Email (for your receipt)', { req: 1, type: 'email', auto: 'email', val: user ? user.email : saved.email })}</div>
+     <div class="card"><h3>2. Delivery address</h3>${addrs.length ? `<label class="f">Saved addresses<select id="saddr"><option value="">Enter a new address</option>${addrs.map((a) => `<option value="${a.id}">${e(a.label)} · ${e(a.address)}, ${e(a.state)}</option>`).join('')}</select></label>` : ''}
+       <label class="f">State<select id="cs" required><option value="">Choose your state…</option>${cfg.zones.map((z) => `<option ${z.state === st.state ? 'selected' : ''}>${e(z.state)}</option>`).join('')}</select></label>
+       <div id="addrfields"><div class="row c2">${field('cc', 'City / area', { val: A.city || saved.city, max: 60 })}${field('ca', 'Street address', { val: A.address || saved.address, max: 200 })}</div></div>
+       <label class="f">Delivery notes (optional)<input id="cnotes" maxlength="300" placeholder="Landmark, gate code, preferred time…"></label></div>
+     <div class="card"><h3>3. Delivery option</h3><div id="dopts" class="mu">Choose your state to see delivery options.</div></div>
+     <div class="card"><h3>4. Payment</h3><div id="popts"></div></div></div>
+    <aside class="card" style="position:sticky;top:130px"><h3>Order summary</h3><div id="osum" class="loading-page" style="min-height:120px"></div>
+     <div style="display:flex;gap:8px;margin:12px 0"><input id="ocode" placeholder="Promo code" value="${e(cart.coupon)}"><button type="button" class="btn ghost sm" id="oapply">Apply</button></div>
+     <p class="err hide" id="cerr" role="alert"></p><button class="btn lg block" id="place" disabled>Place order</button><p class="mu" style="font-size:12px;margin-top:8px">🔒 Secure checkout. Prices are confirmed by our server.</p></aside></form></div>`;
+  const pay = cfg.payments;
+  const methods = [];
+  if (pay.paystack) methods.push(['paystack', '💳 Pay online', 'Card, bank transfer or USSD via Paystack' + (pay.demo ? ' (demo mode: no real money)' : '')]);
+  if (pay.pod) methods.push(['pod', '💵 Pay on delivery', 'Pay cash or transfer to our rider when your order arrives']);
+  st.payment = methods.length ? methods[0][0] : '';
+  $('#popts').innerHTML = methods.length ? methods.map(([v, t, d], i) => `<label class="chk" style="padding:10px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px"><input type="radio" name="pm" value="${v}" ${i ? '' : 'checked'}><span><b>${t}</b><br><small class="mu">${d}</small></span></label>`).join('') : '<p class="err">No payment method is available right now.</p>';
+  const err = (m) => { const el = $('#cerr'); el.textContent = m || ''; el.classList.toggle('hide', !m); };
+  async function reprice() {
+    try { const r = await priceNow({ state: st.state, delivery: st.delivery }); st.data = r;
+      if (r.couponError) { err(r.couponError); cart.setCoupon(''); } 
+      if (r.issues.length) err(r.issues[0].message);
+      if (!r.lines.length) { go('/checkout', true); return; }
+      const d = r.delivery;
+      $('#osum').className = ''; $('#osum').innerHTML = r.lines.map((l) => `<div class="line" style="grid-template-columns:48px 1fr auto"><div class="lt" style="width:48px;height:48px">${tile({ id: l.productId, emoji: l.emoji, image: l.image, name: l.name })}</div><div style="font-size:13px"><b>${e(l.name)}</b><br><span class="mu">${e(l.variantLabel)} × ${l.qty}</span></div><b style="font-size:13px">${naira(l.price * l.qty)}</b></div>`).join('')
+        + `<div class="sum"><span>Subtotal</span><span>${naira(r.subtotal)}</span></div>${r.discount ? `<div class="sum" style="color:var(--ok)"><span>Discount (${e(r.coupon)})</span><span>−${naira(r.discount)}</span></div>` : ''}<div class="sum"><span>Delivery</span><span>${d.options ? (d.fee ? naira(d.fee) : 'Free') : '—'}</span></div><div class="sum total"><span>Total</span><span>${naira(r.total)}</span></div>`;
+      if (d.options) $('#dopts').innerHTML = Object.entries(d.options).map(([k, o]) => `<label class="chk" style="padding:10px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px"><input type="radio" name="dm" value="${k}" ${d.selected === k ? 'checked' : ''}><span style="flex:1"><b>${e(o.label)}</b> · ${o.fee ? naira(o.fee) : 'Free'}<br><small class="mu">${e(o.eta)}</small></span></label>`).join('') + (d.free ? '<p class="note">🎉 You qualify for free standard delivery.</p>' : d.threshold ? `<p class="mu" style="font-size:13px">Spend ${naira(d.threshold)} to get free standard delivery.</p>` : '');
+      st.delivery = d.selected || st.delivery;
+      const zone = cfg.zones.find((z) => z.state === st.state);
+      $$('input[name=pm]').forEach((i) => { if (i.value === 'pod') { const ok = zone && zone.pod && st.delivery !== 'pickup'; i.disabled = !ok; if (!ok && i.checked) { const o = $$('input[name=pm]').find((x) => x.value !== 'pod' && !x.disabled); if (o) { o.checked = true; st.payment = o.value; } } } });
+      $('#addrfields').classList.toggle('hide', st.delivery === 'pickup');
+      $('#place').disabled = !st.state || !methods.length;
+    } catch (er) { err(er.message); }
+  }
+  $('#cof').addEventListener('change', (ev) => {
+    const t = ev.target;
+    if (t.id === 'cs') { st.state = t.value; reprice(); }
+    if (t.name === 'dm') { st.delivery = t.value; reprice(); }
+    if (t.name === 'pm') st.payment = t.value;
+    if (t.id === 'saddr') { const a = addrs.find((x) => x.id == t.value); if (a) { $('#cs').value = a.state; $('#cc').value = a.city || ''; $('#ca').value = a.address; st.state = a.state; reprice(); } }
+    if (t.id === 'ce' && /^[^@\s]+@[^@\s]+\.\S+$/.test(t.value)) api('/api/cart/abandon', { body: { email: t.value, items: cart.items } }).catch(() => {});
+  });
+  $('#oapply').addEventListener('click', () => { cart.setCoupon($('#ocode').value.trim()); err(''); reprice(); });
+  $('#cof').addEventListener('submit', async (ev) => {
+    ev.preventDefault(); err('');
+    const g = (i) => $('#' + i).value.trim();
+    if (!g('cn') || !g('ce') || !g('cp')) return err('Please fill in your name, email and phone number.');
+    if (!st.state) return err('Please choose your state.');
+    if (st.delivery !== 'pickup' && !g('ca')) return err('Please enter your street address.');
+    const btn = $('#place'); btn.disabled = true; btn.textContent = 'Placing order…';
+    ls.set('sb_checkout', { name: g('cn'), email: g('ce'), phone: g('cp'), state: st.state, city: g('cc'), address: g('ca') });
+    try {
+      const r = await api('/api/checkout', { body: { items: cart.items, coupon: cart.coupon, contact: { name: g('cn'), email: g('ce'), phone: g('cp') }, address: { state: st.state, city: g('cc'), address: g('ca') }, delivery: st.delivery, payment: st.payment, notes: g('cnotes') } });
+      try { sessionStorage.setItem('sb_last', JSON.stringify({ ref: r.ref, email: g('ce') })); } catch { /* private mode */ }
+      try { if (window.gtag) window.gtag('event', 'begin_checkout', { value: st.data.total, currency: 'NGN' }); if (window.fbq) window.fbq('track', 'InitiateCheckout'); } catch { /* blocked */ }
+      if (r.next === 'paystack') { location.href = r.url; return; }
+      cart.clear(); cart.setCoupon('');
+      go('/order/' + r.ref + (r.next === 'demo' ? '?demo=1' : '?new=1'));
+    } catch (er) { err(er.message); btn.disabled = false; btn.textContent = 'Place order'; reprice(); }
+  });
+  reprice();
+  return 'Checkout';
+}
+
+/* ---------------- order page ---------------- */
+async function orderPage(main, ref, u, cfg) {
+  let last = {}; try { last = JSON.parse(sessionStorage.getItem('sb_last') || '{}'); } catch { /* ignore */ }
+  const email = last.ref === ref ? last.email : (u.searchParams.get('email') || '');
+  const load = () => api('/api/orders/lookup', { body: { ref, email } });
+  let order;
+  try {
+    if (u.searchParams.get('paid') || u.searchParams.get('reference') || u.searchParams.get('trxref')) { try { await api('/api/paystack/verify?reference=' + encodeURIComponent(ref)); } catch { /* shown below */ } }
+    order = (await load()).order;
+  } catch (er) {
+    main.innerHTML = `<div class="wrap page"><div class="card" style="max-width:480px;margin:auto"><h2>Find your order</h2><p class="mu">${e(er.message)}</p><form id="lf">${field('lr', 'Order number', { val: ref })}${field('le', 'Email used at checkout', { type: 'email' })}<button class="btn block">View order</button></form></div></div>`;
+    $('#lf').addEventListener('submit', (ev) => { ev.preventDefault(); go('/order/' + encodeURIComponent($('#lr').value.trim().toUpperCase()) + '?email=' + encodeURIComponent($('#le').value.trim())); });
+    return 'Order';
+  }
+  const backFromPay = u.searchParams.get('paid') || u.searchParams.get('reference') || u.searchParams.get('trxref');
+  if (order.payment_status === 'paid' && backFromPay) { cart.clear(); cart.setCoupon(''); }
+  const stepIdx = order.status === 'cancelled' ? -1 : FLOW.indexOf(order.status);
+  const awaiting = order.payment_method === 'paystack' && order.payment_status !== 'paid' && order.status === 'pending';
+  main.innerHTML = `<div class="wrap page" style="max-width:860px">
+   <div class="card" style="text-align:center;margin-bottom:16px"><div style="font-size:46px">${order.status === 'cancelled' ? '✖️' : awaiting ? '⏳' : '✅'}</div><h1 style="margin:6px 0">${order.status === 'cancelled' ? 'Order cancelled' : awaiting ? 'Waiting for payment' : u.searchParams.get('new') || backFromPay ? 'Thank you for your order!' : 'Order ' + e(order.ref)}</h1>
+    <p class="mu">Order <b>${e(order.ref)}</b> · ${fmt(order.created)}${order.payment_method === 'pod' && order.status === 'pending' ? '<br>Please have ' + naira(order.total) + ' ready on delivery.' : ''}</p>
+    ${awaiting ? `<div class="note" style="text-align:left;max-width:520px;margin:12px auto"><b>Complete your payment</b><br>${cfg.payments.demo ? 'Demo mode: no real money is charged.' : 'Your payment is not confirmed yet.'}<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${cfg.payments.demo ? '<button class="btn sm" id="demopay">Pay ' + naira(order.total) + ' (demo)</button><button class="btn ghost sm" id="demofail">Simulate failed payment</button>' : '<button class="btn sm" id="recheck">I have paid, check again</button>'}</div></div>` : ''}</div>
+   ${order.status !== 'cancelled' ? `<div class="card" style="margin-bottom:16px"><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;text-align:center;font-size:12px">${FLOW.map((s, i) => `<div><div style="height:6px;border-radius:3px;background:${i <= stepIdx ? 'var(--accent)' : 'var(--border)'};margin-bottom:6px"></div><span class="${i <= stepIdx ? '' : 'mu'}" style="font-weight:${i === stepIdx ? 800 : 500}">${STATUS[s]}</span></div>`).join('')}</div></div>` : ''}
+   <div class="row c2" style="align-items:start"><div class="card"><h3>Items</h3>${order.items.map((i) => `<div class="line" style="grid-template-columns:48px 1fr auto"><div class="lt" style="width:48px;height:48px">${tile({ id: i.product_id, emoji: i.emoji, image: i.image, name: i.name })}</div><div style="font-size:14px"><b>${e(i.name)}</b><br><span class="mu">${e(i.variant_label)} × ${i.qty}</span></div><b>${naira(i.price * i.qty)}</b></div>`).join('')}
+     <div class="sum"><span>Subtotal</span><span>${naira(order.subtotal)}</span></div>${order.discount ? `<div class="sum"><span>Discount ${e(order.coupon || '')}</span><span>−${naira(order.discount)}</span></div>` : ''}<div class="sum"><span>Delivery</span><span>${order.delivery_fee ? naira(order.delivery_fee) : 'Free'}</span></div><div class="sum total"><span>Total</span><span>${naira(order.total)}</span></div></div>
+    <div style="display:grid;gap:16px"><div class="card"><h3>Delivery</h3><p style="margin:0">${e(order.name)}<br>${e(order.address)}${order.city ? ', ' + e(order.city) : ''}, ${e(order.state)}<br>${e(order.phone)}</p><p class="mu" style="margin-bottom:0">${e({ standard: 'Standard delivery', express: 'Express delivery', pickup: 'Store pickup' }[order.delivery] || '')} · ${order.payment_method === 'pod' ? 'Pay on delivery' : order.payment_status === 'paid' ? 'Paid online' : 'Online payment pending'}</p></div>
+     <div class="card"><h3>Updates</h3>${order.events.slice().reverse().map((ev) => `<div style="font-size:13px;margin-bottom:8px"><b>${e(STATUS[ev.status] || ev.status)}</b> <span class="mu">· ${fmt(ev.created)}</span>${ev.note ? `<br><span class="mu">${e(ev.note)}</span>` : ''}</div>`).join('')}</div></div></div>
+   <p style="text-align:center;margin-top:20px"><button class="btn ghost sm" id="print">🖨 Print receipt</button> ${order.status === 'pending' && order.payment_status !== 'paid' ? '<button class="btn ghost sm" id="cancelo">Cancel order</button>' : ''} <a class="btn sm" href="/" data-link>Continue shopping</a></p></div>`;
+  const rerender = () => go('/order/' + ref + (email ? '?email=' + encodeURIComponent(email) : ''), true);
+  const dp = $('#demopay'); if (dp) dp.addEventListener('click', async () => { try { await api('/api/pay/demo/' + ref, { body: { outcome: 'ok' } }); cart.clear(); cart.setCoupon(''); toast('Payment received (demo)'); go('/order/' + ref + '?new=1', true); } catch (er) { toast(er.message, 'bad'); } });
+  const df = $('#demofail'); if (df) df.addEventListener('click', async () => { await api('/api/pay/demo/' + ref, { body: { outcome: 'fail' } }); toast('Payment failed. The order was cancelled.', 'bad'); rerender(); });
+  const rc = $('#recheck'); if (rc) rc.addEventListener('click', async () => { await api('/api/paystack/verify?reference=' + encodeURIComponent(ref)).catch(() => {}); rerender(); });
+  $('#print').addEventListener('click', () => window.print());
+  const co = $('#cancelo'); if (co) co.addEventListener('click', async () => { if (!confirm('Cancel this order?')) return; try { await api('/api/orders/' + ref + '/cancel', { body: { email } }); toast('Order cancelled'); rerender(); } catch (er) { toast(er.message, 'bad'); } });
+  return 'Order ' + order.ref;
+}
+
+/* ---------------- track ---------------- */
+async function track(main) {
+  main.innerHTML = `<div class="wrap page"><div class="card" style="max-width:460px;margin:auto"><h1 style="font-size:26px">Track your order</h1><p class="mu">Enter your order number (like SB-ABC123) and the email you used at checkout.</p><form id="tf">${field('tr', 'Order number', { req: 1 })}${field('te', 'Email', { type: 'email', req: 1, val: store.user ? store.user.email : '' })}<button class="btn block">Track order</button></form></div></div>`;
+  $('#tf').addEventListener('submit', (ev) => { ev.preventDefault(); go('/order/' + encodeURIComponent($('#tr').value.trim().toUpperCase()) + '?email=' + encodeURIComponent($('#te').value.trim())); });
+  return 'Track order';
+}
+
+/* ---------------- auth ---------------- */
+async function afterAuth(user, u) {
+  store.user = user;
+  try { await api('/api/wishlist-merge', { body: { ids: [...wish.ids] } }); const d = await api('/api/wishlist'); d.ids.forEach((i) => wish.ids.add(i)); ls.set('sb_wish', [...wish.ids]); } catch { /* optional */ }
+  const next = u.searchParams.get('next');
+  go(next && next.startsWith('/') ? next : user.role === 'admin' ? '/account' : '/account', true);
+}
+async function authPage(main, mode, u) {
+  if (store.user) { go('/account', true); return ''; }
+  const reg = mode === 'register';
+  main.innerHTML = `<div class="wrap page"><div class="card" style="max-width:440px;margin:auto"><h1 style="font-size:28px">${reg ? 'Create your account' : 'Welcome back'}</h1>
+   <form id="af" novalidate>${reg ? field('an', 'Full name', { req: 1, auto: 'name', max: 80 }) : ''}${field('ae', 'Email', { type: 'email', req: 1, auto: 'email' })}${reg ? field('ap', 'Phone (optional)', { type: 'tel', auto: 'tel' }) : ''}${field('aw', reg ? 'Password (8+ characters)' : 'Password', { type: 'password', req: 1, auto: reg ? 'new-password' : 'current-password' })}
+   <p class="err hide" id="aerr" role="alert"></p><button class="btn block lg">${reg ? 'Create account' : 'Sign in'}</button></form>
+   <p style="text-align:center;margin-top:14px" class="mu">${reg ? 'Already have an account? <a style="color:var(--accent);font-weight:700" href="/login' + location.search + '" data-link>Sign in</a>' : 'New here? <a style="color:var(--accent);font-weight:700" href="/register' + location.search + '" data-link>Create an account</a><br><a href="/forgot" data-link>Forgot password?</a>'}</p></div></div>`;
+  $('#af').addEventListener('submit', async (ev) => {
+    ev.preventDefault(); const er = $('#aerr'); er.classList.add('hide');
+    try { const r = await api(reg ? '/api/auth/register' : '/api/auth/login', { body: { name: reg ? $('#an').value : undefined, email: $('#ae').value, phone: reg ? $('#ap').value : undefined, password: $('#aw').value } }); await afterAuth(r.user, u); toast('Welcome, ' + r.user.name.split(' ')[0] + '!'); }
+    catch (x) { er.textContent = x.message; er.classList.remove('hide'); }
+  });
+  return reg ? 'Create account' : 'Sign in';
+}
+async function forgotPage(main, u) {
+  const token = u.searchParams.get('token');
+  main.innerHTML = `<div class="wrap page"><div class="card" style="max-width:440px;margin:auto"><h1 style="font-size:26px">${token ? 'Choose a new password' : 'Reset your password'}</h1><form id="ff">${token ? field('fp', 'New password (8+ characters)', { type: 'password', req: 1, auto: 'new-password' }) : field('fe', 'Email', { type: 'email', req: 1 })}<p class="err hide" id="ferr"></p><button class="btn block">${token ? 'Save password' : 'Send reset link'}</button></form></div></div>`;
+  $('#ff').addEventListener('submit', async (ev) => {
+    ev.preventDefault(); const er = $('#ferr'); er.classList.add('hide');
+    try { if (token) { const r = await api('/api/auth/reset', { body: { token, password: $('#fp').value } }); await afterAuth(r.user, new URL(location.origin + '/account')); toast('Password updated'); } else { await api('/api/auth/forgot', { body: { email: $('#fe').value } }); main.querySelector('.card').innerHTML = '<h2>Check your email</h2><p class="mu">If an account exists for that address, we have sent a reset link. It is valid for one hour.</p>'; } }
+    catch (x) { er.textContent = x.message; er.classList.remove('hide'); }
+  });
+  return 'Reset password';
+}
+
+/* ---------------- account ---------------- */
+async function account(main, u, cfg) {
+  if (!store.user) { go('/login?next=/account', true); return ''; }
+  const tab = u.searchParams.get('tab') || 'orders';
+  const [od, ad] = await Promise.all([api('/api/orders'), api('/api/addresses')]);
+  const usr = store.user;
+  const tabs = [['orders', 'Orders'], ['addresses', 'Addresses'], ['profile', 'Profile']];
+  let body = '';
+  if (tab === 'orders') body = od.orders.length ? od.orders.map((o) => `<a class="card" href="/order/${e(o.ref)}" data-link style="display:flex;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap"><div><b>${e(o.ref)}</b> <span class="mu">· ${fmt(o.created)}</span><br><span class="mu" style="font-size:13px">${o.items.map((i) => e(i.name) + ' ×' + i.qty).join(', ').slice(0, 90)}</span></div><div style="text-align:right"><b>${naira(o.total)}</b><br><span class="chip on" style="cursor:default">${e(STATUS[o.status] || o.status)}</span></div></a>`).join('') : '<div class="empty"><div class="em">📦</div><p>No orders yet.</p><a class="btn" href="/" data-link>Start shopping</a></div>';
+  if (tab === 'addresses') body = `${ad.addresses.map((a) => `<div class="card" style="display:flex;justify-content:space-between;gap:10px;margin-bottom:10px"><div><b>${e(a.label)}</b><br>${e(a.name)} ${e(a.phone)}<br>${e(a.address)}, ${e(a.city)}, ${e(a.state)}</div><button class="btn ghost sm" data-deladdr="${a.id}">Delete</button></div>`).join('') || '<p class="mu">No saved addresses.</p>'}
+    <form id="adf" class="card"><h3>Add an address</h3><div class="row c2">${field('al', 'Label', { val: 'Home', max: 30 })}${field('an2', 'Recipient name', { val: usr.name })}</div><div class="row c2">${field('ap2', 'Phone', { val: usr.phone, type: 'tel' })}<label class="f">State<select id="as" required><option value="">Choose…</option>${cfg.zones.map((z) => `<option>${e(z.state)}</option>`).join('')}</select></label></div><div class="row c2">${field('ac2', 'City / area')}${field('aa', 'Street address', { req: 1 })}</div><button class="btn">Save address</button></form>`;
+  if (tab === 'profile') body = `<form id="pf" class="card" style="max-width:480px"><h3>Your details</h3>${field('pn', 'Full name', { val: usr.name, req: 1 })}${field('pp', 'Phone', { val: usr.phone, type: 'tel' })}<label class="f">Email<input value="${e(usr.email)}" disabled></label><h4 style="margin-bottom:6px">Change password (optional)</h4>${field('pc', 'Current password', { type: 'password', auto: 'current-password' })}${field('pw', 'New password', { type: 'password', auto: 'new-password' })}<button class="btn">Save changes</button></form>`;
+  main.innerHTML = `<div class="wrap page"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><h1 style="margin:0">Hi, ${e(usr.name.split(' ')[0])}</h1><div style="display:flex;gap:8px">${usr.role === 'admin' ? '<a class="btn sm" href="/admin">Admin dashboard</a>' : ''}<button class="btn ghost sm" id="logout">Sign out</button></div></div>
+   <div class="tabs2">${tabs.map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" data-atab="${k}">${l}</button>`).join('')}</div>${body}</div>`;
+  main.addEventListener('click', async (ev) => {
+    const t = ev.target.closest('[data-atab]'); if (t) go('/account?tab=' + t.dataset.atab);
+    const d = ev.target.closest('[data-deladdr]'); if (d) { await api('/api/addresses/' + d.dataset.deladdr, { method: 'DELETE' }); go('/account?tab=addresses', true); }
+  });
+  $('#logout').addEventListener('click', async () => { await api('/api/auth/logout', { body: {} }); store.user = null; toast('Signed out'); go('/'); });
+  const af = $('#adf'); if (af) af.addEventListener('submit', async (ev) => { ev.preventDefault(); try { await api('/api/addresses', { body: { label: $('#al').value, name: $('#an2').value, phone: $('#ap2').value, state: $('#as').value, city: $('#ac2').value, address: $('#aa').value } }); toast('Address saved'); go('/account?tab=addresses', true); } catch (er) { toast(er.message, 'bad'); } });
+  const pf = $('#pf'); if (pf) pf.addEventListener('submit', async (ev) => { ev.preventDefault(); try { const r = await api('/api/me', { method: 'PUT', body: { name: $('#pn').value, phone: $('#pp').value, password: $('#pc').value, newPassword: $('#pw').value } }); store.user = r.user; toast('Saved'); go('/account?tab=profile', true); } catch (er) { toast(er.message, 'bad'); } });
+  return 'My account';
+}
+
+/* ---------------- wishlist ---------------- */
+async function wishlist(main) {
+  const ids = [...wish.ids];
+  let list = []; if (ids.length) list = (await api('/api/products/by-ids', { body: { ids } })).products;
+  main.innerHTML = `<div class="wrap page"><h1>Your wishlist</h1>${list.length ? `<div class="grid">${list.map(productCard).join('')}</div>` : '<div class="empty"><div class="em">♡</div><p>Nothing saved yet. Tap the heart on any product.</p><a class="btn" href="/" data-link>Browse products</a></div>'}${store.user ? '' : '<p class="mu" style="margin-top:20px"><a href="/login?next=/wishlist" data-link style="color:var(--accent);font-weight:700">Sign in</a> to keep your wishlist on every device.</p>'}</div>`;
+  return 'Wishlist';
+}
+
+/* ===== app.js ===== */
+const app = {};
+const ctx = app;
+let cfg;
+
+/* ---------- router ---------- */
+function go(url, replace) { if (replace) history.replaceState({}, '', url); else history.pushState({}, '', url); route(); window.scrollTo(0, 0); }
+async function route() {
+  const u = new URL(location.href); const p = u.pathname.replace(/\/+$/, '') || '/'; const seg = p.split('/').filter(Boolean);
+  let main = $('#main'); if (!main) return;
+  // Fresh node for every page: page views attach their own click/submit listeners, and reusing one node would stack them up.
+  { const fresh = main.cloneNode(false); main.replaceWith(fresh); main = fresh; }
+  main.innerHTML = '<div class="loading-page"></div>';
+  try {
+    let storeSlug = null;
+    if (seg[0] === 'd' && seg[1]) storeSlug = seg[1];
+    else if (u.searchParams.get('store')) storeSlug = u.searchParams.get('store');
+    if (storeSlug && !cfg.stores.some((s) => s.slug === storeSlug)) storeSlug = null;
+    if (storeSlug) setStoreTheme(storeSlug);
+    let title = cfg.settings.store_name;
+    if (p === '/' ) { go('/d/' + (cfg.stores.some((s) => s.slug === getStoreSlug()) ? getStoreSlug() : cfg.stores[0].slug), true); return; }
+    else if (seg[0] === 'd' && seg.length === 2) title = await home(main, seg[1], cfg);
+    else if (seg[0] === 'shop' || (seg[0] === 'd' && seg[2] === 'shop')) title = await shopView(main, u, cfg);
+    else if (seg[0] === 'product' && seg[1]) title = await productView(main, seg[1], cfg);
+    else if (seg[0] === 'page' && seg[1]) title = staticPage(main, seg[1], cfg);
+    else if (['checkout', 'order', 'account', 'login', 'register', 'wishlist', 'track', 'forgot'].includes(seg[0])) { title = await view(main, seg, u, cfg); }
+    else main.innerHTML = `<div class="wrap empty"><div class="em">🧭</div><h2>Page not found</h2><p><a class="btn" href="/" data-link>Back to the store</a></p></div>`;
+    document.title = (title ? title + ' · ' : '') + cfg.settings.store_name;
+    syncHeader(); $('#main').focus({ preventScroll: true });
+  } catch (err) {
+    main.innerHTML = `<div class="wrap empty"><div class="em">😕</div><h2>${err.status === 404 ? 'We could not find that' : 'Something went wrong'}</h2><p class="mu">${e(err.message)}</p><p><a class="btn" href="/" data-link>Back to the store</a> <button class="btn ghost" data-reload>Try again</button></p></div>`;
+  }
+  trackPage();
+}
+function trackPage() { try { if (window.gtag) window.gtag('event', 'page_view', { page_path: location.pathname }); if (window.fbq) window.fbq('track', 'PageView'); } catch { /* analytics blocked */ } }
+
+/* ---------- shell ---------- */
+function shell() {
+  const s = cfg.settings;
+  $('#shell').innerHTML = `
+  ${s.announcement ? `<div class="ann">${e(s.announcement)}</div>` : ''}
+  <header class="head"><div class="head-in">
+    <a class="logo" href="/" data-link><span class="mark">🛍</span><span class="t">${e(s.store_name)}</span></a>
+    <form class="search" id="sform" role="search"><input id="sq" type="search" placeholder="Search products, brands and more…" aria-label="Search" autocomplete="off"><button aria-label="Search">🔍</button></form>
+    <div class="icons">
+      <button class="ibtn" id="modeBtn" aria-label="Toggle dark mode">🌓</button>
+      <a class="ibtn" id="acctBtn" href="/account" data-link aria-label="Account">👤</a>
+      <a class="ibtn" href="/wishlist" data-link aria-label="Wishlist">♡<span class="dot hide" id="wcount"></span></a>
+      <button class="ibtn" id="cartBtn" aria-label="Open cart">🛒<span class="dot hide" id="ccount"></span></button>
+    </div></div>
+    <nav class="nav2" id="nav2"></nav>
+    <div class="tabs-dept"><div class="tabs-in" id="dtabs" role="tablist" aria-label="Departments">${cfg.stores.map((st) => `<a class="dtab" role="tab" data-link data-dept="${e(st.slug)}" href="/d/${e(st.slug)}">${e(st.icon)} ${e(st.tab_label)}</a>`).join('')}</div></div>
+  </header>
+  <main id="main" tabindex="-1"></main>
+  <footer class="foot"><div class="wrap">
+    <div class="foot-grid">
+      <div><a class="logo" href="/" data-link><span class="mark">🛍</span><span class="t">${e(s.store_name)}</span></a><p class="mu" style="font-size:14px">${e(s.tagline)}</p>
+        <form class="news" id="nform"><input type="email" required placeholder="Your email" aria-label="Email for newsletter"><button class="btn sm">Subscribe</button></form></div>
+      <div><h4>Shop</h4>${cfg.stores.map((st) => `<a href="/d/${e(st.slug)}" data-link>${e(st.name)}</a>`).join('')}</div>
+      <div><h4>Help</h4><a href="/page/faq" data-link>FAQ</a><a href="/page/shipping" data-link>Shipping &amp; Returns</a><a href="/track" data-link>Track an order</a><a href="/page/contact" data-link>Contact us</a></div>
+      <div><h4>Company</h4><a href="/page/about" data-link>About</a><a href="/page/privacy" data-link>Privacy</a><a href="/page/terms" data-link>Terms</a>
+        ${s.instagram ? `<a href="${e(s.instagram)}" target="_blank" rel="noopener">Instagram</a>` : ''}${s.facebook ? `<a href="${e(s.facebook)}" target="_blank" rel="noopener">Facebook</a>` : ''}</div>
+    </div>
+    <div class="legal"><span>© ${new Date().getFullYear()} ${e(s.store_name)}. All rights reserved.</span><span>${e(s.tax_note || '')}</span></div></div></footer>
+  ${s.whatsapp ? `<a class="wa" href="https://wa.me/${e(s.whatsapp)}?text=${encodeURIComponent('Hello ' + s.store_name + ', I need help with…')}" target="_blank" rel="noopener" aria-label="Chat on WhatsApp">💬</a>` : ''}`;
+  $('#nav2').innerHTML = '';
+}
+function syncHeader() {
+  const slug = getStoreSlug();
+  $$('.dtab').forEach((t) => { const on = t.dataset.dept === slug; t.classList.toggle('on', on); t.setAttribute('aria-selected', on); });
+  $('#nav2').innerHTML = `<a href="/d/${e(slug)}" data-link>Home</a><a href="/shop?store=${e(slug)}" data-link>Shop</a><a href="/shop?store=${e(slug)}&flag=deals" data-link>Deals</a><a href="/shop?store=${e(slug)}&flag=new" data-link>New Arrivals</a><a href="/page/contact" data-link>Contact</a>`;
+  const c = cart.count(), w = wish.ids.size;
+  const cc = $('#ccount'), wc = $('#wcount'); if (cc) { cc.textContent = c; cc.classList.toggle('hide', !c); } if (wc) { wc.textContent = w; wc.classList.toggle('hide', !w); }
+  const a = $('#acctBtn'); if (a) a.title = store.user ? store.user.name : 'Sign in';
+}
+
+/* ---------- global events (no inline handlers: CSP) ---------- */
+document.addEventListener('click', async (ev) => {
+  const t = ev.target;
+  const a = t.closest('a[data-link]');
+  if (a && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey && a.target !== '_blank') { ev.preventDefault(); closeCart(); go(a.getAttribute('href')); return; }
+  if (t.closest('[data-reload]')) { location.reload(); return; }
+  const w = t.closest('[data-wish]');
+  if (w) { ev.preventDefault(); const id = Number(w.dataset.wish); const on = await wish.toggle(id); $$(`[data-wish="${id}"]`).forEach((b) => { b.classList.toggle('on', on); b.textContent = on ? '♥' : '♡'; b.setAttribute('aria-pressed', on); }); toast(on ? 'Saved to your wishlist' : 'Removed from wishlist'); syncHeader(); return; }
+  const q = t.closest('[data-quick]');
+  if (q) { ev.preventDefault(); const id = Number(q.dataset.quick);
+    try { const d = await api('/api/products/by-ids', { body: { ids: [id] } }); const p = d.products[0]; if (!p) return;
+      const pd = await api('/api/products/' + p.slug);
+      if (pd.product.variants.length) { go('/product/' + p.slug); toast('Choose your options first'); return; }
+      cart.add(id, null, 1); toast('Added to cart'); openCart(); } catch (er) { toast(er.message, 'bad'); }
+    return; }
+  if (t.closest('#cartBtn')) { openCart(); return; }
+  if (t.closest('#modeBtn')) { const m = document.documentElement.getAttribute('data-mode') === 'dark' ? 'light' : 'dark'; document.documentElement.setAttribute('data-mode', m); ls.set('sb_mode', m); return; }
+  if (t.closest('#scrim')) closeCart();
+});
+document.addEventListener('submit', async (ev) => {
+  if (ev.target.id === 'sform') { ev.preventDefault(); const q = $('#sq').value.trim(); if (q) go('/shop?q=' + encodeURIComponent(q) + (new URL(location.href).searchParams.get('store') ? '&store=' + new URL(location.href).searchParams.get('store') : '')); }
+  if (ev.target.id === 'nform') { ev.preventDefault(); const i = ev.target.querySelector('input'); try { await api('/api/newsletter', { body: { email: i.value } }); toast('Thanks for subscribing!'); i.value = ''; } catch (er) { toast(er.message, 'bad'); } }
+});
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { closeCart(); $('#modal').classList.remove('on'); } });
+window.addEventListener('popstate', route);
+onChange(() => { syncHeader(); });
+
+/* ---------- boot ---------- */
+(async () => {
+  try {
+    cfg = await api('/api/config'); store.cfg = cfg; store.user = cfg.user;
+    if (store.user) { try { const d = await api('/api/wishlist'); d.ids.forEach((i) => wish.ids.add(i)); ls.set('sb_wish', [...wish.ids]); } catch { /* optional */ } }
+    app.cfg = cfg; shell(); initCart(cfg);
+    if (cfg.settings.ga_id) { const s = document.createElement('script'); s.async = true; s.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(cfg.settings.ga_id); document.head.appendChild(s); window.dataLayer = window.dataLayer || []; window.gtag = function () { window.dataLayer.push(arguments); }; window.gtag('js', new Date()); window.gtag('config', cfg.settings.ga_id); }
+    cookieNotice();
+    await route();
+  } catch (err) { $('#shell').innerHTML = `<div class="wrap empty"><div class="em">🔌</div><h2>We can't reach the store right now</h2><p class="mu">${e(err.message)}</p><button class="btn" data-reload>Try again</button></div>`; }
+})();
+function cookieNotice() {
+  if (ls.get('sb_cookie', false)) return;
+  const d = document.createElement('div'); d.className = 'cookie'; d.innerHTML = '<span>We use cookies to keep your cart and sign-in working and to understand how the site is used.</span><button class="btn sm">Got it</button>';
+  d.querySelector('button').addEventListener('click', () => { ls.set('sb_cookie', true); d.remove(); }); document.body.appendChild(d);
+}
+
+}
+/* ===================== ADMIN DASHBOARD (/admin) ===================== */
+function startAdmin() {
+const root = $('#adm');
+const modal = $('#modal');
+let me = null;
+let cfgStores = [];
+const dt = (s) => (s ? new Date(s * 1000).toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
+const dshort = (s) => new Date(s * 1000).toLocaleDateString('en-NG', { day: 'numeric', month: 'short' });
+const STATUSES = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled'];
+const pill = (s) => `<span class="pill ${e(s)}">${e(s)}</span>`;
+const storeName = (slug) => (cfgStores.find((s) => s.slug === slug) || {}).name || slug;
+const thumb = (p) => { let im = ''; try { im = JSON.parse(p.images || '[]')[0] || ''; } catch { /* none */ } return `<div class="thumb">${im ? `<img src="${e(im)}" alt="" loading="lazy">` : e(p.emoji || '📦')}</div>`; };
+
+function openModal(html, wide) { modal.innerHTML = `<div class="box ${wide ? 'wide' : ''}">${html}</div>`; modal.classList.add('on'); }
+function closeModal() { modal.classList.remove('on'); modal.innerHTML = ''; }
+modal.addEventListener('mousedown', (ev) => { if (ev.target === modal) closeModal(); });
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeModal(); });
+const guard = (fn) => async (...a) => { try { await fn(...a); } catch (err) { if (err.status === 401) { me = null; boot(); } else toast(err.message, 'bad'); } };
+
+/* ---------------- login ---------------- */
+async function loginView(msg) {
+  let needed = false; try { needed = (await api('/api/admin/setup')).needed; } catch { /* ignore */ }
+  if (needed) return setupView();
+  loginForm(msg);
+}
+function setupView() {
+  root.innerHTML = `<div class="login"><div class="card"><h1 style="font-size:24px">Create your admin account</h1><p class="mu">This is the first visit, so you can set up the store owner login. It only works once.</p>
+  <form id="sf" novalidate><label class="f">Your name<input id="sn" autocomplete="name" maxlength="80"></label><label class="f">Email<input id="se" type="email" autocomplete="username" required></label><label class="f">Password (8+ characters)<input id="sp" type="password" autocomplete="new-password" required></label><label class="f">Repeat password<input id="sp2" type="password" autocomplete="new-password" required></label>
+  <p class="err hide" id="serr" role="alert"></p><button class="btn block" id="sb">Create admin account</button></form></div></div>`;
+  $('#sf').addEventListener('submit', async (ev) => {
+    ev.preventDefault(); const b = $('#sb'); const err = (m) => { const x = $('#serr'); x.textContent = m; x.classList.remove('hide'); b.disabled = false; };
+    if ($('#sp').value !== $('#sp2').value) return err('The two passwords do not match.');
+    b.disabled = true;
+    try { const d = await api('/api/admin/setup', { body: { name: $('#sn').value, email: $('#se').value, password: $('#sp').value } }); me = d.user; boot(); } catch (er) { err(er.message); }
+  });
+}
+function loginForm(msg) {
+  root.innerHTML = `<div class="login"><div class="card"><h1 style="font-size:24px">Shop-Beta Admin</h1><p class="mu">Sign in with your administrator account.</p>
+  <form id="lf" novalidate><label class="f">Email<input id="le" type="email" autocomplete="username" required></label><label class="f">Password<input id="lp" type="password" autocomplete="current-password" required></label>
+  <p class="err ${msg ? '' : 'hide'}" id="lerr" role="alert">${e(msg || '')}</p><button class="btn block" id="lb">Sign in</button></form><p class="mu2" style="margin-top:12px"><a href="/" style="color:var(--accent);font-weight:700">← Back to the store</a></p></div></div>`;
+  $('#lf').addEventListener('submit', async (ev) => {
+    ev.preventDefault(); const b = $('#lb'); b.disabled = true;
+    try {
+      const d = await api('/api/auth/login', { body: { email: $('#le').value, password: $('#lp').value } });
+      if (d.user.role !== 'admin') { await api('/api/auth/logout', { body: {} }); throw new Error('This account is not an administrator.'); }
+      me = d.user; boot();
+    } catch (err) { const x = $('#lerr'); x.textContent = err.message; x.classList.remove('hide'); b.disabled = false; }
+  });
+}
+
+/* ---------------- shell ---------------- */
+const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings']];
+async function shell(page, body, unread) {
+  root.innerHTML = `<div class="adm"><aside class="side"><div class="side-top"><div><b>🛠 Shop-Beta</b><div class="who">${e(me.email)}</div></div><div><a class="btn ghost sm" href="/" target="_blank" rel="noopener">View store</a> <button class="btn ghost sm" id="lo">Sign out</button></div></div>
+  <nav>${NAV.map(([k, ic, t]) => `<a data-nav="${k}" class="${page === k ? 'on' : ''}">${ic} ${t}${k === 'messages' && unread ? ` <span class="dot">${unread}</span>` : ''}</a>`).join('')}</nav></aside><main class="main" id="mn">${body}</main></div>`;
+  $('#lo').addEventListener('click', async () => { await api('/api/auth/logout', { body: {} }); me = null; loginView(); });
+}
+root.addEventListener('click', (ev) => { const n = ev.target.closest('[data-nav]'); if (n) location.hash = '#/' + n.dataset.nav; });
+
+let unreadCount = 0;
+const views = {};
+async function route() {
+  if (!me) return;
+  const page = (location.hash.replace(/^#\//, '').split('?')[0]) || 'dashboard';
+  const v = views[page] || views.dashboard;
+  const p = views[page] ? page : 'dashboard';
+  await shell(p, '<div class="loading-page"></div>', unreadCount);
+  try { await v(p); } catch (err) { if (err.status === 401) { me = null; return loginView('Your session expired. Please sign in again.'); } $('#mn').innerHTML = `<div class="panel"><h3>Something went wrong</h3><p class="mu">${e(err.message)}</p></div>`; }
+}
+window.addEventListener('hashchange', route);
+const mn = (html) => { $('#mn').innerHTML = html; };
+const hd = (title, extra = '') => `<div class="hd"><h1>${title}</h1><div>${extra}</div></div>`;
+const on = (sel, ev, fn) => { const el = $(sel, $('#mn')); if (el) el.addEventListener(ev, guard(fn)); };
+const onAll = (sel, ev, fn) => $$(sel, $('#mn')).forEach((el) => el.addEventListener(ev, guard((x) => fn(el, x))));
+
+/* ---------------- dashboard ---------------- */
+views.dashboard = async () => {
+  const d = await api('/api/admin/dashboard'); unreadCount = d.unread;
+  const max = Math.max(1, ...d.days.map((x) => x.rev));
+  const stat = (l, x) => `<div class="stat"><div class="l">${l}</div><div class="v">${naira(x.rev)}</div><div class="s">${x.n} order${x.n === 1 ? '' : 's'}</div></div>`;
+  const by = Object.fromEntries(d.byStatus.map((s) => [s.status, s.n]));
+  await shell('dashboard', hd('Dashboard') + `<div class="grid4">${stat('Today', d.today)}${stat('Last 7 days', d.week)}${stat('Last 30 days', d.month)}${stat('All time', d.all)}
+   <div class="stat"><div class="l">Customers</div><div class="v">${d.customers}</div><div class="s">${by.pending || 0} pending · ${by.paid || 0} to process</div></div></div>
+   <div class="cols"><div><div class="panel"><h3>Revenue, last 14 days</h3><div class="rbar">${d.days.map((x) => `<i style="height:${Math.round((x.rev / max) * 100)}%" title="${dshort(x.t)}: ${naira(x.rev)}"></i>`).join('')}</div><div class="barx">${d.days.map((x, i) => `<span>${i % 2 === 0 ? dshort(x.t).split(' ')[0] : ''}</span>`).join('')}</div></div>
+   <div class="panel"><h3>Recent orders</h3><div class="tw"><table class="t"><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th>When</th></tr>${d.recent.map((o) => `<tr class="click" data-order="${o.id}"><td><b>${e(o.ref)}</b></td><td>${e(o.name)}</td><td>${naira(o.total)}</td><td>${pill(o.status)}</td><td class="mu2">${dt(o.created)}</td></tr>`).join('') || '<tr><td colspan="5" class="mu">No orders yet.</td></tr>'}</table></div></div></div>
+   <div><div class="panel"><h3>Top products</h3>${d.top.map((t) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><span>${e(t.name)}</span><span class="mu2">${t.qty} sold · ${naira(t.rev)}</span></div>`).join('') || '<p class="mu">Sales will appear here.</p>'}</div>
+   <div class="panel"><h3>Low stock</h3>${d.low.map((p) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><a href="#/products" data-edit="${p.id}" style="cursor:pointer">${e(p.name)}</a><span class="pill low">${p.stock} left</span></div>`).join('') || '<p class="mu">All products are well stocked.</p>'}</div></div></div>`, d.unread);
+  onAll('[data-order]', 'click', (el) => orderModal(el.dataset.order));
+  onAll('[data-edit]', 'click', (el, ev) => { ev.preventDefault(); location.hash = '#/products'; setTimeout(() => productForm(el.dataset.edit), 400); });
+};
+
+/* ---------------- orders ---------------- */
+const ostate = { status: '', q: '', page: 1 };
+views.orders = async () => {
+  const qs = new URLSearchParams({ status: ostate.status, q: ostate.q, page: ostate.page });
+  const d = await api('/api/admin/orders?' + qs);
+  mn(hd('Orders', `<span class="mu2">${d.total} total</span>`) + `<div class="tbar"><select id="os"><option value="">All statuses</option>${STATUSES.map((s) => `<option ${ostate.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select><input id="oq" placeholder="Search ref, name, email, phone" value="${e(ostate.q)}"></div>
+   <div class="panel"><div class="tw"><table class="t"><tr><th>Order</th><th>Customer</th><th>Total</th><th>Payment</th><th>Status</th><th>Placed</th></tr>${d.orders.map((o) => `<tr class="click" data-order="${o.id}"><td><b>${e(o.ref)}</b></td><td>${e(o.name)}<div class="mu2">${e(o.phone)}</div></td><td>${naira(o.total)}</td><td>${e(o.payment_method === 'pod' ? 'Pay on delivery' : 'Paystack')} · ${e(o.payment_status)}</td><td>${pill(o.status)}</td><td class="mu2">${dt(o.created)}</td></tr>`).join('') || '<tr><td colspan="6" class="mu">No orders match.</td></tr>'}</table></div>
+   <div class="acts" style="justify-content:space-between"><span class="mu2">Page ${d.page} of ${d.pages}</span><span><button class="btn ghost sm" id="pp" ${d.page <= 1 ? 'disabled' : ''}>Previous</button> <button class="btn ghost sm" id="pn" ${d.page >= d.pages ? 'disabled' : ''}>Next</button></span></div></div>`);
+  on('#os', 'change', () => { ostate.status = $('#os').value; ostate.page = 1; return views.orders(); });
+  let tm; on('#oq', 'input', () => { clearTimeout(tm); tm = setTimeout(async () => { ostate.q = $('#oq').value; ostate.page = 1; await views.orders(); const i = $('#oq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 400); });
+  on('#pp', 'click', () => { ostate.page--; return views.orders(); }); on('#pn', 'click', () => { ostate.page++; return views.orders(); });
+  onAll('[data-order]', 'click', (el) => orderModal(el.dataset.order));
+};
+async function orderModal(id) {
+  const { order: o } = await api('/api/admin/orders/' + id);
+  const paid = o.payment_status === 'paid';
+  openModal(`<h2>Order ${e(o.ref)} ${pill(o.status)}</h2><div class="kv"><b>Customer</b><span>${e(o.name)} · ${e(o.phone)}<br>${e(o.email)}</span><b>Deliver to</b><span>${e(o.address)}${o.city ? ', ' + e(o.city) : ''}, ${e(o.state)}<br><span class="mu2">${e(o.delivery)}${o.notes ? ' · Note: ' + e(o.notes) : ''}</span></span><b>Payment</b><span>${o.payment_method === 'pod' ? 'Pay on delivery' : 'Paystack'} · ${paid ? 'Paid' : 'Not yet paid'}${o.paystack_ref ? '<br><span class="mu2">Ref ' + e(o.paystack_ref) + '</span>' : ''}</span><b>Placed</b><span>${dt(o.created)}</span></div>
+  <div class="tw"><table class="t" style="margin-top:12px"><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>${o.items.map((i) => `<tr><td>${e(i.name)}<div class="mu2">${e(i.variant_label || '')}</div></td><td>${i.qty}</td><td>${naira(i.price)}</td><td>${naira(i.price * i.qty)}</td></tr>`).join('')}
+  <tr><td colspan="3" class="mu2">Subtotal</td><td>${naira(o.subtotal)}</td></tr>${o.discount ? `<tr><td colspan="3" class="mu2">Discount ${e(o.coupon || '')}</td><td>−${naira(o.discount)}</td></tr>` : ''}<tr><td colspan="3" class="mu2">Delivery</td><td>${naira(o.delivery_fee)}</td></tr><tr><td colspan="3"><b>Total</b></td><td><b>${naira(o.total)}</b></td></tr></table></div>
+  <h3 style="margin-top:14px">History</h3><ul class="tl">${o.events.map((x) => `<li><b>${e(x.status)}</b> · <span class="mu2">${dt(x.created)}</span>${x.note ? '<br>' + e(x.note) : ''}</li>`).join('')}</ul>
+  ${o.status === 'cancelled' ? '<p class="mu">This order is cancelled and cannot be changed.</p>' : `<div class="nop"><div class="fgrid"><label class="f">Update status<select id="ost">${STATUSES.map((s) => `<option ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label class="f">Note (optional, shown in history)<input id="onote" maxlength="300"></label></div></div>`}
+  <div class="acts"><button class="btn ghost sm" id="oprint">🖨 Print packing slip</button><button class="btn ghost" id="oclose">Close</button>${o.status === 'cancelled' ? '' : '<button class="btn" id="osave">Save status</button>'}</div>`, true);
+  $('#oclose').addEventListener('click', closeModal); $('#oprint').addEventListener('click', () => window.print());
+  const sv = $('#osave'); if (sv) sv.addEventListener('click', guard(async () => {
+    const st = $('#ost').value; if (st === 'cancelled' && !confirm('Cancel this order? Stock will be returned.')) return;
+    await api('/api/admin/orders/' + id, { method: 'PUT', body: { status: st, note: $('#onote').value } }); toast('Order updated'); closeModal(); route();
+  }));
+}
+
+/* ---------------- products ---------------- */
+const pstate = { q: '', store: '' };
+views.products = async () => {
+  const d = await api('/api/admin/products?' + new URLSearchParams(pstate));
+  mn(hd('Products', '<button class="btn" id="np">+ Add product</button>') + `<div class="tbar"><input id="pq" placeholder="Search name, SKU, brand" value="${e(pstate.q)}"><select id="ps"><option value="">All departments</option>${cfgStores.map((s) => `<option value="${e(s.slug)}" ${pstate.store === s.slug ? 'selected' : ''}>${e(s.name)}</option>`).join('')}</select></div>
+   <div class="panel"><div class="tw"><table class="t"><tr><th></th><th>Product</th><th>Department</th><th>Price</th><th>Stock</th><th>Status</th></tr>${d.products.map((p) => `<tr class="click" data-p="${p.id}"><td>${thumb(p)}</td><td><b>${e(p.name)}</b><div class="mu2">${e(p.sku || '')} ${p.category ? '· ' + e(p.category) : ''}</div></td><td>${e(storeName(p.store))}</td><td>${naira(p.price)}</td><td>${p.stock <= 5 ? `<span class="pill low">${p.stock}</span>` : p.stock}</td><td>${p.active ? 'Live' : '<span class="pill">Hidden</span>'}</td></tr>`).join('') || '<tr><td colspan="6" class="mu">No products found.</td></tr>'}</table></div></div>`);
+  on('#np', 'click', () => productForm());
+  let tm; on('#pq', 'input', () => { clearTimeout(tm); tm = setTimeout(async () => { pstate.q = $('#pq').value; await views.products(); const i = $('#pq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 400); });
+  on('#ps', 'change', () => { pstate.store = $('#ps').value; return views.products(); });
+  onAll('[data-p]', 'click', (el) => productForm(el.dataset.p));
+};
+async function productForm(id) {
+  const cats = (await api('/api/admin/categories')).categories;
+  const p = id ? (await api('/api/admin/products/' + id)).product : { store: pstate.store || cfgStores[0].slug, name: '', brand: '', description: '', price: '', compare_price: 0, stock: 0, sku: '', emoji: '📦', images: [], size_label: 'Size', variants: [], featured: 0, bestseller: 0, new_arrival: 0, active: 1 };
+  let images = [...p.images]; let variants = p.variants.map((v) => ({ ...v }));
+  const draw = () => {
+    openModal(`<h2>${id ? 'Edit product' : 'New product'}</h2><div class="fgrid">
+    <label class="f full">Name<input id="pn" value="${e(p.name)}" maxlength="140"></label>
+    <label class="f">Department<select id="pst">${cfgStores.map((s) => `<option value="${e(s.slug)}" ${s.slug === p.store ? 'selected' : ''}>${e(s.name)}</option>`).join('')}</select></label>
+    <label class="f">Category<select id="pc"></select></label>
+    <label class="f">Price (₦)<input id="pp" type="number" min="0" value="${e(p.price)}"></label><label class="f">Original price (₦, optional)<input id="pcp" type="number" min="0" value="${e(p.compare_price || '')}"></label>
+    <label class="f">Brand<input id="pb" value="${e(p.brand)}" maxlength="60"></label><label class="f">SKU<input id="psku" value="${e(p.sku)}" maxlength="40"></label>
+    <label class="f">Emoji (shown if no photo)<input id="pe" value="${e(p.emoji)}" maxlength="8"></label><label class="f">Stock ${variants.length ? '(from variants)' : ''}<input id="pstock" type="number" min="0" value="${e(p.stock)}" ${variants.length ? 'disabled' : ''}></label>
+    <label class="f full">Description<textarea id="pd" rows="4" maxlength="4000">${e(p.description)}</textarea></label>
+    <div class="full"><b style="font-size:13px">Photos</b><div class="imgs">${images.map((u, i) => `<div class="im"><img src="${e(u)}" alt=""><button type="button" data-rmimg="${i}" aria-label="Remove photo">×</button></div>`).join('')}</div><input type="file" id="pfile" accept="image/png,image/jpeg,image/webp,image/gif"><div class="mu2">PNG, JPG, WEBP or GIF up to 2 MB. Or paste an https image link below.</div><div style="display:flex;gap:6px;margin-top:6px"><input id="purl" placeholder="https://…"><button type="button" class="btn ghost sm" id="padd">Add</button></div></div>
+    <div class="full" style="margin-top:12px"><b style="font-size:13px">Variants (sizes / colours)</b> <span class="mu2">Leave empty if the product has none.</span><label class="f" style="margin-top:6px">Size label<input id="psl" value="${e(p.size_label)}" maxlength="20"></label>
+    ${variants.map((v, i) => `<div class="vrow"><input data-v="${i}" data-k="size" placeholder="Size" value="${e(v.size || '')}"><input data-v="${i}" data-k="color" placeholder="Colour" value="${e(v.color || '')}"><input data-v="${i}" data-k="stock" type="number" min="0" placeholder="Stock" value="${e(v.stock)}"><button type="button" class="btn ghost sm" data-rmv="${i}" aria-label="Remove variant">×</button></div>`).join('')}<button type="button" class="btn ghost sm" id="vadd">+ Add variant</button></div>
+    <div class="full" style="margin-top:12px"><label class="chk"><input type="checkbox" id="pf" ${p.featured ? 'checked' : ''}> Featured on the homepage</label><label class="chk"><input type="checkbox" id="pbs" ${p.bestseller ? 'checked' : ''}> Best seller</label><label class="chk"><input type="checkbox" id="pna" ${p.new_arrival ? 'checked' : ''}> New arrival</label><label class="chk"><input type="checkbox" id="pa" ${p.active ? 'checked' : ''}> Visible in the store</label></div></div>
+    <div class="acts">${id ? '<button class="btn ghost" id="pdel" style="margin-right:auto;color:var(--bad)">Delete</button>' : ''}<button class="btn ghost" id="pcancel">Cancel</button><button class="btn" id="psave">Save product</button></div>`, true);
+    const fillCats = () => { const st = $('#pst').value; $('#pc').innerHTML = '<option value="">None</option>' + cats.filter((c) => c.store === st).map((c) => `<option value="${c.id}" ${c.id === p.category_id ? 'selected' : ''}>${e(c.name)}</option>`).join(''); };
+    fillCats(); $('#pst').addEventListener('change', () => { p.category_id = null; fillCats(); });
+    const collect = () => { Object.assign(p, { name: $('#pn').value, store: $('#pst').value, category_id: $('#pc').value || null, price: $('#pp').value, compare_price: $('#pcp').value, brand: $('#pb').value, sku: $('#psku').value, emoji: $('#pe').value, description: $('#pd').value, size_label: $('#psl').value, featured: $('#pf').checked ? 1 : 0, bestseller: $('#pbs').checked ? 1 : 0, new_arrival: $('#pna').checked ? 1 : 0, active: $('#pa').checked ? 1 : 0 }); if (!variants.length) p.stock = $('#pstock').value; };
+    $$('[data-v]', modal).forEach((i) => i.addEventListener('input', () => { variants[i.dataset.v][i.dataset.k] = i.value; }));
+    $$('[data-rmv]', modal).forEach((b) => b.addEventListener('click', () => { collect(); variants.splice(b.dataset.rmv, 1); draw(); }));
+    $$('[data-rmimg]', modal).forEach((b) => b.addEventListener('click', () => { collect(); images.splice(b.dataset.rmimg, 1); draw(); }));
+    $('#vadd').addEventListener('click', () => { collect(); variants.push({ size: '', color: '', stock: 0 }); draw(); });
+    $('#padd').addEventListener('click', () => { const u = $('#purl').value.trim(); if (!/^https:\/\//.test(u)) return toast('Image links must start with https://', 'bad'); collect(); images.push(u); draw(); });
+    $('#pfile').addEventListener('change', guard(async () => {
+      const f = $('#pfile').files[0]; if (!f) return; if (f.size > 2_000_000) return toast('That image is over 2 MB.', 'bad');
+      const data = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+      const up = await api('/api/admin/upload', { body: { data } }); collect(); images.push(up.url); draw();
+    }));
+    $('#pcancel').addEventListener('click', closeModal);
+    const del = $('#pdel'); if (del) del.addEventListener('click', guard(async () => { if (!confirm('Delete this product? Products that have orders are hidden instead.')) return; const r = await api('/api/admin/products/' + id, { method: 'DELETE' }); toast(r.archived ? 'Product hidden (it has orders)' : 'Product deleted'); closeModal(); route(); }));
+    $('#psave').addEventListener('click', guard(async () => {
+      collect(); const body = { ...p, images, variants };
+      await api('/api/admin/products' + (id ? '/' + id : ''), { method: id ? 'PUT' : 'POST', body }); toast('Product saved'); closeModal(); route();
+    }));
+  };
+  draw();
+}
+
+/* ---------------- departments & categories ---------------- */
+views.categories = async () => {
+  const d = await api('/api/admin/categories'); cfgStores = d.stores;
+  mn(hd('Departments & categories') + d.stores.map((s) => `<div class="panel"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center"><h3 style="margin:0">${e(s.icon)} ${e(s.name)} ${s.active ? '' : '<span class="pill">Hidden</span>'}</h3><span><button class="btn ghost sm" data-hp="${e(s.slug)}">Edit homepage text</button> <button class="btn ghost sm" data-addc="${e(s.slug)}">+ Category</button></span></div>
+   <div class="tw"><table class="t"><tr><th>Category</th><th>Products</th><th></th></tr>${d.categories.filter((c) => c.store === s.slug).map((c) => `<tr><td>${e(c.icon)} ${e(c.name)}</td><td>${c.n}</td><td style="text-align:right"><button class="btn ghost sm" data-editc="${c.id}">Edit</button> <button class="btn ghost sm" data-delc="${c.id}">Delete</button></td></tr>`).join('')}</table></div></div>`).join(''));
+  const catForm = (slug, c) => { openModal(`<h2>${c ? 'Edit' : 'New'} category</h2><label class="f">Name<input id="cn" maxlength="40" value="${e(c ? c.name : '')}"></label><label class="f">Icon (emoji)<input id="ci" maxlength="8" value="${e(c ? c.icon : '🛍')}"></label><div class="acts"><button class="btn ghost" id="cx">Cancel</button><button class="btn" id="cs">Save</button></div>`); $('#cx').addEventListener('click', closeModal); $('#cs').addEventListener('click', guard(async () => { await api('/api/admin/categories' + (c ? '/' + c.id : ''), { method: c ? 'PUT' : 'POST', body: { store: slug, name: $('#cn').value, icon: $('#ci').value } }); toast('Saved'); closeModal(); route(); })); };
+  onAll('[data-addc]', 'click', (el) => catForm(el.dataset.addc));
+  onAll('[data-editc]', 'click', (el) => { const c = d.categories.find((x) => x.id === Number(el.dataset.editc)); catForm(c.store, c); });
+  onAll('[data-delc]', 'click', async (el) => { if (!confirm('Delete this category? Its products stay but lose the category.')) return; await api('/api/admin/categories/' + el.dataset.delc, { method: 'DELETE' }); toast('Deleted'); route(); });
+  onAll('[data-hp]', 'click', (el) => {
+    const s = d.stores.find((x) => x.slug === el.dataset.hp); const F = ['name', 'tab_label', 'icon', 'tagline', 'hero_title', 'hero_sub', 'hero_cta', 'promo1_title', 'promo1_sub', 'promo2_title', 'promo2_sub', 'banner_title', 'banner_sub'];
+    openModal(`<h2>${e(s.name)} homepage</h2><div class="fgrid">${F.map((k) => `<label class="f ${['tagline', 'hero_sub'].includes(k) ? 'full' : ''}">${k.replace(/_/g, ' ')}<input data-f="${k}" maxlength="200" value="${e(s[k])}"></label>`).join('')}</div><label class="chk"><input type="checkbox" id="sact" ${s.active ? 'checked' : ''}> Show this department tab in the store</label><div class="acts"><button class="btn ghost" id="cx">Cancel</button><button class="btn" id="cs">Save</button></div>`, true);
+    $('#cx').addEventListener('click', closeModal); $('#cs').addEventListener('click', guard(async () => { const body = { active: $('#sact').checked }; $$('[data-f]', modal).forEach((i) => { body[i.dataset.f] = i.value; }); await api('/api/admin/stores/' + s.slug, { method: 'PUT', body }); toast('Homepage updated'); closeModal(); route(); }));
+  });
+};
+
+/* ---------------- customers ---------------- */
+views.customers = async () => {
+  const d = await api('/api/admin/customers');
+  mn(hd('Customers', `<span class="mu2">${d.customers.length} registered</span>`) + `<div class="panel"><div class="tw"><table class="t"><tr><th>Name</th><th>Email</th><th>Phone</th><th>Orders</th><th>Spent</th><th>Joined</th></tr>${d.customers.map((c) => `<tr><td><b>${e(c.name)}</b></td><td>${e(c.email)}</td><td>${e(c.phone)}</td><td>${c.orders}</td><td>${naira(c.spent)}</td><td class="mu2">${dt(c.created)}</td></tr>`).join('') || '<tr><td colspan="6" class="mu">No customers yet.</td></tr>'}</table></div></div>`);
+};
+
+/* ---------------- coupons ---------------- */
+views.coupons = async () => {
+  const d = await api('/api/admin/coupons');
+  mn(hd('Coupons', '<button class="btn" id="nc">+ New coupon</button>') + `<div class="panel"><div class="tw"><table class="t"><tr><th>Code</th><th>Discount</th><th>Min. spend</th><th>Used</th><th>Expires</th><th>Status</th><th></th></tr>${d.coupons.map((c) => `<tr><td><b>${e(c.code)}</b></td><td>${c.type === 'percent' ? c.value + '%' : naira(c.value)}</td><td>${naira(c.min_spend)}</td><td>${c.used}${c.max_uses ? ' / ' + c.max_uses : ''}</td><td>${e(c.expires_at || 'Never')}</td><td>${c.active ? 'Active' : '<span class="pill">Off</span>'}</td><td style="text-align:right"><button class="btn ghost sm" data-ec="${e(c.code)}">Edit</button> <button class="btn ghost sm" data-dc="${e(c.code)}">Delete</button></td></tr>`).join('')}</table></div></div>`);
+  const form = (c) => {
+    openModal(`<h2>${c ? 'Edit' : 'New'} coupon</h2><div class="fgrid"><label class="f">Code<input id="kc" maxlength="30" value="${e(c ? c.code : '')}" ${c ? 'readonly' : ''}></label><label class="f">Type<select id="kt"><option value="percent" ${c && c.type === 'percent' ? 'selected' : ''}>Percent off</option><option value="fixed" ${c && c.type === 'fixed' ? 'selected' : ''}>Fixed amount (₦)</option></select></label>
+    <label class="f">Value<input id="kv" type="number" min="1" value="${c ? c.value : ''}"></label><label class="f">Minimum spend (₦)<input id="km" type="number" min="0" value="${c ? c.min_spend : 0}"></label><label class="f">Max uses (0 = unlimited)<input id="kx" type="number" min="0" value="${c ? c.max_uses : 0}"></label><label class="f">Expires (YYYY-MM-DD, optional)<input id="ke" value="${e(c && c.expires_at || '')}" placeholder="2026-12-31"></label></div><label class="chk"><input type="checkbox" id="ka" ${!c || c.active ? 'checked' : ''}> Active</label><div class="acts"><button class="btn ghost" id="cx">Cancel</button><button class="btn" id="cs">Save</button></div>`);
+    $('#cx').addEventListener('click', closeModal); $('#cs').addEventListener('click', guard(async () => { await api('/api/admin/coupons', { body: { code: $('#kc').value, type: $('#kt').value, value: $('#kv').value, min_spend: $('#km').value, max_uses: $('#kx').value, expires_at: $('#ke').value, active: $('#ka').checked } }); toast('Coupon saved'); closeModal(); route(); }));
+  };
+  on('#nc', 'click', () => form());
+  onAll('[data-ec]', 'click', (el) => form(d.coupons.find((c) => c.code === el.dataset.ec)));
+  onAll('[data-dc]', 'click', async (el) => { if (!confirm('Delete this coupon?')) return; await api('/api/admin/coupons/' + encodeURIComponent(el.dataset.dc), { method: 'DELETE' }); toast('Deleted'); route(); });
+};
+
+/* ---------------- reviews ---------------- */
+views.reviews = async () => {
+  const d = await api('/api/admin/reviews');
+  mn(hd('Reviews') + `<div class="panel"><div class="tw"><table class="t"><tr><th>Product</th><th>Rating</th><th>Review</th><th>By</th><th></th></tr>${d.reviews.map((r) => `<tr><td>${e(r.product)}</td><td>${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</td><td>${e(r.title)}<div class="mu2">${e(r.body)}</div></td><td>${e(r.name)}<div class="mu2">${dt(r.created)}</div></td><td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" data-ar="${r.id}" data-v="${r.approved ? 0 : 1}">${r.approved ? 'Hide' : 'Approve'}</button> <button class="btn ghost sm" data-dr="${r.id}">Delete</button></td></tr>`).join('') || '<tr><td colspan="5" class="mu">No reviews yet.</td></tr>'}</table></div></div>`);
+  onAll('[data-ar]', 'click', async (el) => { await api('/api/admin/reviews/' + el.dataset.ar, { method: 'PUT', body: { approved: el.dataset.v === '1' } }); route(); });
+  onAll('[data-dr]', 'click', async (el) => { if (!confirm('Delete this review?')) return; await api('/api/admin/reviews/' + el.dataset.dr, { method: 'DELETE' }); route(); });
+};
+
+/* ---------------- messages ---------------- */
+views.messages = async () => {
+  const d = await api('/api/admin/messages'); unreadCount = d.messages.filter((m) => !m.read).length;
+  mn(hd('Messages') + (d.messages.map((m) => `<div class="panel" style="${m.read ? 'opacity:.75' : ''}"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${e(m.subject || '(no subject)')}</b><span class="mu2">${dt(m.created)}</span></div><div class="mu2">${e(m.name)} · <a href="mailto:${e(m.email)}" style="color:var(--accent)">${e(m.email)}</a></div><p style="white-space:pre-wrap">${e(m.body)}</p><button class="btn ghost sm" data-mr="${m.id}" data-v="${m.read ? 0 : 1}">${m.read ? 'Mark unread' : 'Mark read'}</button> <button class="btn ghost sm" data-md="${m.id}">Delete</button></div>`).join('') || '<div class="panel mu">No messages yet.</div>'));
+  onAll('[data-mr]', 'click', async (el) => { await api('/api/admin/messages/' + el.dataset.mr, { method: 'PUT', body: { read: el.dataset.v === '1' } }); route(); });
+  onAll('[data-md]', 'click', async (el) => { if (!confirm('Delete this message?')) return; await api('/api/admin/messages/' + el.dataset.md, { method: 'DELETE' }); route(); });
+};
+
+/* ---------------- marketing: newsletter, abandoned carts, email outbox ---------------- */
+views.marketing = async () => {
+  const [n, a, o] = await Promise.all([api('/api/admin/newsletter'), api('/api/admin/abandoned'), api('/api/admin/outbox')]);
+  mn(hd('Marketing') + `<div class="panel"><h3>Abandoned carts (${a.carts.length})</h3><p class="mu2">Shoppers who entered an email at checkout but did not order. Reminder emails go out after one hour.</p><div class="tw"><table class="t"><tr><th>Email</th><th>Items</th><th>When</th><th>Reminded</th></tr>${a.carts.map((c) => `<tr><td>${e(c.email)}</td><td>${c.cart.length}</td><td class="mu2">${dt(c.created)}</td><td>${c.reminded ? 'Yes' : 'No'}</td></tr>`).join('') || '<tr><td colspan="4" class="mu">None right now.</td></tr>'}</table></div><div class="acts"><button class="btn" id="rem">Send reminders now</button></div></div>
+   <div class="panel"><h3>Newsletter subscribers (${n.subscribers.length})</h3><div class="tw"><table class="t"><tr><th>Email</th><th>Joined</th></tr>${n.subscribers.map((s) => `<tr><td>${e(s.email)}</td><td class="mu2">${dt(s.created)}</td></tr>`).join('') || '<tr><td colspan="2" class="mu">No subscribers yet.</td></tr>'}</table></div></div>
+   <div class="panel"><h3>Email outbox</h3><p class="mu2">${o.live ? 'Emails are sent through Resend.' : 'Email sending is not set up yet, so messages are only stored here. Add RESEND_API_KEY and MAIL_FROM to send them.'}</p><div class="tw"><table class="t"><tr><th>To</th><th>Subject</th><th>Sent</th><th>Queued</th></tr>${o.emails.map((m) => `<tr><td>${e(m.to_email)}</td><td>${e(m.subject)}</td><td>${m.sent ? 'Yes' : 'No'}</td><td class="mu2">${dt(m.created)}</td></tr>`).join('') || '<tr><td colspan="4" class="mu">Nothing queued.</td></tr>'}</table></div></div>`);
+  on('#rem', 'click', async () => { const r = await api('/api/admin/abandoned/remind', { body: {} }); toast(`${r.sent} reminder${r.sent === 1 ? '' : 's'} queued`); route(); });
+};
+
+/* ---------------- settings ---------------- */
+const SF = [['store_name', 'Store name'], ['tagline', 'Tagline'], ['logo_url', 'Logo URL (https://…)'], ['announcement', 'Announcement bar'], ['contact_email', 'Contact email'], ['contact_phone', 'Contact phone'], ['whatsapp', 'WhatsApp number (digits, with country code)'], ['address', 'Address'], ['pickup_address', 'Store pickup address'], ['instagram', 'Instagram link'], ['facebook', 'Facebook link'], ['x_twitter', 'X / Twitter link'], ['tiktok', 'TikTok link'], ['free_shipping_threshold', 'Free delivery above (₦, 0 = off)'], ['express_multiplier', 'Express delivery price multiplier'], ['return_days', 'Return window (days)'], ['tax_note', 'Price / VAT note'], ['ga_id', 'Google Analytics ID (G-XXXX)'], ['meta_pixel_id', 'Meta Pixel ID']];
+views.settings = async () => {
+  const d = await api('/api/admin/settings'); const s = d.settings;
+  mn(hd('Settings', '<button class="btn" id="ssave">Save changes</button>') + `<div class="panel"><h3>Store</h3><div class="fgrid">${SF.map(([k, l]) => `<label class="f"><span>${l}</span><input data-s="${k}" maxlength="300" value="${e(s[k])}"></label>`).join('')}</div></div>
+   <div class="panel"><h3>Payments</h3><label class="chk"><input type="checkbox" id="spod" ${s.pod_enabled === '1' ? 'checked' : ''}> Pay on delivery</label><label class="chk"><input type="checkbox" id="spay" ${s.paystack_enabled === '1' ? 'checked' : ''}> Pay online with Paystack</label><p class="mu2">${d.paystack.live ? '✅ Paystack live keys are configured on the server.' : '⚠️ No PAYSTACK_SECRET_KEY is set, so online payment runs in demo mode (no real money). Set it as an environment variable on your host to take real payments.'}</p></div>
+   <div class="panel"><h3>Delivery fees by state</h3><div class="tw"><table class="t"><tr><th>State</th><th>Fee (₦)</th><th>Delivery time</th><th>Pay on delivery</th></tr>${d.zones.map((z, i) => `<tr><td>${e(z.state)}</td><td><input type="number" min="0" data-z="${i}" data-k="fee" value="${z.fee}" style="width:110px"></td><td><input data-z="${i}" data-k="eta" value="${e(z.eta)}" maxlength="30" style="width:130px"></td><td><input type="checkbox" data-z="${i}" data-k="pod" ${z.pod ? 'checked' : ''} style="width:auto"></td></tr>`).join('')}</table></div></div>`);
+  on('#ssave', 'click', async () => {
+    const settings = {}; $$('[data-s]', $('#mn')).forEach((i) => { settings[i.dataset.s] = i.value; });
+    settings.pod_enabled = $('#spod').checked ? '1' : '0'; settings.paystack_enabled = $('#spay').checked ? '1' : '0';
+    const zones = d.zones.map((z) => ({ ...z })); $$('[data-z]', $('#mn')).forEach((i) => { zones[i.dataset.z][i.dataset.k] = i.type === 'checkbox' ? (i.checked ? 1 : 0) : i.value; });
+    await api('/api/admin/settings', { method: 'PUT', body: { settings, zones } }); toast('Settings saved');
+  });
+};
+
+/* ---------------- boot ---------------- */
+async function boot() {
+  try { const m = await api('/api/me'); me = m.user && m.user.role === 'admin' ? m.user : null; } catch { me = null; }
+  if (!me) return loginView();
+  try { const c = await api('/api/config'); cfgStores = c.stores; } catch { /* retry in views */ }
+  route();
+}
+boot();
+
+}
+if (/^\/admin(\/|$)/.test(location.pathname)) {
+  document.body.classList.add('is-admin');
+  for (const id of ['shell', 'scrim', 'drawer']) { const n = document.getElementById(id); if (n) n.remove(); }
+  startAdmin();
+} else {
+  const a = document.getElementById('adm'); if (a) a.remove();
+  startStore();
+}
+})();
+</script>
+</body>
+</html>

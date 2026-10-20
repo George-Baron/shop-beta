@@ -1,0 +1,15 @@
+{
+  "name": "shop-beta",
+  "version": "1.0.0",
+  "description": "Shop-Beta online store: storefront, checkout, admin dashboard",
+  "main": "server.js",
+  "private": true,
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "test": "node --disable-warning=ExperimentalWarning test/smoke.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
