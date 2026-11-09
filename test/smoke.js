@@ -1,16 +1,22 @@
 'use strict';
-// End-to-end check: starts the server on a temporary database and walks through a real shopping + admin session.
+// End-to-end check: creates a throwaway PostgreSQL database, starts the server on it and walks through a real shopping + admin session.
+// Needs a running Postgres: set TEST_DATABASE_URL (or DATABASE_URL) to any database on it; `npm run db:up` starts one for you.
 // Run with: npm test
 const { spawn } = require('child_process');
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { Client: PgClient } = require('pg');
 
 const PORT = 3400 + Math.floor(Math.random() * 400);
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-test-'));
 let passed = 0; const failures = [];
+const ADMIN_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || 'postgres://postgres:postgres@127.0.0.1:5432/postgres';
+const DB_NAME = 'sb_test_' + Math.random().toString(36).slice(2, 10);
+const withDb = (name) => { const u = new URL(ADMIN_URL); u.pathname = '/' + name; return u.toString(); };
+async function adminSql(sql, db) { const c = new PgClient({ connectionString: db ? withDb(db) : ADMIN_URL, ssl: process.env.PGSSL_TEST === 'require' ? { rejectUnauthorized: false } : false }); await c.connect(); try { await c.query(sql); } finally { await c.end(); } }
 
 class Client {
   constructor() { this.cookie = ''; }
@@ -31,7 +37,8 @@ async function test(name, fn) {
 }
 
 (async () => {
-  const srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, BASE_URL: BASE, PAYSTACK_SECRET_KEY: '', RESEND_API_KEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  await adminSql(`CREATE DATABASE ${DB_NAME}`);
+  const srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, DATABASE_URL: withDb(DB_NAME), PGSSL: process.env.PGSSL_TEST || 'disable', BASE_URL: BASE, PAYSTACK_SECRET_KEY: '', RESEND_API_KEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = ''; srv.stdout.on('data', (d) => { log += d; }); srv.stderr.on('data', (d) => { log += d; });
   for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/api/config'); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
 
@@ -247,6 +254,60 @@ async function test(name, fn) {
     assert.strictEqual((await admin.get('/api/admin/customers')).json.customers[0].orders, 1);
   });
 
+  console.log('\nConcurrency (many shoppers at once, real Postgres locks)');
+  const mk = (pid, qty, payment, n) => ({ items: [{ productId: pid, qty }], contact: { name: 'Race ' + n, email: `race${n}@example.com`, phone: '08031234567' }, address: { state: 'Lagos', address: '1 Test Road' }, delivery: 'standard', payment });
+  const post = (c, url, body, n) => c.req('POST', url, body, { 'X-Forwarded-For': `10.9.${n % 250}.${(n * 7) % 250}` });
+  await test('10 shoppers racing for 3 units: exactly 3 orders succeed, stock ends at 0', async () => {
+    const item = (await guest.get('/api/products?store=electronics')).json.products.find((x) => !x.hasVariants && x.stock > 0);
+    await adminSql(`UPDATE products SET stock=3 WHERE id=${item.id}`, DB_NAME);
+    const rs = await Promise.all(Array.from({ length: 10 }, (_, i) => post(new Client(), '/api/checkout', mk(item.id, 1, 'pod', 100 + i), 100 + i)));
+    assert.strictEqual(rs.filter((r) => r.status === 200).length, 3, rs.map((r) => r.status).join(','));
+    assert.ok(rs.filter((r) => r.status !== 200).every((r) => r.status === 400 || r.status === 409));
+    assert.strictEqual(await stockOf(item.slug), 0);
+  });
+  await test('payment confirmed twice at the same moment is recorded once', async () => {
+    const item = (await guest.get('/api/products?store=electronics')).json.products.filter((x) => !x.hasVariants && x.stock > 5)[0];
+    const r = await post(new Client(), '/api/checkout', mk(item.id, 1, 'paystack', 200), 200); assert.strictEqual(r.json.next, 'demo');
+    const both = await Promise.all([post(new Client(), '/api/pay/demo/' + r.json.ref, { outcome: 'ok' }, 201), post(new Client(), '/api/pay/demo/' + r.json.ref, { outcome: 'ok' }, 202)]);
+    assert.ok(both.some((x) => x.status === 200));
+    const o = (await new Client().post('/api/orders/lookup', { ref: r.json.ref, email: 'race200@example.com' })).json.order;
+    assert.strictEqual(o.events.filter((e) => e.status === 'paid').length, 1);
+    const mails = (await admin.get('/api/admin/outbox')).json.emails.filter((m) => m.subject.includes('Payment received for ' + r.json.ref));
+    assert.strictEqual(mails.length, 1);
+  });
+  await test('cancelling twice at the same moment returns stock once', async () => {
+    const item = (await guest.get('/api/products?store=electronics')).json.products.filter((x) => !x.hasVariants && x.stock > 5)[1];
+    const before = await stockOf(item.slug);
+    const r = await post(new Client(), '/api/checkout', mk(item.id, 2, 'pod', 300), 300); assert.strictEqual(r.status, 200);
+    assert.strictEqual(await stockOf(item.slug), before - 2);
+    await Promise.all([post(new Client(), `/api/orders/${r.json.ref}/cancel`, { email: 'race300@example.com' }, 301), post(new Client(), `/api/orders/${r.json.ref}/cancel`, { email: 'race300@example.com' }, 302)]);
+    assert.strictEqual(await stockOf(item.slug), before);
+  });
+  await test('renaming a category updates product search; coupon with 1 use cannot be used twice at once', async () => {
+    const cat = cfg.categories.find((c) => c.store === 'electronics');
+    assert.strictEqual((await admin.put('/api/admin/categories/' + cat.id, { name: 'Zorblax Things', icon: cat.icon })).status, 200);
+    const found = (await guest.get('/api/products?q=zorblax')).json;
+    const inCat = (await admin.get('/api/admin/products?store=electronics')).json.products.filter((p) => p.category === 'Zorblax Things').map((p) => p.id).sort();
+    assert.ok(inCat.length >= 1 && found.total === inCat.length && found.products.map((p) => p.id).sort().join() === inCat.join());
+    assert.strictEqual((await admin.post('/api/admin/coupons', { code: 'ONCE', type: 'fixed', value: 500, min_spend: 0, max_uses: 1, active: true })).status, 200);
+    const item = (await guest.get('/api/products?store=electronics')).json.products.filter((x) => !x.hasVariants && x.stock > 5)[2];
+    const rs = await Promise.all([0, 1, 2, 3].map((i) => post(new Client(), '/api/checkout', { ...mk(item.id, 1, 'pod', 400 + i), coupon: 'ONCE' }, 400 + i)));
+    assert.strictEqual(rs.filter((r) => r.status === 200).length, 1, rs.map((r) => r.status).join(','));
+  });
+
+  await test('two background jobs started together: only one does the work (lease lock)', async () => {
+    const SC = require('path').join(__dirname, '..', 'lib');
+    // Fresh child processes so they use the test database, each trying to run the same job at the same moment.
+    const code = "process.env.DATABASE_URL='" + withDb(DB_NAME) + "';process.env.PGSSL='disable';process.env.DATA_DIR='" + DATA.replace(/\\/g, '/') + "';" +
+      "const j=require('" + SC.replace(/\\/g, '/') + "/jobs');j.remindAbandoned().then(()=>process.stdout.write('done')).then(()=>require('" + SC.replace(/\\/g, '/') + "/db').end())";
+    await adminSql("INSERT INTO abandoned (email,cart,created,reminded) VALUES ('lock@example.com','[{\"productId\":1,\"qty\":1}]'," + (Math.floor(Date.now() / 1000) - 7200) + ",0)", DB_NAME);
+    const run1 = () => new Promise((res) => { let out = ''; const c = spawn(process.execPath, ['-e', code]); c.stdout.on('data', (d) => { out += d; }); c.on('close', () => res(out)); });
+    const outs = await Promise.all([run1(), run1(), run1()]);
+    assert.ok(outs.every((o) => o === 'done'), outs.join('|'));
+    const mails = (await admin.get('/api/admin/outbox')).json.emails.filter((m) => /left something in your/.test(m.subject));
+    assert.strictEqual(mails.length, 1, 'reminder emails sent: ' + mails.length);
+  });
+
   console.log('\nPages');
   await test('server-rendered SEO: titles, product JSON-LD, 404s, sitemap, robots, security headers', async () => {
     const home = await guest.get('/d/electronics'); assert.match(home.text, /<html lang="en" data-store="electronics">/); assert.match(home.text, /<title>Shop-Beta Electronics/);
@@ -265,6 +326,8 @@ async function test(name, fn) {
   });
 
   srv.kill();
+  await new Promise((r) => setTimeout(r, 400));
+  await adminSql(`DROP DATABASE IF EXISTS ${DB_NAME} WITH (FORCE)`).catch(() => {});
   fs.rmSync(DATA, { recursive: true, force: true });
   console.log(`\n${passed} passed, ${failures.length} failed`);
   if (failures.length) { console.log('\nServer log:\n' + log.slice(-1500)); process.exit(1); }

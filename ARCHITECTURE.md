@@ -1,4 +1,6 @@
-# Shop-Beta architecture (as of step 1, before the rebuild)
+# Shop-Beta architecture
+
+> Sections 1 to 11 describe the code **before** the rebuild (step 1 snapshot, SQLite). **Section 12 describes what step 2 changed** (PostgreSQL). Where they disagree, section 12 wins.
 
 Written from reading every file in the repo at commit `9d4767f`. Numbers in the last section were measured, not estimated.
 
@@ -145,11 +147,63 @@ Reading: the server tops out near 155 requests a second regardless of connection
 Raw k6 summaries were saved in the scratch folder during the run; re-run with:
 
 ```
-DATA_DIR=/tmp/sb-load node load/seed-catalogue.js 20000
-DATA_DIR=/tmp/sb-load PORT=3100 BASE_URL=http://localhost:3100 node server.js &
+# After step 2 (PostgreSQL). Use a throwaway database; the seeder refuses a non-local one.
+DATABASE_URL=postgres://postgres@127.0.0.1:5433/sb_load PGSSL=disable node load/seed-catalogue.js 20000
+DATABASE_URL=postgres://postgres@127.0.0.1:5433/sb_load PGSSL=disable PORT=3100 BASE_URL=http://localhost:3100 node server.js &
 k6 run -e PROFILE=browse -e VUS=2000 -e RAMP=45s -e HOLD=60s load/baseline.js
 k6 run -e PROFILE=stress -e VUS=100 -e HOLD=30s load/baseline.js
 k6 run -e PROFILE=checkout -e RATE=100 -e HOLD=60s load/baseline.js
 ```
 
-Use a throwaway `DATA_DIR`. The seeder refuses to touch a database that already holds orders.
+The seeder refuses to touch a database that already holds orders. (The step 1 numbers above were measured on the SQLite version with the same k6 script.)
+
+## 12. After step 2: PostgreSQL
+
+Full setup, cutover and rollback instructions: `docs/DATABASE.md`.
+
+**What changed**
+
+- `lib/db.js` now uses the `pg` driver with a connection pool (`PG_POOL_MAX`, default 10). Same helper names (`get`, `all`, `run`, `tx`) plus `insert`, but every call is `async`: the whole app (routes, jobs, seed, server start) was converted. `tx()` uses AsyncLocalStorage, so any query inside `tx(async () => ...)` joins the transaction automatically; deadlocks are retried up to 3 times.
+- Schema is SQL in `migrations/` (`001_init`, `002_indexes_and_search`, `003_job_locks`), applied by `lib/migrate.js` under an advisory lock when the app starts or with `npm run migrate`.
+- `scripts/sqlite-to-postgres.js` copies the old `shop.db` in one transaction, keeps ids, checks every row count and money/stock total, supports `--dry-run`.
+- Search uses a `search_text` column kept by triggers plus a trigram index (was `LIKE` over five columns).
+- More than 30 indexes (product lists by department and sort, orders by customer/status/payment reference, etc.). Emails are unique case-insensitively through `lower(email)` indexes.
+- Express 4 does not catch errors in async handlers, so `lib/async-router.js` wraps every route; a global `unhandledRejection` logger is a last resort.
+- Background jobs take a database lease (`job_locks`) so only one instance runs each job, and the "reminder sent" claim is atomic. Works through Supabase's transaction pooler.
+- The dashboard's 14 daily-total queries became one grouped query, and the department homepage runs its four lists in parallel.
+
+**Race conditions that SQLite hid (it serialised every write) and are now handled explicitly**
+
+| Case | Fix |
+|---|---|
+| Two shoppers buying the last unit | Atomic `UPDATE ... WHERE stock >= qty`; products locked in id order to avoid deadlocks |
+| Variant stock total drifting | Product stock is adjusted by the same quantity as the variant, not recounted |
+| Payment confirmed by webhook and return page at once | Only the call that flips `payment_status` continues (one email, one event) |
+| Order cancelled twice at once | Only the call that flips `status` returns stock |
+| Coupon with limited uses | Atomic `UPDATE ... WHERE used < max_uses` inside the order transaction |
+
+All five are covered by the new "Concurrency" tests in `npm test` (28 tests now, run against a real throwaway Postgres database).
+
+**Server state after step 2** (compare with section 7)
+
+| # | State | Now |
+|---|---|---|
+| 1 | Business data | PostgreSQL, shared by any number of instances |
+| 2 | Uploaded photos | Still local disk. **Blocks running two instances** (step 3) |
+| 5 | Rate-limit counters | Still in memory per instance (steps 3 and 7) |
+| 6 | Background timers | Still run on every instance, now guarded by database leases |
+| 7 | Email sending | Still inside the request process (step 5) |
+| 9 | Settings | Still read from the database on every request (step 4) |
+
+**Measured after step 2** (same sandbox, same 20,060-product catalogue, same k6 scripts as section 11; the Postgres server shares the 2 CPUs with the app and the load generator)
+
+| Test | Before (SQLite) | After (Postgres) | Target |
+|---|---|---|---|
+| Single search request | 33 ms | 17 ms (uses the trigram index) | |
+| 100 connections, no think time | 152 req/s, p95 679 ms, p99 9.3 s | 300 req/s, p95 454 ms, p99 511 ms | p95 under 800 ms |
+| 400 connections | p95 2.7 s | 288 req/s, p95 1.78 s | |
+| 500 shoppers browsing | p95 1.14 s, p99 29.6 s | 157 req/s, **p95 52 ms**, p99 79 ms, 0 errors | passes |
+| **2,000 shoppers browsing** | p95 33.7 s, **10% errors** | 246 req/s, **p95 6.6 s, 0 errors** | p95 under 800 ms: **still fails** |
+| 100 checkouts per minute | p95 4 ms | p95 18 ms, 0 errors, 101 orders, no negative stock | passes |
+
+Reading: errors are gone and the database is no longer the first bottleneck, but one Node process still tops out near 250 to 300 requests a second, and in this sandbox it competes with Postgres and the load generator for two CPUs. Reaching the 2,000-shopper target needs the next steps: several instances (step 3) and caching of the config, homepage and product pages (step 4).

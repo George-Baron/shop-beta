@@ -4,12 +4,19 @@
   "description": "Shop-Beta online store: storefront, checkout, admin dashboard",
   "main": "server.js",
   "private": true,
-  "engines": { "node": ">=22.13" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning server.js",
-    "test": "node --disable-warning=ExperimentalWarning test/smoke.js"
+    "start": "node server.js",
+    "test": "node --disable-warning=ExperimentalWarning test/smoke.js",
+    "migrate": "node lib/migrate.js",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "import:sqlite": "node scripts/sqlite-to-postgres.js"
   },
   "dependencies": {
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "pg": "^8.23.1"
   }
 }
