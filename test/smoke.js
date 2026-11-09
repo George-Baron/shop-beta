@@ -10,6 +10,12 @@ const path = require('path');
 const PORT = 3400 + Math.floor(Math.random() * 400);
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-test-'));
+const { Client: PgClient } = require('pg');
+// Tests use a throwaway Postgres database. Point TEST_DATABASE_URL at any Postgres server you can create databases on.
+const ADMIN_URL = process.env.TEST_DATABASE_URL || 'postgres://postgres@127.0.0.1:5432/postgres';
+const TEST_DB = 'sb_test_' + Date.now().toString(36) + Math.floor(Math.random() * 1e4);
+const TEST_URL = ADMIN_URL.replace(/\/[^/?]*(\?.*)?$/, '/' + TEST_DB + '$1');
+async function pgAdmin(sql) { const c = new PgClient({ connectionString: ADMIN_URL }); await c.connect(); try { await c.query(sql); } finally { await c.end(); } }
 let passed = 0; const failures = [];
 
 class Client {
@@ -31,9 +37,10 @@ async function test(name, fn) {
 }
 
 (async () => {
-  const srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, BASE_URL: BASE, PAYSTACK_SECRET_KEY: '', RESEND_API_KEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  await pgAdmin(`CREATE DATABASE ${TEST_DB}`);
+  const srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, DATABASE_URL: TEST_URL, DATABASE_SSL: 'off', BASE_URL: BASE, PAYSTACK_SECRET_KEY: '', RESEND_API_KEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = ''; srv.stdout.on('data', (d) => { log += d; }); srv.stderr.on('data', (d) => { log += d; });
-  for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/api/config'); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
+  for (let i = 0; i < 150; i++) { try { await fetch(BASE + '/api/config'); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
 
   const shopper = new Client(), guest = new Client(), admin = new Client();
   let cfg, fashion, variantProduct, plain;
@@ -265,7 +272,9 @@ async function test(name, fn) {
   });
 
   srv.kill();
+  await new Promise((r) => setTimeout(r, 300));
   fs.rmSync(DATA, { recursive: true, force: true });
+  await pgAdmin(`DROP DATABASE IF EXISTS ${TEST_DB} WITH (FORCE)`).catch(() => {});
   console.log(`\n${passed} passed, ${failures.length} failed`);
   if (failures.length) { console.log('\nServer log:\n' + log.slice(-1500)); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

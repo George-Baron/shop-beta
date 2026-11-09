@@ -41,9 +41,29 @@ Order confirmations, status updates, password resets and abandoned-cart reminder
 
 ## Putting it online
 
-The shop is one Node program plus one folder of data (`data/`: the SQLite database and uploaded photos). Any host that runs Node and **keeps a persistent disk** will do: a small VPS, or a platform with a persistent volume. Hosts whose disk is wiped on every restart will lose your orders, so check this first. Free tiers often work for testing but not for a real shop. For a free starter web address most platforms give you a subdomain such as `yourshop.example-host.app`; connect your own domain later in the host's settings, then update `BASE_URL`.
+The shop is one Node program, a **PostgreSQL database** (Supabase in production) and a folder of uploaded photos (`data/uploads`, until step 3 moves them to object storage). The database holds orders, so it must never live on a disk that is wiped on restart: use Supabase (or any managed Postgres) and set `DATABASE_URL`.
 
-Run it behind HTTPS (hosts do this for you). Back up the `data/` folder regularly.
+Run it behind HTTPS (hosts do this for you). Turn on Supabase backups and keep your own copies too.
+
+### Run it on your computer
+
+1. Install Node 22.13 or newer and PostgreSQL 14 or newer.
+2. Create an empty database: `createdb shopbeta_dev`.
+3. Copy `.env.example` to `.env` and set `DATABASE_URL` (the default points at a local database).
+4. `npm install`, then `npm start`. The tables are created automatically on first start (files in `migrations/`).
+5. `npm test` runs the full checkout and admin test against a throwaway database. Set `TEST_DATABASE_URL` to a server where it may create databases (default `postgres://postgres@127.0.0.1:5432/postgres`).
+
+### Move an existing SQLite shop to Postgres (one time)
+
+1. Stop the old site, then copy `data/shop.db` (and the `data/shop.db-wal` file if it exists) somewhere safe.
+2. Set `DATABASE_URL` to the new empty Postgres database.
+3. Test first: `npm run import:sqlite -- path/to/shop.db --dry-run`. It copies everything inside one transaction, compares row counts, order totals and stock for every table, and then rolls back.
+4. Run it for real: `npm run import:sqlite -- path/to/shop.db`. If Postgres already has shop data the script refuses (use `--force` only on a database you can empty).
+5. Start the app, sign in as admin and spot-check products, a few orders and a customer login. Keep the old SQLite file and `data/uploads` until you are happy.
+
+### Connection pooling (Supabase)
+
+Use the **transaction pooler** connection string (port 6543). Each app instance opens at most `DB_POOL_MAX` connections (default 10). Two instances use at most 20, well inside the Supabase Pro pooler limit.
 
 ## Files
 
@@ -54,7 +74,8 @@ Run it behind HTTPS (hosts do this for you). Back up the `data/` folder regularl
 | `routes/public.js` | Shop API: products, cart, checkout, orders, accounts, wishlist |
 | `routes/admin.js` | Admin API |
 | `lib/shop.js` | Pricing, stock, orders, Paystack, emails |
-| `lib/db.js`, `lib/seed.js` | Database tables and the demo catalogue |
+| `lib/db.js`, `migrations/`, `lib/seed.js` | PostgreSQL connection, table definitions (SQL migrations) and the demo catalogue |
+| `scripts/import-sqlite.js` | One-time copy from the old SQLite file to Postgres |
 | `lib/auth.js`, `lib/jobs.js` | Passwords and sessions; background clean-up and reminders |
 
 ## Good to know
