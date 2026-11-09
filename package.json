@@ -11,7 +11,9 @@
     "start": "node --disable-warning=ExperimentalWarning server.js",
     "test": "node --disable-warning=ExperimentalWarning test/smoke.js",
     "import:sqlite": "node --disable-warning=ExperimentalWarning scripts/import-sqlite.js",
-    "migrate": "node -e \"require('./lib/db').migrate().then(()=>process.exit(0)).catch((e)=>{console.error(e.message);process.exit(1)})\""
+    "migrate": "node -e \"require('./lib/db').migrate().then(()=>process.exit(0)).catch((e)=>{console.error(e.message);process.exit(1)})\"",
+    "test:stateless": "node --disable-warning=ExperimentalWarning test/stateless.js",
+    "migrate:uploads": "node --disable-warning=ExperimentalWarning scripts/migrate-uploads.js"
   },
   "dependencies": {
     "express": "^4.21.2",

@@ -61,6 +61,10 @@ Run it behind HTTPS (hosts do this for you). Turn on Supabase backups and keep y
 4. Run it for real: `npm run import:sqlite -- path/to/shop.db`. If Postgres already has shop data the script refuses (use `--force` only on a database you can empty).
 5. Start the app, sign in as admin and spot-check products, a few orders and a customer login. Keep the old SQLite file and `data/uploads` until you are happy.
 
+### Photos (Supabase Storage)
+
+Product photos are stored in a public Supabase bucket, not on the server, so you can run several instances and restart freely. Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and (optionally) `SUPABASE_BUCKET`. Move existing photos once with `npm run migrate:uploads -- path/to/data/uploads --dry-run`, then again without `--dry-run`. The script uploads each file, downloads it back to check the size, and only then rewrites the links in the database; it never deletes anything. Old `/uploads/...` links keep working through a redirect. `npm run test:stateless` starts two instances against one database and checks sessions, uploads and the production guard.
+
 ### Connection pooling (Supabase)
 
 Use the **transaction pooler** connection string (port 6543). Each app instance opens at most `DB_POOL_MAX` connections (default 10). Two instances use at most 20, well inside the Supabase Pro pooler limit.
@@ -76,6 +80,7 @@ Use the **transaction pooler** connection string (port 6543). Each app instance 
 | `lib/shop.js` | Pricing, stock, orders, Paystack, emails |
 | `lib/db.js`, `migrations/`, `lib/seed.js` | PostgreSQL connection, table definitions (SQL migrations) and the demo catalogue |
 | `scripts/import-sqlite.js` | One-time copy from the old SQLite file to Postgres |
+| `lib/storage.js`, `scripts/migrate-uploads.js` | Photo storage (Supabase Storage or local folder) and the one-time photo move |
 | `lib/auth.js`, `lib/jobs.js` | Passwords and sessions; background clean-up and reminders |
 
 ## Good to know
