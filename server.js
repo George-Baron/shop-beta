@@ -13,7 +13,8 @@ try {
 } catch { /* no .env file */ }
 
 const express = require('express');
-const { get, all, run, now, DATA_DIR, migrate, health } = require('./lib/db');
+const { get, all, run, now, migrate, health } = require('./lib/db');
+const storage = require('./lib/storage');
 const { seed } = require('./lib/seed');
 const S = require('./lib/shop');
 const A = require('./lib/auth');
@@ -45,10 +46,18 @@ app.use((req, res, next) => {
 });
 
 /* ---------- uploads ---------- */
-app.use('/uploads', express.static(path.join(DATA_DIR, 'uploads'), {
-  maxAge: '30d', immutable: true, index: false, dotfiles: 'ignore',
-  setHeaders: (res) => { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Content-Security-Policy', "default-src 'none'"); },
-}));
+// Photos live in object storage. Old /uploads/<name> links (emails, bookmarks) still work: in production they redirect to the storage URL.
+if (storage.DRIVER === 'local') {
+  app.use('/uploads', express.static(storage.LOCAL_DIR, {
+    maxAge: '30d', immutable: true, index: false, dotfiles: 'ignore',
+    setHeaders: (res) => { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Content-Security-Policy', "default-src 'none'"); },
+  }));
+} else {
+  app.get('/uploads/:name', (req, res) => {
+    if (!/^[a-f0-9]{16,}\.(png|jpg|webp|gif)$/.test(req.params.name)) return res.status(404).end();
+    res.set('Cache-Control', 'public, max-age=86400').redirect(301, storage.urlFor(req.params.name));
+  });
+}
 
 /* ---------- health (for uptime checks and the load balancer) ---------- */
 app.get('/health', async (req, res) => {
