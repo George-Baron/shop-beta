@@ -15,6 +15,8 @@ try {
 const express = require('express');
 const { get, all, run, now, migrate, health } = require('./lib/db');
 const storage = require('./lib/storage');
+const compression = require('compression');
+const cache = require('./lib/cache');
 const { seed } = require('./lib/seed');
 const S = require('./lib/shop');
 const A = require('./lib/auth');
@@ -23,6 +25,9 @@ const jobs = require('./lib/jobs');
 const { esc, BASE_URL, getSettings, parseImages, naira } = S;
 const app = express();
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+// gzip pages and JSON (level 1: nearly the same size, several times less CPU). Pages carry a per-visitor security nonce, so they cannot be compressed once and reused;
+// when the request comes through Cloudflare (it adds cf-ray) we send pages uncompressed and let Cloudflare compress them at the edge, which saves a lot of CPU.
+app.use(compression({ threshold: 1024, level: 1, filter: (req, res) => !(req.headers['cf-ray'] && /text\/html/.test(String(res.getHeader('Content-Type') || ''))) && compression.filter(req, res) }));
 app.disable('x-powered-by');
 app.set('trust proxy', process.env.TRUST_PROXY === '0' ? false : 1);
 
@@ -149,8 +154,17 @@ async function describe(req) {
   return out;
 }
 
+// The page head (title, description, structured data, plain-text body for search engines) is the same for everyone, so it is kept for 30 seconds.
+// Only successful pages are kept, so a flood of made-up addresses cannot fill the cache with 404s. The per-request nonce below is never cached.
+const DESCRIBE_KEYS = ['store', 'q', 'category', 'page', 'sort', 'min', 'max', 'size', 'color', 'rating', 'instock', 'flag'];
+const describeCached = (req) => {
+  const q = DESCRIBE_KEYS.map((k) => (req.query[k] === undefined ? '' : k + '=' + String(req.query[k]).slice(0, 60))).join('&');
+  const key = 'page:' + req.path.slice(0, 200) + '?' + q;
+  return cache.cached(key, 30000, () => describe(req), (d) => d.status === 200);
+};
+
 app.get(/^\/(?!api\/|uploads\/|health).*/, ah(async (req, res) => {
-  const d = await describe(req);
+  const d = await describeCached(req);
   const nonce = crypto.randomBytes(16).toString('base64');
   const tags = [
     `<title>${esc(d.title)}</title>`, `<meta name="description" content="${esc(d.desc)}">`, `<link rel="canonical" href="${esc(d.canonical)}">`,
@@ -191,6 +205,7 @@ let server;
   await migrate();      // creates or updates the tables (safe to run on every start, and by two instances at once)
   await seed();
   await bootstrapAdmin();
+  cache.watch(); // notice edits made on other instances
   server = app.listen(PORT, process.env.HOST || '0.0.0.0', async () => {
     console.log(`\nShop-Beta is running at ${BASE_URL}`);
     const hasAdmin = await get("SELECT 1 x FROM users WHERE role='admin'").catch(() => null);

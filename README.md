@@ -65,6 +65,14 @@ Run it behind HTTPS (hosts do this for you). Turn on Supabase backups and keep y
 
 Product photos are stored in a public Supabase bucket, not on the server, so you can run several instances and restart freely. Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and (optionally) `SUPABASE_BUCKET`. Move existing photos once with `npm run migrate:uploads -- path/to/data/uploads --dry-run`, then again without `--dry-run`. The script uploads each file, downloads it back to check the size, and only then rewrites the links in the database; it never deletes anything. Old `/uploads/...` links keep working through a redirect. `npm run test:stateless` starts two instances against one database and checks sessions, uploads and the production guard.
 
+### Speed: caching and compression
+
+- **Compression:** pages and JSON are gzip-compressed. Behind Cloudflare, pages are sent uncompressed and Cloudflare compresses them at the edge (saves server CPU).
+- **Server cache (no Redis):** department homepages, product lists, product pages, the page head used for search engines, the site config and settings are kept in memory for 10 to 30 seconds. Many simultaneous requests for the same thing share one database query. Stock on a product page is always read live, and checkout always checks real stock inside a database transaction.
+- **Edits show up quickly:** when an admin changes a product, category, department, setting or review approval, the cache is cleared at once on that instance, and the other instances notice within about 5 seconds (through a `cache_version` row in the `settings` table). Set `CACHE_DISABLED=1` to switch the server cache off.
+- **Browser and Cloudflare:** catalogue answers carry `Cache-Control: public, max-age=10, s-maxage=30, stale-while-revalidate=60`. Account, cart, order, admin and page (HTML) responses are never shared-cacheable. Cloudflare does not cache JSON by default: add a Cache Rule for `/api/home/*`, `/api/products*` that respects the origin's Cache-Control (see DEPLOY notes). Do not cache `/api/config`, `/api/me` or HTML.
+- `npm run test:cache` checks all of this with two instances.
+
 ### Connection pooling (Supabase)
 
 Use the **transaction pooler** connection string (port 6543). Each app instance opens at most `DB_POOL_MAX` connections (default 10). Two instances use at most 20, well inside the Supabase Pro pooler limit.
@@ -80,6 +88,7 @@ Use the **transaction pooler** connection string (port 6543). Each app instance 
 | `lib/shop.js` | Pricing, stock, orders, Paystack, emails |
 | `lib/db.js`, `migrations/`, `lib/seed.js` | PostgreSQL connection, table definitions (SQL migrations) and the demo catalogue |
 | `scripts/import-sqlite.js` | One-time copy from the old SQLite file to Postgres |
+| `lib/cache.js` | In-memory cache with request sharing and cross-instance clearing |
 | `lib/storage.js`, `scripts/migrate-uploads.js` | Photo storage (Supabase Storage or local folder) and the one-time photo move |
 | `lib/auth.js`, `lib/jobs.js` | Passwords and sessions; background clean-up and reminders |
 

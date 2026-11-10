@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const express = require('express');
 const { get, all, run, tx, now } = require('../lib/db');
 const S_ = require('../lib/shop');
+const cache = require('../lib/cache');
 const A = require('../lib/auth');
 const { fail, str, int, isEmail, parseImages, card, RATING_JOIN, getSettings, esc } = S_;
 
@@ -11,27 +12,40 @@ const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
 const PRODUCT_SELECT = `SELECT p.*, c.name AS category, c.slug AS category_slug, COALESCE(rv.r,0) AS rating, COALESCE(rv.n,0) AS rating_n
   FROM products p LEFT JOIN categories c ON c.id = p.category_id ${RATING_JOIN}`;
 const PER_PAGE = 20;
+// Catalogue answers are the same for every visitor, so browsers and Cloudflare may keep them briefly. Never use this on anything that depends on who is asking.
+const publicCache = (res) => res.set('Cache-Control', 'public, max-age=10, s-maxage=30, stale-while-revalidate=60');
+const queryKey = (prefix, query) => { const k = prefix + JSON.stringify(Object.entries(query).sort()); return k.length <= 400 ? k : null; };
 
 /* ================= config ================= */
 router.get('/config', ah(async (req, res) => {
+  const base = await cache.cached('config', 30000, buildConfig);
+  res.set('Cache-Control', 'private, no-cache'); // includes the signed-in user, so never shared
+  res.json({ ...base, user: req.user ? A.publicUser(req.user) : null });
+}));
+async function buildConfig() {
   const S = await getSettings();
   const stores = await all('SELECT * FROM stores WHERE active=1 ORDER BY sort, slug');
   const slugs = new Set(stores.map((s) => s.slug));
   const settings = { ...S }; delete settings.demo_seeded; delete settings.pod_enabled; delete settings.paystack_enabled;
   const categories = (await all('SELECT id, store, slug, name, icon FROM categories ORDER BY sort, id')).filter((c) => slugs.has(c.store));
   const zones = (await all('SELECT state, fee, eta, pod FROM zones ORDER BY sort, state')).map((z) => ({ ...z, pod: z.pod && S.pod_enabled === '1' ? 1 : 0 }));
-  res.json({
+  return {
     settings, stores,
     categories,
     zones,
     payments: { paystack: S.paystack_enabled === '1', pod: S.pod_enabled === '1', demo: !S_.paystackLive() },
-    user: req.user ? A.publicUser(req.user) : null,
-  });
-}));
+  };
+}
 
 /* ================= catalogue ================= */
 router.get('/home/:slug', ah(async (req, res) => {
-  const store = await get('SELECT * FROM stores WHERE slug=? AND active=1', str(req.params.slug, 40));
+  const slug = str(req.params.slug, 40);
+  const data = await cache.cached('home:' + slug, 30000, () => buildHome(slug));
+  publicCache(res);
+  res.json(data);
+}));
+async function buildHome(slug) {
+  const store = await get('SELECT * FROM stores WHERE slug=? AND active=1', slug);
   if (!store) fail(404, 'Department not found.');
   const list = async (cond, order, limit) => (await all(`${PRODUCT_SELECT} WHERE p.active=1 AND p.store=? ${cond} ORDER BY ${order} LIMIT ${limit}`, store.slug)).map(card);
   const categories = await all('SELECT id, slug, name, icon FROM categories WHERE store=? ORDER BY sort, id', store.slug);
@@ -39,12 +53,18 @@ router.get('/home/:slug', ah(async (req, res) => {
   const bestsellers = await list('AND p.bestseller=1', 'p.sold DESC, p.id DESC', 10);
   const newArrivals = await list('AND p.new_arrival=1', 'p.created DESC', 8);
   const deals = await list('AND p.compare_price > p.price', '(p.compare_price - p.price) * 1.0 / p.compare_price DESC', 10);
-  res.json({ store, categories, featured, bestsellers, newArrivals, deals });
-}));
+  return { store, categories, featured, bestsellers, newArrivals, deals };
+}
 
 const likeEsc = (s) => s.replace(/[\\%_]/g, (c) => '\\' + c);
 router.get('/products', ah(async (req, res) => {
-  const q = req.query, where = ['p.active=1'], args = [], facetWhere = ['p.active=1'], facetArgs = [];
+  const key = queryKey('products:', req.query);
+  const data = key ? await cache.cached(key, 30000, () => listProducts(req.query)) : await listProducts(req.query);
+  publicCache(res);
+  res.json(data);
+}));
+async function listProducts(q) {
+  const where = ['p.active=1'], args = [], facetWhere = ['p.active=1'], facetArgs = [];
   const store = str(q.store, 40), category = str(q.category, 60);
   if (store) { where.push('p.store=?'); args.push(store); facetWhere.push('p.store=?'); facetArgs.push(store); }
   if (category) { where.push('c.slug=?'); args.push(category); facetWhere.push('c.slug=?'); facetArgs.push(category); }
@@ -73,8 +93,8 @@ router.get('/products', ah(async (req, res) => {
   const products = (await all(`SELECT p.*, c.name AS category, COALESCE(rv.r,0) AS rating, COALESCE(rv.n,0) AS rating_n ${from} ORDER BY ${order} LIMIT ${PER_PAGE} OFFSET ${(page - 1) * PER_PAGE}`, ...args)).map(card);
   const fr = await all(`SELECT DISTINCT v.size, v.color FROM variants v JOIN products p ON p.id=v.product_id LEFT JOIN categories c ON c.id=p.category_id WHERE ${facetWhere.join(' AND ')}`, ...facetArgs);
   const nat = (a, b) => a.localeCompare(b, undefined, { numeric: true });
-  res.json({ products, total, page, pages, facets: { sizes: [...new Set(fr.map((x) => x.size).filter(Boolean))].sort(nat), colors: [...new Set(fr.map((x) => x.color).filter(Boolean))].sort(nat) } });
-}));
+  return { products, total, page, pages, facets: { sizes: [...new Set(fr.map((x) => x.size).filter(Boolean))].sort(nat), colors: [...new Set(fr.map((x) => x.color).filter(Boolean))].sort(nat) } };
+}
 
 router.post('/products/by-ids', ah(async (req, res) => {
   const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map((x) => int(x)).filter((x) => x > 0).slice(0, 24);
@@ -85,21 +105,30 @@ router.post('/products/by-ids', ah(async (req, res) => {
 }));
 
 router.get('/products/:slug', ah(async (req, res) => {
-  const p = await get(`${PRODUCT_SELECT} WHERE p.active=1 AND p.slug=?`, str(req.params.slug, 120));
+  const slug = str(req.params.slug, 120);
+  const base = await cache.cached('product:' + slug, 20000, () => buildProduct(slug));
+  // Description, reviews and related products may be 20 seconds old, but stock must be live (two small indexed queries).
+  const live = await get('SELECT stock FROM products WHERE id=?', base.product.id);
+  const variants = await all('SELECT id, size, color, stock FROM variants WHERE product_id=? ORDER BY id', base.product.id);
+  res.set('Cache-Control', 'no-cache'); // stock changes with every order, so browsers must ask again (the server answer is cheap)
+  res.json({ ...base, product: { ...base.product, stock: live ? live.stock : 0, variants } });
+}));
+async function buildProduct(slug) {
+  const p = await get(`${PRODUCT_SELECT} WHERE p.active=1 AND p.slug=?`, slug);
   if (!p) fail(404, 'We could not find that product.');
   const variants = await all('SELECT id, size, color, stock FROM variants WHERE product_id=? ORDER BY id', p.id);
   const reviews = await all('SELECT name, rating, title, body, created FROM reviews WHERE product_id=? AND approved=1 ORDER BY id DESC LIMIT 50', p.id);
   const dist = [5, 4, 3, 2, 1].map((s) => ({ stars: s, n: reviews.filter((r) => r.rating === s).length }));
   const related = (await all(`${PRODUCT_SELECT} WHERE p.active=1 AND p.store=? AND p.id<>? ORDER BY (p.category_id IS NOT DISTINCT FROM ?::bigint) DESC, p.sold DESC LIMIT 5`, p.store, p.id, p.category_id)).map(card);
-  res.json({
+  return {
     product: { ...card(p), store: p.store, category: p.category || '', category_slug: p.category_slug || '', description: p.description, sku: p.sku, size_label: p.size_label, images: parseImages(p.images), variants, reviews, dist },
     related,
-  });
-}));
+  };
+}
 
 router.post('/products/:id/reviews', A.limiter('review', 8, 3600000), ah(async (req, res) => {
   const pid = int(req.params.id), b = req.body || {};
-  const p = await get('SELECT id FROM products WHERE id=? AND active=1', pid);
+  const p = await get('SELECT id, slug FROM products WHERE id=? AND active=1', pid);
   if (!p) fail(404, 'We could not find that product.');
   const rating = int(b.rating), body = str(b.body, 1000), title = str(b.title, 80);
   if (rating < 1 || rating > 5) fail(400, 'Please choose a star rating.');
@@ -113,6 +142,7 @@ router.post('/products/:id/reviews', A.limiter('review', 8, 3600000), ah(async (
     if (err && err.code === '23505') fail(409, 'You have already reviewed this product.');
     throw err;
   }
+  cache.drop('product:' + p.slug); // so the reviewer sees their review at once; rating averages on listings catch up within 30 seconds
   res.json({ ok: true });
 }));
 

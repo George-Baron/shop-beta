@@ -13,9 +13,11 @@
     "import:sqlite": "node --disable-warning=ExperimentalWarning scripts/import-sqlite.js",
     "migrate": "node -e \"require('./lib/db').migrate().then(()=>process.exit(0)).catch((e)=>{console.error(e.message);process.exit(1)})\"",
     "test:stateless": "node --disable-warning=ExperimentalWarning test/stateless.js",
-    "migrate:uploads": "node --disable-warning=ExperimentalWarning scripts/migrate-uploads.js"
+    "migrate:uploads": "node --disable-warning=ExperimentalWarning scripts/migrate-uploads.js",
+    "test:cache": "node --disable-warning=ExperimentalWarning test/cache.js"
   },
   "dependencies": {
+    "compression": "^1.8.2",
     "express": "^4.21.2",
     "pg": "^8.23.1"
   }
