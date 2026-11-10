@@ -207,3 +207,31 @@ All five are covered by the new "Concurrency" tests in `npm test` (28 tests now,
 | 100 checkouts per minute | p95 4 ms | p95 18 ms, 0 errors, 101 orders, no negative stock | passes |
 
 Reading: errors are gone and the database is no longer the first bottleneck, but one Node process still tops out near 250 to 300 requests a second, and in this sandbox it competes with Postgres and the load generator for two CPUs. Reaching the 2,000-shopper target needs the next steps: several instances (step 3) and caching of the config, homepage and product pages (step 4).
+
+
+## 13. After step 3: stateless instances
+
+Goal: any number of identical instances can run behind a load balancer, with nothing held on one instance's disk or memory that another instance would miss.
+
+**Server state after step 3**
+
+| # | State | Now |
+|---|---|---|
+| 1 | Business data | PostgreSQL |
+| 2 | Uploaded photos | **Supabase Storage** (public bucket, key `uploads/<name>`); photo links in the database are full storage addresses; no instance writes photos to disk |
+| 3 | Sign-in sessions | PostgreSQL (`sessions` table, already shared) |
+| 5 | Rate-limit counters | **PostgreSQL** `rate_limits` (unlogged table), counted across all instances |
+| 6 | Background timers | Run on every instance, guarded by database leases (only one does the work) |
+| 7 | Email sending | Still inside the request process (step 5) |
+| 9 | Settings | Still read from the database on every request (step 4) |
+
+**Other changes**
+- `GET /health` for the load balancer: checks the database, answers 503 while the instance is shutting down. Every response carries `X-Instance`.
+- Shutdown drains: on SIGTERM the instance reports 503 on `/health`, keeps serving for `DRAIN_MS`, finishes in-flight requests, then closes the database pool (hard stop after 15 s).
+- Old `/uploads/<name>` links answer a 301 redirect to the stored photo, so old emails, order pages and caches keep working.
+- Production refuses local photo storage: with no Supabase keys, uploads answer a clear 503 instead of silently saving to a disk that disappears on redeploy.
+- `scripts/migrate-images.js` moves existing photos (see `docs/STORAGE.md`); `scripts/check-storage.js` proves your real Supabase keys work; `scripts/dev-lb.js` is a tiny load balancer for running two copies on one computer.
+
+**Tests added:** `npm run test:multi` starts two copies with separate disks behind the dev load balancer and checks shared sessions, shared storage, shared rate limits and a zero-failure shutdown under traffic. `npm run test:images` checks the migration script. The upload test in `npm test` now runs against a stand-in for Supabase Storage.
+
+**Not verified here:** the real Supabase Storage service and real Render instances. All storage tests use a stand-in that follows the documented REST calls; run `npm run check:storage` with your keys to confirm.

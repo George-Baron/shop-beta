@@ -197,7 +197,7 @@ router.post('/auth/register', A.limiter('register', 10, 3600000), ah(async (req,
 }));
 router.post('/auth/login', ah(async (req, res) => {
   const b = req.body || {}, email = str(b.email, 120).toLowerCase(), pw = typeof b.password === 'string' ? b.password.slice(0, 200) : '';
-  if (!A.hit('login-ip:' + req.ip, 30, 900000) || !A.hit('login-email:' + email, 8, 900000)) fail(429, 'Too many sign-in attempts. Please wait 15 minutes and try again.');
+  if (!(await A.hit('login-ip:' + req.ip, 30, 900000)) || !(await A.hit('login-email:' + email, 8, 900000))) fail(429, 'Too many sign-in attempts. Please wait 15 minutes and try again.');
   const u = await get('SELECT * FROM users WHERE lower(email)=?', email);
   const good = u ? await A.checkPassword(pw, u.password) : await A.burn(pw);
   if (!u || !good) fail(401, 'That email and password do not match.');

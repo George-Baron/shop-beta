@@ -15,6 +15,7 @@ try {
 const express = require('express');
 const { get, all, insert, now, DATA_DIR, ping, end } = require('./lib/db');
 const { migrate } = require('./lib/migrate');
+const storage = require('./lib/storage');
 const { seed } = require('./lib/seed');
 const S = require('./lib/shop');
 const A = require('./lib/auth');
@@ -44,11 +45,30 @@ app.use((req, res, next) => {
   next();
 });
 
+/* ---------- health check (used by the load balancer) ---------- */
+const INSTANCE = process.env.INSTANCE_ID || process.env.RENDER_INSTANCE_ID || require('os').hostname();
+let draining = false;
+app.use((req, res, next) => { res.setHeader('X-Instance', INSTANCE); next(); });
+app.get('/health', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store'); res.setHeader('X-Instance', INSTANCE);
+  if (draining) return res.status(503).json({ ok: false, status: 'shutting down', instance: INSTANCE });
+  try { await ping(); res.json({ ok: true, db: true, instance: INSTANCE }); }
+  catch (e) { res.status(503).json({ ok: false, db: false, instance: INSTANCE }); }
+});
+
 /* ---------- uploads ---------- */
-app.use('/uploads', express.static(path.join(DATA_DIR, 'uploads'), {
-  maxAge: '30d', immutable: true, index: false, dotfiles: 'ignore',
-  setHeaders: (res) => { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Content-Security-Policy', "default-src 'none'"); },
-}));
+// Photos live in Supabase Storage. Old links like /uploads/abc.jpg (emails, search results) are forwarded there.
+if (storage.DRIVER === 'local') {
+  app.use('/uploads', express.static(path.join(DATA_DIR, 'uploads'), {
+    maxAge: '30d', immutable: true, index: false, dotfiles: 'ignore',
+    setHeaders: (res) => { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Content-Security-Policy', "default-src 'none'"); },
+  }));
+} else {
+  app.get('/uploads/:name', (req, res) => {
+    if (!/^[a-f0-9]{16,}\.(png|jpg|webp|gif)$/.test(req.params.name) || storage.DRIVER === 'none') return res.status(404).end();
+    res.setHeader('Cache-Control', 'public, max-age=86400'); res.redirect(301, storage.publicUrl(req.params.name));
+  });
+}
 
 /* ---------- API ---------- */
 app.use('/api/admin/upload', express.json({ limit: '4mb' }));
@@ -174,12 +194,14 @@ const PORT = Number(process.env.PORT) || 3000;
 let server;
 async function main() {
   await ping();                 // fail fast with a clear message if the database cannot be reached
+  await storage.init();
   if (process.env.MIGRATE_ON_START !== '0') { const done = await migrate(); if (done.length) console.log('Database migrated:', done.join(', ')); }
   await seed();
   await bootstrapAdmin();
   server = app.listen(PORT, process.env.HOST || '0.0.0.0', async () => {
     console.log(`\nShop-Beta is running at ${BASE_URL}`);
     console.log(`Admin dashboard:   ${BASE_URL}/admin${(await get("SELECT 1 x FROM users WHERE role='admin'")) ? '' : '   (open it now to create your admin account)'}`);
+    console.log(storage.DRIVER === 'supabase' ? 'Photos: Supabase Storage.' : storage.DRIVER === 'local' ? 'Photos: LOCAL DISK (development only; they would be lost on a hosted server).' : 'Photos: storage not configured, uploads are disabled (set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY).');
     console.log(S.paystackLive() ? 'Paystack: LIVE keys are set.' : 'Paystack: no PAYSTACK_SECRET_KEY set, so online payment runs in demo mode (no real money).');
     if (!process.env.RESEND_API_KEY) console.log('Email: RESEND_API_KEY not set, so emails are stored in Admin > Marketing > Email outbox instead of being sent.');
     jobs.start();
@@ -191,6 +213,8 @@ main().catch((e) => { console.error('Could not start:', e.message); process.exit
 let stopping = false;
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => {
   if (stopping) return; stopping = true;
-  setTimeout(() => process.exit(0), 8000).unref();
-  (server ? new Promise((r) => server.close(r)) : Promise.resolve()).then(() => end()).catch(() => {}).then(() => process.exit(0));
+  // Tell the load balancer first (/health now says 503), give it a moment to stop sending traffic, then finish in-flight requests.
+  draining = true;
+  setTimeout(() => process.exit(0), 15000).unref();
+  setTimeout(() => (server ? new Promise((r) => server.close(r)) : Promise.resolve()).then(() => end()).catch(() => {}).then(() => process.exit(0)), Number(process.env.DRAIN_MS ?? 3000));
 });

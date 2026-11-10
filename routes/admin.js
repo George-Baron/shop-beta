@@ -1,9 +1,8 @@
 'use strict';
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
-const { get, all, run, insert, tx, now, DATA_DIR } = require('../lib/db');
+const { get, all, run, insert, tx, now } = require('../lib/db');
+const storage = require('../lib/storage');
 const S = require('../lib/shop');
 const A = require('../lib/auth');
 const jobs = require('../lib/jobs');
@@ -102,7 +101,7 @@ router.get('/products/:id', async (req, res) => {
   res.json({ product: { ...p, images: parseImages(p.images), variants: await all('SELECT id, size, color, stock FROM variants WHERE product_id=? ORDER BY id', p.id) } });
 });
 
-const okImage = (u) => typeof u === 'string' && u.length <= 500 && (/^\/uploads\/[a-f0-9]{16,}\.(png|jpg|webp|gif)$/.test(u) || /^https:\/\/[^\s"'<>]+$/.test(u));
+const okImage = (u) => typeof u === 'string' && u.length <= 500 && (/^\/uploads\/[a-f0-9]{16,}\.(png|jpg|webp|gif)$/.test(u) || /^https:\/\/[^\s"'<>]+$/.test(u) || (storage.DRIVER === 'supabase' && u.startsWith(storage.publicUrl(''))));
 async function readProduct(b) {
   const name = str(b.name, 140);
   if (!name) fail(400, 'Please enter a product name.');
@@ -168,7 +167,7 @@ router.delete('/products/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-/* ---------- photo upload (stored on disk, served from /uploads) ---------- */
+/* ---------- photo upload (Supabase Storage in production, see lib/storage.js) ---------- */
 const MAGIC = [
   { ext: 'png', mime: 'image/png', test: (b) => b.length > 8 && b.readUInt32BE(0) === 0x89504e47 },
   { ext: 'jpg', mime: 'image/jpeg', test: (b) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
@@ -183,8 +182,8 @@ router.post('/upload', async (req, res) => {
   const kind = MAGIC.find((k) => k.test(buf));
   if (!kind) fail(400, 'That file is not a valid image.');
   const name = crypto.randomBytes(12).toString('hex') + '.' + kind.ext;
-  fs.writeFileSync(path.join(DATA_DIR, 'uploads', name), buf);
-  res.json({ url: '/uploads/' + name });
+  try { res.json({ url: await storage.put(name, buf, kind.mime) }); }
+  catch (e) { if (e instanceof storage.StorageError) fail(e.status, e.message); throw e; }
 });
 
 /* ---------- departments & categories ---------- */

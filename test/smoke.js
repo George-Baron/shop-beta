@@ -8,6 +8,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { Client: PgClient } = require('pg');
+const mockSupabase = require('./mock-supabase');
+const SERVICE_KEY = 'test-service-key';
 
 const PORT = 3400 + Math.floor(Math.random() * 400);
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -38,7 +40,8 @@ async function test(name, fn) {
 
 (async () => {
   await adminSql(`CREATE DATABASE ${DB_NAME}`);
-  const srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, DATABASE_URL: withDb(DB_NAME), PGSSL: process.env.PGSSL_TEST || 'disable', BASE_URL: BASE, PAYSTACK_SECRET_KEY: '', RESEND_API_KEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const storageMock = await mockSupabase.start(SERVICE_KEY);
+  const srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, DATABASE_URL: withDb(DB_NAME), PGSSL: process.env.PGSSL_TEST || 'disable', BASE_URL: BASE, SUPABASE_URL: storageMock.url, SUPABASE_SERVICE_ROLE_KEY: SERVICE_KEY, SUPABASE_BUCKET: 'shop-images', STORAGE_DRIVER: '', PAYSTACK_SECRET_KEY: '', RESEND_API_KEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = ''; srv.stdout.on('data', (d) => { log += d; }); srv.stderr.on('data', (d) => { log += d; });
   for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/api/config'); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
 
@@ -211,8 +214,14 @@ async function test(name, fn) {
   });
   await test('products: create with variants and photo, edit keeps variant ids, hide, delete', async () => {
     const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
-    const up = await admin.post('/api/admin/upload', { data: png }); assert.match(up.json.url, /^\/uploads\/[a-f0-9]{24}\.png$/);
-    assert.strictEqual((await guest.get(up.json.url)).status, 200);
+    const up = await admin.post('/api/admin/upload', { data: png });
+    assert.strictEqual(up.status, 200);
+    assert.match(up.json.url, new RegExp('^' + storageMock.url.replace(/[.]/g, '\\.') + '/storage/v1/object/public/shop-images/uploads/[a-f0-9]{24}\\.png$'));
+    const stored = await fetch(up.json.url); assert.strictEqual(stored.status, 200); assert.strictEqual(stored.headers.get('content-type'), 'image/png');
+    assert.ok(storageMock.log.some((l) => l.bucket && l.bucket.public === true), 'bucket created public');
+    assert.deepStrictEqual(storageMock.log.filter((l) => l.denied), [], 'every storage call carried the service key');
+    assert.ok(!fs.existsSync(path.join(DATA, 'uploads')) || fs.readdirSync(path.join(DATA, 'uploads')).length === 0, 'nothing written to local disk');
+    const legacy = await guest.get('/uploads/' + up.json.url.split('/').pop()); assert.strictEqual(legacy.status, 301); assert.strictEqual(legacy.headers.get('location'), up.json.url);
     assert.strictEqual((await admin.post('/api/admin/upload', { data: 'data:image/png;base64,' + Buffer.from('<script>alert(1)</script>').toString('base64') })).status, 400);
     assert.strictEqual((await admin.post('/api/admin/upload', { data: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=' })).status, 400);
     const body = { name: 'Test Kaftan', store: 'fashion', category_id: cfg.categories.find((c) => c.store === 'fashion').id, price: 15000, compare_price: 20000, brand: 'Tester', sku: 'T-1', emoji: '👘', description: 'A test kaftan.', size_label: 'Size', images: [up.json.url], variants: [{ size: 'M', color: 'Blue', stock: 4 }, { size: 'L', color: 'Blue', stock: 6 }], featured: 1, active: 1 };
@@ -325,7 +334,7 @@ async function test(name, fn) {
     assert.strictEqual(last.status, 429);
   });
 
-  srv.kill();
+  srv.kill(); storageMock.close();
   await new Promise((r) => setTimeout(r, 400));
   await adminSql(`DROP DATABASE IF EXISTS ${DB_NAME} WITH (FORCE)`).catch(() => {});
   fs.rmSync(DATA, { recursive: true, force: true });
