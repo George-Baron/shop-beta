@@ -45,12 +45,14 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self)');
   if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
   next();
 });
 
 /* ---------- uploads ---------- */
+// Leaflet (the map library) is served from here, not from a third-party CDN.
+app.use('/vendor/leaflet', express.static(path.join(__dirname, 'node_modules', 'leaflet', 'dist'), { maxAge: '30d', index: false, dotfiles: 'ignore', setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff') }));
 // Photos live in object storage. Old /uploads/<name> links (emails, bookmarks) still work: in production they redirect to the storage URL.
 if (storage.DRIVER === 'local') {
   app.use('/uploads', express.static(storage.LOCAL_DIR, {
@@ -89,7 +91,7 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
 /* ---------- robots & sitemap ---------- */
 app.get('/robots.txt', (req, res) => {
-  res.type('text/plain').send(`User-agent: *\nDisallow: /admin\nDisallow: /api/\nDisallow: /checkout\nDisallow: /account\nDisallow: /order/\nDisallow: /login\nDisallow: /register\n\nSitemap: ${BASE_URL}/sitemap.xml\n`);
+  res.type('text/plain').send(`User-agent: *\nDisallow: /admin\nDisallow: /rider\nDisallow: /api/\nDisallow: /checkout\nDisallow: /account\nDisallow: /order/\nDisallow: /login\nDisallow: /register\n\nSitemap: ${BASE_URL}/sitemap.xml\n`);
 });
 app.get('/sitemap.xml', ah(async (req, res) => {
   const urls = [BASE_URL + '/'];
@@ -102,7 +104,7 @@ app.get('/sitemap.xml', ah(async (req, res) => {
 /* ---------- pages (one HTML shell, filled in per URL for search engines and link previews) ---------- */
 const TEMPLATE = fs.readFileSync(path.join(__dirname, 'views', 'index.html'), 'utf8');
 const PAGES = { about: 'About us', faq: 'Frequently asked questions', shipping: 'Shipping & Returns', privacy: 'Privacy policy', terms: 'Terms of service', contact: 'Contact us' };
-const NOINDEX = new Set(['checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
+const NOINDEX = new Set(['rider', 'checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
 const clip = (s, n) => { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s; };
 const absUrl = (u) => (!u ? '' : /^https?:\/\//.test(u) ? u : BASE_URL + u);
 

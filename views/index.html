@@ -259,6 +259,30 @@ async function api(path, opts = {}) {
   return d;
 }
 
+/* ---- maps: Leaflet is served from our own server (/vendor/leaflet), tiles come from the configured provider ---- */
+let leafletP;
+function loadLeaflet() {
+  if (!leafletP) leafletP = new Promise((res, rej) => {
+    if (window.L) return res(window.L);
+    const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = '/vendor/leaflet/leaflet.css'; document.head.appendChild(l);
+    const sc = document.createElement('script'); sc.src = '/vendor/leaflet/leaflet.js';
+    const n = document.querySelector('script[nonce]'); if (n && n.nonce) sc.nonce = n.nonce;
+    sc.onload = () => { window.L.Icon.Default.imagePath = '/vendor/leaflet/images/'; res(window.L); };
+    sc.onerror = () => { leafletP = null; rej(new Error('The map could not load.')); };
+    document.head.appendChild(sc);
+  });
+  return leafletP;
+}
+let dcfgP; const dcfg = () => (dcfgP = dcfgP || api('/api/delivery/config').catch(() => ({ mapped: false })));
+const tm = (t) => { if (!t) return ''; const d = new Date(t * 1000), today = new Date(); const hm = d.toLocaleTimeString('en-NG', { hour: 'numeric', minute: '2-digit' }); return d.toDateString() === today.toDateString() ? hm : d.toLocaleDateString('en-NG', { weekday: 'short', day: 'numeric', month: 'short' }) + ', ' + hm; };
+async function makeMap(el, cfgD, center, zoom) {
+  const L = await loadLeaflet();
+  const map = L.map(el, { scrollWheelZoom: false }).setView(center, zoom);
+  if (cfgD.tiles) L.tileLayer(cfgD.tiles, { maxZoom: 19, attribution: cfgD.attribution }).addTo(map);
+  else el.style.background = '#e6ebf0';
+  return { L, map };
+}
+
 const ls = {
   get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } },
@@ -581,6 +605,7 @@ async function view(main, seg, u, cfg) {
   if (name === 'account') return account(main, u, cfg);
   if (name === 'wishlist') return wishlist(main);
   if (name === 'track') return track(main);
+  if (name === 'rider') return riderPage(main);
   return '';
 }
 
@@ -598,6 +623,11 @@ async function checkout(main, cfg) {
        <label class="f">State<select id="cs" required><option value="">Choose your state…</option>${cfg.zones.map((z) => `<option ${z.state === st.state ? 'selected' : ''}>${e(z.state)}</option>`).join('')}</select></label>
        <div id="addrfields"><div class="row c2">${field('cc', 'City / area', { val: A.city || saved.city, max: 60 })}${field('ca', 'Street address', { val: A.address || saved.address, max: 200 })}</div></div>
        <label class="f">Delivery notes (optional)<input id="cnotes" maxlength="300" placeholder="Landmark, gate code, preferred time…"></label></div>
+     <div class="card hide" id="mapcard"><h3>Pin your delivery location</h3><p class="mu" style="margin-top:0">Drop a pin on your door so the rider finds you. We use it to work out the distance, the delivery time and any distance fee.</p>
+       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><input id="msearch" placeholder="Search your address or area" style="flex:1;min-width:180px" autocomplete="off"><button type="button" class="btn ghost sm" id="msbtn">Search</button><button type="button" class="btn ghost sm" id="mgeo">📍 Use my location</button></div>
+       <div id="msres" style="margin-bottom:8px"></div><div id="map" style="height:280px;border-radius:12px;background:#e6ebf0"></div><div class="mu" style="font-size:11px;margin-top:4px" id="mattr"></div>
+       <div id="mquote" class="note" style="margin-top:10px">Tap the map or use your location to place the pin.</div>
+       <label class="f">Landmark (optional)<input id="mland" maxlength="150" placeholder="Opposite the blue gate, 2nd floor…"></label></div>
      <div class="card"><h3>3. Delivery option</h3><div id="dopts" class="mu">Choose your state to see delivery options.</div></div>
      <div class="card"><h3>4. Payment</h3><div id="popts"></div></div></div>
     <aside class="card" style="position:sticky;top:130px"><h3>Order summary</h3><div id="osum" class="loading-page" style="min-height:120px"></div>
@@ -610,6 +640,56 @@ async function checkout(main, cfg) {
   st.payment = methods.length ? methods[0][0] : '';
   $('#popts').innerHTML = methods.length ? methods.map(([v, t, d], i) => `<label class="chk" style="padding:10px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px"><input type="radio" name="pm" value="${v}" ${i ? '' : 'checked'}><span><b>${t}</b><br><small class="mu">${d}</small></span></label>`).join('') : '<p class="err">No payment method is available right now.</p>';
   const err = (m) => { const el = $('#cerr'); el.textContent = m || ''; el.classList.toggle('hide', !m); };
+  /* ---- delivery pin ---- */
+  const mp = { cfg: null, map: null, L: null, marker: null, lines: [], pin: null, quote: null, seq: 0 };
+  const needPin = () => !!(mp.cfg && mp.cfg.mapped && st.delivery !== 'pickup');
+  function refreshPlace() { $('#place').disabled = !st.state || !methods.length || (needPin() && !(mp.quote && mp.quote.ok)); }
+  async function mapSync() {
+    mp.cfg = mp.cfg || await dcfg();
+    const show = needPin() && !!st.state;
+    $('#mapcard').classList.toggle('hide', !show);
+    if (!show) { refreshPlace(); return; }
+    if (!mp.map) {
+      try {
+        const m = await makeMap($('#map'), mp.cfg, st.state === 'Lagos' ? [6.5244, 3.3792] : [9.08, 8.68], st.state === 'Lagos' ? 11 : 6);
+        mp.map = m.map; mp.L = m.L; $('#mattr').innerHTML = mp.cfg.attribution || '';
+        mp.map.on('click', (ev) => setPin(ev.latlng.lat, ev.latlng.lng));
+      } catch (er) { $('#mquote').textContent = er.message + ' You can still use "Use my location".'; }
+    } else mp.map.invalidateSize();
+    refreshPlace();
+  }
+  function setPin(lat, lng, zoom) {
+    mp.pin = { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6 };
+    if (mp.map) {
+      if (!mp.marker) { mp.marker = mp.L.marker([lat, lng], { draggable: true }).addTo(mp.map); mp.marker.on('dragend', () => { const p = mp.marker.getLatLng(); setPin(p.lat, p.lng); }); } else mp.marker.setLatLng([lat, lng]);
+      if (zoom) mp.map.setView([lat, lng], zoom);
+    }
+    quoteNow();
+  }
+  async function quoteNow() {
+    const my = ++mp.seq, box = $('#mquote'); mp.quote = null; refreshPlace(); box.textContent = 'Checking delivery to that spot…';
+    try {
+      const q = await api('/api/delivery/quote', { body: { location: mp.pin, state: st.state, items: cart.items } });
+      if (my !== mp.seq) return;
+      mp.quote = q; mp.lines.forEach((l) => l.remove()); mp.lines = [];
+      if (q.ok) {
+        if (mp.map) { for (const l of q.legs) { mp.lines.push(mp.L.polyline(l.line, { color: '#2563eb', weight: 4 }).addTo(mp.map)); mp.lines.push(mp.L.circleMarker([l.lat, l.lng], { radius: 7, color: '#111' }).bindTooltip(l.name).addTo(mp.map)); } mp.map.fitBounds(mp.L.featureGroup(mp.lines.concat(mp.marker ? [mp.marker] : [])).getBounds().pad(0.2)); }
+        box.innerHTML = `✅ <b>${q.km} km</b> from ${q.legs.map((l) => e(l.name)).join(' and ')} · about <b>${q.etaMin} min</b> · expected by <b>${tm(q.promisedAt)}</b>${q.extraFee ? `<br>A distance fee of <b>${naira(q.extraFee)}</b> is added to your delivery fee.` : ''}${q.approx ? '<br><span class="mu">Distance is an estimate right now.</span>' : ''}${q.legs.length > 1 ? '<br><span class="mu">Your items come from more than one pickup point.</span>' : ''}`;
+      } else box.innerHTML = `⚠️ ${e(q.message)}${(q.alternatives || []).includes('pickup') && cfg.settings.pickup_address ? '<br><button type="button" class="btn sm" id="topick" style="margin-top:8px">Use store pickup instead</button>' : ''}`;
+      const tp = $('#topick'); if (tp) tp.addEventListener('click', () => { const r = $$('input[name=dm]').find((x) => x.value === 'pickup'); if (r) { r.checked = true; st.delivery = 'pickup'; reprice(); } });
+    } catch (er) { if (my === mp.seq) box.textContent = er.message; }
+    refreshPlace();
+  }
+  const mSearch = async () => {
+    const q = $('#msearch').value.trim(); if (q.length < 3) return;
+    const box = $('#msres'); box.textContent = 'Searching…';
+    try { const r = (await api('/api/delivery/search?q=' + encodeURIComponent(q))).results; box.innerHTML = r.length ? r.map((x, i) => `<button type="button" class="chip" data-i="${i}" style="margin:2px">${e(x.label)}</button>`).join('') : '<span class="mu">No match. Tap the map instead.</span>'; $$('[data-i]', box).forEach((b) => b.addEventListener('click', () => { const x = r[b.dataset.i]; box.textContent = ''; setPin(x.lat, x.lng, 16); })); } catch (er) { box.textContent = er.message; }
+  };
+  $('#msbtn').addEventListener('click', mSearch); $('#msearch').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); mSearch(); } });
+  $('#mgeo').addEventListener('click', () => {
+    if (!navigator.geolocation) return toast('Your browser cannot share your location. Search or tap the map.', 'bad');
+    navigator.geolocation.getCurrentPosition((pos) => setPin(pos.coords.latitude, pos.coords.longitude, 16), () => toast('We could not get your location. Search or tap the map instead.', 'bad'), { enableHighAccuracy: true, timeout: 10000 });
+  });
   async function reprice() {
     try { const r = await priceNow({ state: st.state, delivery: st.delivery }); st.data = r;
       if (r.couponError) { err(r.couponError); cart.setCoupon(''); } 
@@ -624,11 +704,12 @@ async function checkout(main, cfg) {
       $$('input[name=pm]').forEach((i) => { if (i.value === 'pod') { const ok = zone && zone.pod && st.delivery !== 'pickup'; i.disabled = !ok; if (!ok && i.checked) { const o = $$('input[name=pm]').find((x) => x.value !== 'pod' && !x.disabled); if (o) { o.checked = true; st.payment = o.value; } } } });
       $('#addrfields').classList.toggle('hide', st.delivery === 'pickup');
       $('#place').disabled = !st.state || !methods.length;
+      mapSync();
     } catch (er) { err(er.message); }
   }
   $('#cof').addEventListener('change', (ev) => {
     const t = ev.target;
-    if (t.id === 'cs') { st.state = t.value; reprice(); }
+    if (t.id === 'cs') { st.state = t.value; mp.pin = null; mp.quote = null; if (mp.marker) { mp.marker.remove(); mp.marker = null; } reprice(); }
     if (t.name === 'dm') { st.delivery = t.value; reprice(); }
     if (t.name === 'pm') st.payment = t.value;
     if (t.id === 'saddr') { const a = addrs.find((x) => x.id == t.value); if (a) { $('#cs').value = a.state; $('#cc').value = a.city || ''; $('#ca').value = a.address; st.state = a.state; reprice(); } }
@@ -641,12 +722,14 @@ async function checkout(main, cfg) {
     if (!g('cn') || !g('ce') || !g('cp')) return err('Please fill in your name, email and phone number.');
     if (!st.state) return err('Please choose your state.');
     if (st.delivery !== 'pickup' && !g('ca')) return err('Please enter your street address.');
+    if (needPin() && !mp.pin) return err('Please drop a pin on the map so we know where to deliver.');
+    if (needPin() && !(mp.quote && mp.quote.ok)) return err(mp.quote ? mp.quote.message : 'Please wait while we check delivery to your pin.');
     const btn = $('#place'); btn.disabled = true; btn.textContent = 'Placing order…';
     // One key per attempt: if the connection drops and the shopper tries again, the server hands back the same order instead of making a second.
     if (!st.idem) st.idem = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2))).replace(/[^A-Za-z0-9_-]/g, '');
     ls.set('sb_checkout', { name: g('cn'), email: g('ce'), phone: g('cp'), state: st.state, city: g('cc'), address: g('ca') });
     try {
-      const r = await api('/api/checkout', { body: { items: cart.items, coupon: cart.coupon, contact: { name: g('cn'), email: g('ce'), phone: g('cp') }, address: { state: st.state, city: g('cc'), address: g('ca') }, delivery: st.delivery, payment: st.payment, notes: g('cnotes'), idempotencyKey: st.idem } });
+      const r = await api('/api/checkout', { body: { items: cart.items, coupon: cart.coupon, contact: { name: g('cn'), email: g('ce'), phone: g('cp') }, address: { state: st.state, city: g('cc'), address: g('ca') }, delivery: st.delivery, payment: st.payment, notes: g('cnotes'), idempotencyKey: st.idem, location: needPin() && mp.pin ? { ...mp.pin, landmark: g('mland') } : undefined } });
       try { sessionStorage.setItem('sb_last', JSON.stringify({ ref: r.ref, email: g('ce') })); } catch { /* private mode */ }
       try { if (window.gtag) window.gtag('event', 'begin_checkout', { value: st.data.total, currency: 'NGN' }); if (window.fbq) window.fbq('track', 'InitiateCheckout'); } catch { /* blocked */ }
       if (r.next === 'paystack') { location.href = r.url; return; }
@@ -681,18 +764,96 @@ async function orderPage(main, ref, u, cfg) {
     <p class="mu">Order <b>${e(order.ref)}</b> · ${fmt(order.created)}${order.payment_method === 'pod' && order.status === 'pending' ? '<br>We will call you on ' + e(order.phone) + ' to confirm this order. Please keep your phone on and have ' + naira(order.total) + ' ready on delivery.' : ''}</p>
     ${awaiting ? `<div class="note" style="text-align:left;max-width:520px;margin:12px auto"><b>Complete your payment</b><br>${cfg.payments.demo ? 'Demo mode: no real money is charged.' : 'Your payment is not confirmed yet.'}<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${cfg.payments.demo ? '<button class="btn sm" id="demopay">Pay ' + naira(order.total) + ' (demo)</button><button class="btn ghost sm" id="demofail">Simulate failed payment</button>' : '<button class="btn sm" id="recheck">I have paid, check again</button>'}</div></div>` : ''}</div>
    ${order.status !== 'cancelled' ? `<div class="card" style="margin-bottom:16px"><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;text-align:center;font-size:12px">${flow.map((s, i) => `<div><div style="height:6px;border-radius:3px;background:${i <= stepIdx ? 'var(--accent)' : 'var(--border)'};margin-bottom:6px"></div><span class="${i <= stepIdx ? '' : 'mu'}" style="font-weight:${i === stepIdx ? 800 : 500}">${STATUS[s]}</span></div>`).join('')}</div></div>` : ''}
+   ${deliveryCard(order)}
    <div class="row c2" style="align-items:start"><div class="card"><h3>Items</h3>${order.items.map((i) => `<div class="line" style="grid-template-columns:48px 1fr auto"><div class="lt" style="width:48px;height:48px">${tile({ id: i.product_id, emoji: i.emoji, image: i.image, name: i.name })}</div><div style="font-size:14px"><b>${e(i.name)}</b><br><span class="mu">${e(i.variant_label)} × ${i.qty}</span></div><b>${naira(i.price * i.qty)}</b></div>`).join('')}
      <div class="sum"><span>Subtotal</span><span>${naira(order.subtotal)}</span></div>${order.discount ? `<div class="sum"><span>Discount ${e(order.coupon || '')}</span><span>−${naira(order.discount)}</span></div>` : ''}<div class="sum"><span>Delivery</span><span>${order.delivery_fee ? naira(order.delivery_fee) : 'Free'}</span></div><div class="sum total"><span>Total</span><span>${naira(order.total)}</span></div></div>
     <div style="display:grid;gap:16px"><div class="card"><h3>Delivery</h3><p style="margin:0">${e(order.name)}<br>${e(order.address)}${order.city ? ', ' + e(order.city) : ''}, ${e(order.state)}<br>${e(order.phone)}</p><p class="mu" style="margin-bottom:0">${e({ standard: 'Standard delivery', express: 'Express delivery', pickup: 'Store pickup' }[order.delivery] || '')} · ${order.payment_method === 'pod' ? 'Pay on delivery' : order.payment_status === 'paid' ? 'Paid online' : 'Online payment pending'}</p></div>
      <div class="card"><h3>Updates</h3>${order.events.slice().reverse().map((ev) => `<div style="font-size:13px;margin-bottom:8px"><b>${e(STATUS[ev.status] || ev.status)}</b> <span class="mu">· ${fmt(ev.created)}</span>${ev.note ? `<br><span class="mu">${e(ev.note)}</span>` : ''}</div>`).join('')}</div></div></div>
    <p style="text-align:center;margin-top:20px"><button class="btn ghost sm" id="print">🖨 Print receipt</button> ${order.status === 'pending' && order.payment_status !== 'paid' ? '<button class="btn ghost sm" id="cancelo">Cancel order</button>' : ''} <a class="btn sm" href="/" data-link>Continue shopping</a></p></div>`;
   const rerender = () => go('/order/' + ref + (email ? '?email=' + encodeURIComponent(email) : ''), true);
+  // While the rider is on the way: show the map and refresh the position every 15 seconds.
+  const tmEl = $('#trackmap');
+  if (tmEl && order.delivery_info) {
+    dcfg().then((dc) => makeMap(tmEl, dc, [order.delivery_info.lat, order.delivery_info.lng], 14)).then(({ L, map }) => {
+      L.marker([order.delivery_info.lat, order.delivery_info.lng]).bindTooltip('You').addTo(map);
+      let rm = null; const place = (r) => { if (!r) return; if (!rm) rm = L.circleMarker([r.lat, r.lng], { radius: 9, color: '#16a34a', fillOpacity: 0.9 }).bindTooltip('Your rider').addTo(map); else rm.setLatLng([r.lat, r.lng]); map.fitBounds(L.latLngBounds([[order.delivery_info.lat, order.delivery_info.lng], [r.lat, r.lng]]).pad(0.3)); };
+      place(order.rider);
+      const timer = setInterval(async () => {
+        if (!tmEl.isConnected) return clearInterval(timer);
+        try { const o = (await load()).order; if (o.status !== 'shipped') { clearInterval(timer); rerender(); return; } place(o.rider); } catch { /* try again next time */ }
+      }, 15000);
+    }).catch(() => { tmEl.textContent = 'The map could not load.'; });
+  }
   const dp = $('#demopay'); if (dp) dp.addEventListener('click', async () => { try { await api('/api/pay/demo/' + ref, { body: { outcome: 'ok' } }); cart.clear(); cart.setCoupon(''); toast('Payment received (demo)'); go('/order/' + ref + '?new=1', true); } catch (er) { toast(er.message, 'bad'); } });
   const df = $('#demofail'); if (df) df.addEventListener('click', async () => { await api('/api/pay/demo/' + ref, { body: { outcome: 'fail' } }); toast('Payment failed. The order was cancelled.', 'bad'); rerender(); });
   const rc = $('#recheck'); if (rc) rc.addEventListener('click', async () => { await api('/api/paystack/verify?reference=' + encodeURIComponent(ref)).catch(() => {}); rerender(); });
   $('#print').addEventListener('click', () => window.print());
   const co = $('#cancelo'); if (co) co.addEventListener('click', async () => { if (!confirm('Cancel this order?')) return; try { await api('/api/orders/' + ref + '/cancel', { body: { email } }); toast('Order cancelled'); rerender(); } catch (er) { toast(er.message, 'bad'); } });
   return 'Order ' + order.ref;
+}
+
+function deliveryCard(order) {
+  const d = order.delivery_info; if (!d || order.status === 'cancelled') return '';
+  const late = d.promised_at && !d.delivered_at && Date.now() / 1000 > d.promised_at;
+  const stages = [['Order placed', order.created], ['Rider accepted', d.accepted_at], ['Picked up', d.picked_up_at], ['On the way', d.on_way_at], ['Delivered', d.delivered_at]];
+  return `<div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">Delivery</h3>
+    ${d.delivered_at ? `<p style="margin:0 0 8px">✅ Delivered at <b>${tm(d.delivered_at)}</b></p>` : d.promised_at ? `<p style="margin:0 0 8px">Expected by <b>${tm(d.promised_at)}</b>${d.km ? ' · ' + d.km + ' km' : ''}${late ? ' <span style="color:var(--bad)">· running late, sorry</span>' : ''}</p>` : ''}
+    ${order.handover_code ? `<div class="note" style="text-align:center;margin:10px 0"><div style="font-size:13px">Your delivery code</div><div style="font-size:36px;font-weight:800;letter-spacing:8px">${e(order.handover_code)}</div><div style="font-size:13px">Read this code to the rider only when your parcel is in your hands. It completes the delivery.${order.payment_method === 'pod' ? ' Have ' + naira(order.total) + ' ready.' : ''} Never share it before then.</div></div>` : ''}
+    ${d.locked ? '<p style="color:var(--bad)">Delivery is paused after too many wrong codes. We will contact you.</p>' : ''}
+    <div style="display:grid;gap:4px;font-size:13px">${stages.map(([n, t]) => `<div style="display:flex;justify-content:space-between;opacity:${t ? 1 : 0.45}"><span>${t ? '●' : '○'} ${n}</span><span class="mu">${t ? tm(t) : '—'}</span></div>`).join('')}</div>
+    ${order.status === 'shipped' ? '<div id="trackmap" style="height:260px;border-radius:12px;margin-top:12px;background:#e6ebf0"></div><div class="mu" style="font-size:12px;margin-top:4px">Your rider appears on the map while the delivery is on the way.</div>' : ''}</div>`;
+}
+
+/* ---------------- rider screen (/rider) ---------------- */
+async function riderPage(main) {
+  const draw = (inner) => { main.innerHTML = `<div class="wrap page" style="max-width:640px"><h1 style="font-size:26px">🛵 Rider</h1>${inner}</div>`; };
+  if (!store.user || store.user.role !== 'rider') {
+    draw(`<div class="card"><p class="mu">Sign in with the rider account the store gave you.</p><form id="rl">${field('re', 'Email', { type: 'email', req: 1 })}${field('rp', 'Password', { type: 'password', req: 1 })}<p class="err hide" id="rerr"></p><button class="btn block">Sign in</button></form></div>`);
+    $('#rl').addEventListener('submit', async (ev) => { ev.preventDefault(); try { const r = await api('/api/auth/login', { body: { email: $('#re').value.trim(), password: $('#rp').value } }); if (r.user.role !== 'rider') { await api('/api/auth/logout', { body: {} }); throw new Error('This page is for delivery riders.'); } location.reload(); } catch (er) { const x = $('#rerr'); x.textContent = er.message; x.classList.remove('hide'); } });
+    return 'Rider';
+  }
+  const call = (id, act, body) => api(`/api/rider/orders/${id}/${act}`, { body: body || {} });
+  const here = () => new Promise((res) => { if (!navigator.geolocation) return res(null); navigator.geolocation.getCurrentPosition((p) => res({ lat: p.coords.latitude, lng: p.coords.longitude }), () => res(null), { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 }); });
+  let orders = [];
+  const card = (o) => {
+    const accepted = !!o.stages.accepted, left = o.pickups.filter((p) => !p.picked_up_at), road = o.status === 'shipped';
+    return `<div class="card" style="margin-bottom:14px" data-o="${o.id}"><div style="display:flex;justify-content:space-between;gap:8px"><b>${e(o.ref)}</b><span class="mu">${o.promised_at ? 'Promised ' + tm(o.promised_at) : ''}${o.late ? ' <b style="color:var(--bad)">LATE</b>' : ''}</span></div>
+     <p style="margin:8px 0"><b>${e(o.customer.name)}</b> · <a href="tel:${e(o.customer.phone)}">📞 ${e(o.customer.phone)}</a><br>${e(o.customer.address)}${o.customer.city ? ', ' + e(o.customer.city) : ''}, ${e(o.customer.state)}${o.customer.landmark ? '<br>Landmark: ' + e(o.customer.landmark) : ''}${o.notes ? '<br><span class="mu">Note: ' + e(o.notes) + '</span>' : ''}</p>
+     ${o.customer.nav ? `<a class="btn ghost sm" href="${e(o.customer.nav)}" target="_blank" rel="noopener">🧭 Directions to customer</a> <a class="btn ghost sm" href="${e(o.customer.nav_osm)}" target="_blank" rel="noopener">OpenStreetMap</a>` : ''}
+     ${o.collect ? `<p style="margin:10px 0;font-size:18px">💵 Collect <b>${naira(o.collect)}</b> at the door</p>` : '<p class="mu" style="margin:10px 0">Already paid online.</p>'}
+     <h4 style="margin:10px 0 4px">Pick up</h4>${o.pickups.map((p) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)"><span>${e(p.name)}<br><span class="mu" style="font-size:12px">${e(p.address)}${p.phone ? ' · <a href="tel:' + e(p.phone) + '">' + e(p.phone) + '</a>' : ''}</span></span><span>${p.picked_up_at ? '✅ ' + tm(p.picked_up_at) : `<a class="btn ghost sm" href="${e(p.nav)}" target="_blank" rel="noopener">🧭</a> ${accepted && !road ? `<button class="btn sm" data-pick="${p.partner_id}">Collected</button>` : ''}`}</span></div>`).join('')}
+     <h4 style="margin:10px 0 4px">Items</h4><div style="font-size:14px">${o.items.map((i) => `${i.qty} × ${e(i.name)}${i.variant_label ? ' (' + e(i.variant_label) + ')' : ''}`).join('<br>')}</div>
+     <div style="margin-top:12px;display:grid;gap:8px">
+      ${!accepted ? '<button class="btn block" data-act="accept">Accept delivery</button>' : ''}
+      ${accepted && !road && !left.length ? '<button class="btn block" data-act="start">I am on the way</button>' : ''}
+      ${road ? `<div class="note"><b>At the door:</b> ask the customer for their 6-digit code.</div>${o.locked ? '<p class="err">Locked after too many wrong codes. Call the shop.</p>' : `<input class="codein" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="off" style="font-size:24px;text-align:center;letter-spacing:6px"><button class="btn block" data-act="complete">Complete delivery</button>`}` : ''}
+     </div>
+     <div class="mu" style="font-size:12px;margin-top:8px">Accepted ${tm(o.stages.accepted) || '—'} · Picked up ${tm(o.stages.picked_up) || '—'} · On the way ${tm(o.stages.on_way) || '—'}</div></div>`;
+  };
+  const refresh = async () => {
+    orders = (await api('/api/rider/orders')).orders;
+    draw(`<p class="mu">Signed in as ${e(store.user.name)} · <button class="btn ghost sm" id="rlo">Sign out</button> <button class="btn ghost sm" id="rrf">Refresh</button></p>${orders.length ? orders.map(card).join('') : '<div class="card"><p class="mu">No deliveries assigned to you right now.</p></div>'}`);
+    $('#rlo').addEventListener('click', async () => { await api('/api/auth/logout', { body: {} }); location.reload(); });
+    $('#rrf').addEventListener('click', () => refresh().catch((er) => toast(er.message, 'bad')));
+    $$('[data-o]', main).forEach((box) => {
+      const id = box.dataset.o, act = async (a, body) => { try { await call(id, a, body); await refresh(); } catch (er) { toast(er.message, 'bad'); if (er.status === 423) refresh(); } };
+      $$('[data-pick]', box).forEach((b) => b.addEventListener('click', () => act('pickup', { partnerId: Number(b.dataset.pick) })));
+      $$('[data-act]', box).forEach((b) => b.addEventListener('click', async () => {
+        if (b.dataset.act === 'complete') { const code = $('.codein', box).value.trim(); if (!/^\d{6}$/.test(code)) return toast('Enter the 6-digit code from the customer.', 'bad'); const p = await here(); return act('complete', { code, ...(p || {}) }); }
+        act(b.dataset.act);
+      }));
+    });
+  };
+  await refresh();
+  // Send the rider's position about every 15 seconds, only for deliveries that are on the way.
+  const tick = async () => {
+    if (!main.isConnected) return clearInterval(timer);
+    const road = orders.filter((o) => o.status === 'shipped'); if (!road.length) return;
+    const p = await here(); if (p) for (const o of road) call(o.id, 'location', p).catch(() => {});
+  };
+  const timer = setInterval(tick, 15000);
+  const poll = setInterval(() => { if (!main.isConnected) return clearInterval(poll); if (!document.querySelector('.codein:focus')) refresh().catch(() => {}); }, 45000);
+  return 'Rider';
 }
 
 /* ---------------- track ---------------- */
@@ -791,7 +952,7 @@ async function route() {
     else if (seg[0] === 'shop' || (seg[0] === 'd' && seg[2] === 'shop')) title = await shopView(main, u, cfg);
     else if (seg[0] === 'product' && seg[1]) title = await productView(main, seg[1], cfg);
     else if (seg[0] === 'page' && seg[1]) title = staticPage(main, seg[1], cfg);
-    else if (['checkout', 'order', 'account', 'login', 'register', 'wishlist', 'track', 'forgot'].includes(seg[0])) { title = await view(main, seg, u, cfg); }
+    else if (['checkout', 'order', 'account', 'login', 'register', 'wishlist', 'track', 'forgot', 'rider'].includes(seg[0])) { title = await view(main, seg, u, cfg); }
     else main.innerHTML = `<div class="wrap empty"><div class="em">🧭</div><h2>Page not found</h2><p><a class="btn" href="/" data-link>Back to the store</a></p></div>`;
     document.title = (title ? title + ' · ' : '') + cfg.settings.store_name;
     syncHeader(); $('#main').focus({ preventScroll: true });
@@ -938,7 +1099,7 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings']];
+const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings']];
 async function shell(page, body, unread) {
   root.innerHTML = `<div class="adm"><aside class="side"><div class="side-top"><div><b>🛠 Shop-Beta</b><div class="who">${e(me.email)}</div></div><div><a class="btn ghost sm" href="/" target="_blank" rel="noopener">View store</a> <button class="btn ghost sm" id="lo">Sign out</button></div></div>
   <nav>${NAV.map(([k, ic, t]) => `<a data-nav="${k}" class="${page === k ? 'on' : ''}">${ic} ${t}${k === 'messages' && unread ? ` <span class="dot">${unread}</span>` : ''}</a>`).join('')}</nav></aside><main class="main" id="mn">${body}</main></div>`;
@@ -991,15 +1152,34 @@ views.orders = async () => {
   on('#pp', 'click', () => { ostate.page--; return views.orders(); }); on('#pn', 'click', () => { ostate.page++; return views.orders(); });
   onAll('[data-order]', 'click', (el) => orderModal(el.dataset.order));
 };
+const deliveryAdmin = (o, riders) => {
+  if (o.delivery === 'pickup' || ['pending', 'delivered', 'cancelled'].includes(o.status) && !o.rider_id) return '';
+  const active = ['paid', 'confirmed', 'processing', 'shipped'].includes(o.status);
+  const late = o.promised_at && active && Number(o.promised_at) < Date.now() / 1000;
+  return `<div class="nop" style="margin-top:14px"><h3>Delivery</h3>${o.lat != null ? `<p class="mu2" style="margin:0 0 6px">Pin: <a href="https://www.google.com/maps?q=${o.lat},${o.lng}" target="_blank" rel="noopener">${o.lat.toFixed(5)}, ${o.lng.toFixed(5)}</a> · ${o.dist_km} km${o.landmark ? ' · ' + e(o.landmark) : ''}</p>` : ''}
+   ${o.promised_at ? `<p style="margin:0 0 6px">Promised <b>${dt(o.promised_at)}</b>${late ? ' <b style="color:var(--bad)">LATE</b>' : ''}${o.delivered_at ? ' · delivered ' + dt(o.delivered_at) : ''}</p>` : ''}
+   <p class="mu2" style="margin:0 0 6px">Placed ${dt(o.created)} · Accepted ${o.accepted_at ? dt(o.accepted_at) : '—'} · Picked up ${o.picked_up_at ? dt(o.picked_up_at) : '—'} · On the way ${o.on_way_at ? dt(o.on_way_at) : '—'}</p>
+   ${active ? `<label class="f">Rider<select id="orider"><option value="">Not assigned</option>${riders.map((r) => `<option value="${r.id}" ${Number(o.rider_id) === Number(r.id) ? 'selected' : ''}>${e(r.name)}${r.coverage ? ' (' + e(r.coverage) + ')' : ''}</option>`).join('')}</select></label>` : ''}
+   ${o.handover_locked ? '<p style="color:var(--bad);margin:6px 0"><b>Locked:</b> too many wrong handover codes.</p>' : ''}
+   ${['processing', 'shipped'].includes(o.status) ? '<div class="acts" style="justify-content:flex-start"><button class="btn ghost sm" id="ho-complete">Complete without code…</button><button class="btn ghost sm" id="ho-reset">Unlock / new code…</button></div>' : ''}</div>`;
+};
 async function orderModal(id) {
   const { order: o } = await api('/api/admin/orders/' + id);
+  const riders = o.delivery !== 'pickup' ? (await api('/api/admin/riders')).riders.filter((r) => r.active) : [];
   const paid = o.payment_status === 'paid';
   openModal(`<h2>Order ${e(o.ref)} ${pill(o.status)}</h2><div class="kv"><b>Customer</b><span>${e(o.name)} · ${e(o.phone)}<br>${e(o.email)}</span><b>Deliver to</b><span>${e(o.address)}${o.city ? ', ' + e(o.city) : ''}, ${e(o.state)}<br><span class="mu2">${e(o.delivery)}${o.notes ? ' · Note: ' + e(o.notes) : ''}</span></span><b>Payment</b><span>${o.payment_method === 'pod' ? 'Pay on delivery' : 'Paystack'} · ${paid ? 'Paid' : 'Not yet paid'}${o.paystack_ref ? '<br><span class="mu2">Ref ' + e(o.paystack_ref) + '</span>' : ''}</span><b>Placed</b><span>${dt(o.created)}</span></div>
   <div class="tw"><table class="t" style="margin-top:12px"><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>${o.items.map((i) => `<tr><td>${e(i.name)}<div class="mu2">${e(i.variant_label || '')}</div></td><td>${i.qty}</td><td>${naira(i.price)}</td><td>${naira(i.price * i.qty)}</td></tr>`).join('')}
   <tr><td colspan="3" class="mu2">Subtotal</td><td>${naira(o.subtotal)}</td></tr>${o.discount ? `<tr><td colspan="3" class="mu2">Discount ${e(o.coupon || '')}</td><td>−${naira(o.discount)}</td></tr>` : ''}<tr><td colspan="3" class="mu2">Delivery</td><td>${naira(o.delivery_fee)}</td></tr><tr><td colspan="3"><b>Total</b></td><td><b>${naira(o.total)}</b></td></tr></table></div>
   <h3 style="margin-top:14px">History</h3><ul class="tl">${o.events.map((x) => `<li><b>${e(x.status)}</b> · <span class="mu2">${dt(x.created)}</span>${x.note ? '<br>' + e(x.note) : ''}</li>`).join('')}</ul>
   ${o.status === 'cancelled' ? '<p class="mu">This order is cancelled and cannot be changed.</p>' : `<div class="nop"><div class="fgrid"><label class="f">Update status<select id="ost">${STATUSES.map((s) => `<option ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label class="f">Note (optional, shown in history)<input id="onote" maxlength="300"></label></div></div>`}
+  ${deliveryAdmin(o, riders)}
   <div class="acts"><button class="btn ghost sm" id="oprint">🖨 Print packing slip</button><button class="btn ghost" id="oclose">Close</button>${o.status === 'cancelled' ? '' : '<button class="btn" id="osave">Save status</button>'}</div>`, true);
+  const asg = $('#orider'); if (asg) asg.addEventListener('change', guard(async () => { await api(`/api/admin/orders/${id}/rider`, { method: 'PUT', body: { riderId: asg.value || null } }); toast('Rider updated'); orderModal(id); }));
+  for (const act of ['complete', 'reset']) { const b = $('#ho-' + act); if (b) b.addEventListener('click', guard(async () => {
+    const reason = prompt(act === 'complete' ? 'Why is this delivery being completed without the customer code? (saved on the order, at least 10 characters)' : 'Why is the delivery being unlocked? A new code will be issued. (saved on the order, at least 10 characters)'); if (!reason) return;
+    const cash = act === 'complete' && o.payment_method === 'pod' ? confirm('Was the cash collected from the customer?') : false;
+    await api(`/api/admin/orders/${id}/handover`, { body: { action: act, reason, cash } }); toast('Done'); orderModal(id); route();
+  })); }
   $('#oclose').addEventListener('click', closeModal); $('#oprint').addEventListener('click', () => window.print());
   const sv = $('#osave'); if (sv) sv.addEventListener('click', guard(async () => {
     const st = $('#ost').value; if (st === 'cancelled' && !confirm('Cancel this order? Stock will be returned.')) return;
@@ -1020,6 +1200,7 @@ views.products = async () => {
 };
 async function productForm(id) {
   const cats = (await api('/api/admin/categories')).categories;
+  const partners = (await api('/api/admin/partners')).partners.filter((x) => x.active);
   const p = id ? (await api('/api/admin/products/' + id)).product : { store: pstate.store || cfgStores[0].slug, name: '', brand: '', description: '', price: '', compare_price: 0, stock: 0, sku: '', emoji: '📦', images: [], size_label: 'Size', variants: [], featured: 0, bestseller: 0, new_arrival: 0, active: 1 };
   let images = [...p.images]; let variants = p.variants.map((v) => ({ ...v }));
   const draw = () => {
@@ -1030,6 +1211,7 @@ async function productForm(id) {
     <label class="f">Price (₦)<input id="pp" type="number" min="0" value="${e(p.price)}"></label><label class="f">Original price (₦, optional)<input id="pcp" type="number" min="0" value="${e(p.compare_price || '')}"></label>
     <label class="f">Brand<input id="pb" value="${e(p.brand)}" maxlength="60"></label><label class="f">SKU<input id="psku" value="${e(p.sku)}" maxlength="40"></label>
     <label class="f">Emoji (shown if no photo)<input id="pe" value="${e(p.emoji)}" maxlength="8"></label><label class="f">Stock ${variants.length ? '(from variants)' : ''}<input id="pstock" type="number" min="0" value="${e(p.stock)}" ${variants.length ? 'disabled' : ''}></label>
+    <label class="f full">Pickup point (where the rider collects this item)<select id="ppartner"><option value="">Shop-Beta main store (nearest)</option>${partners.map((x) => `<option value="${x.id}" ${Number(p.partner_id) === Number(x.id) ? 'selected' : ''}>${e(x.name)}</option>`).join('')}</select></label>
     <label class="f full">Description<textarea id="pd" rows="4" maxlength="4000">${e(p.description)}</textarea></label>
     <div class="full"><b style="font-size:13px">Photos</b><div class="imgs">${images.map((u, i) => `<div class="im"><img src="${e(u)}" alt=""><button type="button" data-rmimg="${i}" aria-label="Remove photo">×</button></div>`).join('')}</div><input type="file" id="pfile" accept="image/png,image/jpeg,image/webp,image/gif"><div class="mu2">PNG, JPG, WEBP or GIF up to 2 MB. Or paste an https image link below.</div><div style="display:flex;gap:6px;margin-top:6px"><input id="purl" placeholder="https://…"><button type="button" class="btn ghost sm" id="padd">Add</button></div></div>
     <div class="full" style="margin-top:12px"><b style="font-size:13px">Variants (sizes / colours)</b> <span class="mu2">Leave empty if the product has none.</span><label class="f" style="margin-top:6px">Size label<input id="psl" value="${e(p.size_label)}" maxlength="20"></label>
@@ -1053,7 +1235,9 @@ async function productForm(id) {
     const del = $('#pdel'); if (del) del.addEventListener('click', guard(async () => { if (!confirm('Delete this product? Products that have orders are hidden instead.')) return; const r = await api('/api/admin/products/' + id, { method: 'DELETE' }); toast(r.archived ? 'Product hidden (it has orders)' : 'Product deleted'); closeModal(); route(); }));
     $('#psave').addEventListener('click', guard(async () => {
       collect(); const body = { ...p, images, variants };
-      await api('/api/admin/products' + (id ? '/' + id : ''), { method: id ? 'PUT' : 'POST', body }); toast('Product saved'); closeModal(); route();
+      const saved = await api('/api/admin/products' + (id ? '/' + id : ''), { method: id ? 'PUT' : 'POST', body });
+      const pp = $('#ppartner'); if (pp && (pp.value || Number(p.partner_id) || 0) !== (Number(p.partner_id) || 0)) await api('/api/admin/products/' + (id || saved.id) + '/partner', { method: 'PUT', body: { partnerId: pp.value ? Number(pp.value) : null } });
+      toast('Product saved'); closeModal(); route();
     }));
   };
   draw();
@@ -1125,9 +1309,58 @@ views.marketing = async () => {
 
 /* ---------------- settings ---------------- */
 const SF = [['store_name', 'Store name'], ['tagline', 'Tagline'], ['logo_url', 'Logo URL (https://…)'], ['announcement', 'Announcement bar'], ['contact_email', 'Contact email'], ['contact_phone', 'Contact phone'], ['whatsapp', 'WhatsApp number (digits, with country code)'], ['address', 'Address'], ['pickup_address', 'Store pickup address'], ['instagram', 'Instagram link'], ['facebook', 'Facebook link'], ['x_twitter', 'X / Twitter link'], ['tiktok', 'TikTok link'], ['free_shipping_threshold', 'Free delivery above (₦, 0 = off)'], ['express_multiplier', 'Express delivery price multiplier'], ['return_days', 'Return window (days)'], ['tax_note', 'Price / VAT note'], ['ga_id', 'Google Analytics ID (G-XXXX)'], ['meta_pixel_id', 'Meta Pixel ID']];
+/* ---------------- deliveries ---------------- */
+views.deliveries = async () => {
+  const [d, r] = await Promise.all([api('/api/admin/deliveries'), api('/api/admin/riders')]);
+  const riders = r.riders.filter((x) => x.active), late = d.deliveries.filter((x) => x.late).length;
+  mn(hd('Deliveries', '<button class="btn ghost sm" id="drf">Refresh</button>') + `<div class="panel"><p class="mu2">Orders that still need to reach the customer, most urgent first. ${late ? `<b style="color:var(--bad)">${late} late.</b>` : 'Nothing is late.'}</p>${d.deliveries.length ? `<div class="tw"><table class="t"><tr><th>Order</th><th>Customer</th><th>Status</th><th>Promised</th><th>Progress</th><th>Rider</th></tr>${d.deliveries.map((x) => `<tr style="${x.late ? 'background:rgba(220,38,38,.08)' : ''}"><td><a data-order="${x.id}" style="cursor:pointer"><b>${e(x.ref)}</b></a></td><td>${e(x.name)}<div class="mu2">${e(x.city || '')} ${e(x.state)} · ${e(x.phone)}</div></td><td>${pill(x.status)}${x.handover_locked ? ' <b style="color:var(--bad)">locked</b>' : ''}</td><td>${x.promised_at ? dt(x.promised_at) : '—'}${x.late ? ' <b style="color:var(--bad)">LATE</b>' : ''}</td><td class="mu2">${x.accepted_at ? 'accepted ✓ ' : ''}${x.picked_up_at ? 'picked up ✓ ' : ''}${x.on_way_at ? 'on the way ✓' : ''}</td><td><select data-assign="${x.id}"><option value="">${x.unassigned ? '⚠ Not assigned' : 'Not assigned'}</option>${riders.map((u) => `<option value="${u.id}" ${Number(x.rider_id) === Number(u.id) ? 'selected' : ''}>${e(u.name)}</option>`).join('')}</select></td></tr>`).join('')}</table></div>` : '<p class="mu">No deliveries in progress.</p>'}</div>`);
+  on('#drf', 'click', () => route());
+  onAll('[data-order]', 'click', (el) => orderModal(el.dataset.order));
+  onAll('[data-assign]', 'change', async (el) => { await api(`/api/admin/orders/${el.dataset.assign}/rider`, { method: 'PUT', body: { riderId: el.value || null } }); toast('Rider updated'); route(); });
+};
+
+/* ---------------- pickup points & riders ---------------- */
+views.partners = async () => {
+  const [p, r] = await Promise.all([api('/api/admin/partners'), api('/api/admin/riders')]);
+  mn(hd('Pickup points & riders', '<button class="btn" id="padd">Add pickup point</button> <button class="btn ghost" id="radd">Add rider</button>') + `
+   <div class="panel"><h3>Pickup points</h3><p class="mu2">Where riders collect orders: your main store, and any partner shop. Customers inside a pickup point's radius can order delivery. Items without their own pickup point come from the nearest "main store".</p>${p.partners.length ? `<div class="tw"><table class="t"><tr><th>Name</th><th>Address</th><th>Radius</th><th>Main store</th><th>Status</th><th></th></tr>${p.partners.map((x) => `<tr><td><b>${e(x.name)}</b><div class="mu2">${e(x.phone)}</div></td><td>${e(x.address)}<div class="mu2">${Number(x.lat).toFixed(5)}, ${Number(x.lng).toFixed(5)}</div></td><td>${Number(x.radius_km)} km</td><td>${x.is_default ? 'Yes' : ''}</td><td>${x.active ? 'Active' : '<span class="mu">Off</span>'}</td><td><button class="btn ghost sm" data-pe="${x.id}">Edit</button></td></tr>`).join('')}</table></div>` : '<p class="mu">No pickup points yet. Until you add one, delivery uses the state fees only and customers are not asked for a map pin.</p>'}</div>
+   <div class="panel"><h3>Riders</h3><p class="mu2">Riders sign in at <b>/rider</b> on their phone. Leave "states" empty for everywhere, or list states separated by commas.</p>${r.riders.length ? `<div class="tw"><table class="t"><tr><th>Name</th><th>Contact</th><th>States</th><th>Status</th><th></th></tr>${r.riders.map((x) => `<tr><td><b>${e(x.name)}</b></td><td>${e(x.phone)}<div class="mu2">${e(x.email)}</div></td><td>${e(x.coverage) || 'Everywhere'}</td><td>${x.active ? 'Active' : '<span class="mu">Off</span>'}</td><td><button class="btn ghost sm" data-rc="${x.id}">States</button> <button class="btn ghost sm" data-rt="${x.id}">${x.active ? 'Switch off' : 'Switch on'}</button></td></tr>`).join('')}</table></div>` : '<p class="mu">No riders yet.</p>'}</div>`);
+  const pform = (x) => {
+    x = x || { name: '', address: '', state: '', phone: '', lat: '', lng: '', radius_km: 15, is_default: 0, active: 1 };
+    openModal(`<h2>${x.id ? 'Edit' : 'Add'} pickup point</h2><div class="fgrid"><label class="f full">Name<input id="xn" value="${e(x.name)}" maxlength="80"></label><label class="f full">Address<input id="xa" value="${e(x.address)}" maxlength="200"></label><label class="f">State<input id="xs" value="${e(x.state)}" maxlength="60"></label><label class="f">Phone<input id="xp" value="${e(x.phone)}" maxlength="30"></label>
+     <label class="f">Latitude<input id="xlat" value="${e(x.lat)}" placeholder="6.6018"></label><label class="f">Longitude<input id="xlng" value="${e(x.lng)}" placeholder="3.3515"></label>
+     <p class="mu2 full" style="margin:0">Find the coordinates: in Google Maps, press and hold on the shop, then copy the two numbers. Or stand at the shop and <button type="button" class="btn ghost sm" id="xhere">use my current location</button>.</p>
+     <label class="f">Delivery radius (km)<input id="xr" type="number" min="1" value="${e(Number(x.radius_km))}"></label>
+     <label class="chk"><input type="checkbox" id="xd" ${x.is_default ? 'checked' : ''}> Main store (default pickup point)</label><label class="chk"><input type="checkbox" id="xact" ${x.active ? 'checked' : ''}> Active</label></div>
+     <div class="acts"><button class="btn ghost" id="xc">Cancel</button><button class="btn" id="xs2">Save</button></div>`, true);
+    $('#xc').addEventListener('click', closeModal);
+    $('#xhere').addEventListener('click', () => navigator.geolocation ? navigator.geolocation.getCurrentPosition((g) => { $('#xlat').value = g.coords.latitude.toFixed(6); $('#xlng').value = g.coords.longitude.toFixed(6); }, () => toast('Location not available', 'bad')) : toast('Location not available', 'bad'));
+    $('#xs2').addEventListener('click', guard(async () => {
+      const body = { name: $('#xn').value, address: $('#xa').value, state: $('#xs').value, phone: $('#xp').value, lat: $('#xlat').value, lng: $('#xlng').value, radius_km: $('#xr').value, is_default: $('#xd').checked, active: $('#xact').checked };
+      await api('/api/admin/partners' + (x.id ? '/' + x.id : ''), { method: x.id ? 'PUT' : 'POST', body }); toast('Saved'); closeModal(); route();
+    }));
+  };
+  on('#padd', 'click', () => pform());
+  onAll('[data-pe]', 'click', (el) => pform(p.partners.find((x) => String(x.id) === el.dataset.pe)));
+  on('#radd', 'click', () => {
+    openModal(`<h2>Add rider</h2><div class="fgrid"><label class="f">Name<input id="rn" maxlength="80"></label><label class="f">Phone<input id="rph" maxlength="30"></label><label class="f">Email (their sign-in)<input id="rem" type="email"></label><label class="f">Password (min 8)<input id="rpw" type="text" autocomplete="off"></label><label class="f full">States they cover (empty = everywhere)<input id="rco" placeholder="Lagos, Ogun" maxlength="300"></label></div><div class="acts"><button class="btn ghost" id="rc">Cancel</button><button class="btn" id="rs">Create rider</button></div>`, true);
+    $('#rc').addEventListener('click', closeModal);
+    $('#rs').addEventListener('click', guard(async () => { await api('/api/admin/riders', { body: { name: $('#rn').value, phone: $('#rph').value, email: $('#rem').value, password: $('#rpw').value, coverage: $('#rco').value } }); toast('Rider created'); closeModal(); route(); }));
+  });
+  onAll('[data-rc]', 'click', async (el) => { const x = r.riders.find((u) => String(u.id) === el.dataset.rc); const v = prompt('States this rider covers, separated by commas (empty = everywhere):', x.coverage); if (v === null) return; await api('/api/admin/riders/' + x.id, { method: 'PUT', body: { coverage: v, active: !!x.active } }); route(); });
+  onAll('[data-rt]', 'click', async (el) => { const x = r.riders.find((u) => String(u.id) === el.dataset.rt); await api('/api/admin/riders/' + x.id, { method: 'PUT', body: { coverage: x.coverage, active: !x.active } }); toast(x.active ? 'Rider switched off and signed out' : 'Rider switched on'); route(); });
+};
+
 views.settings = async () => {
   const d = await api('/api/admin/settings'); const s = d.settings;
   mn(hd('Settings', '<button class="btn" id="ssave">Save changes</button>') + `<div class="panel"><h3>Store</h3><div class="fgrid">${SF.map(([k, l]) => `<label class="f"><span>${l}</span><input data-s="${k}" maxlength="300" value="${e(s[k])}"></label>`).join('')}</div></div>
+   <div class="panel"><h3>Delivery rules</h3><p class="mu2">Used with pickup points (Pickup points &amp; riders). The radius of each pickup point is set there.</p><div class="fgrid">
+    <label class="f"><span>Maximum delivery distance (km)</span><input type="number" min="1" data-s="max_distance_km" value="${e(s.max_distance_km || '60')}"></label>
+    <label class="f"><span>Extra fee per km (₦, 0 = none)</span><input type="number" min="0" data-s="per_km_fee" value="${e(s.per_km_fee || '0')}"></label>
+    <label class="f"><span>Free distance before the per-km fee (km)</span><input type="number" min="0" data-s="free_km" value="${e(s.free_km || '0')}"></label>
+    <label class="f"><span>Preparation time (minutes)</span><input type="number" min="0" data-s="prep_minutes" value="${e(s.prep_minutes || '20')}"></label>
+    <label class="f"><span>We start delivering at (hour, 0-23)</span><input type="number" min="0" max="23" data-s="open_hour" value="${e(s.open_hour || '8')}"></label>
+    <label class="f"><span>Order cut-off (hour, 1-24; later orders go out next morning)</span><input type="number" min="1" max="24" data-s="cutoff_hour" value="${e(s.cutoff_hour || '20')}"></label></div></div>
    <div class="panel"><h3>Payments</h3><label class="chk"><input type="checkbox" id="spod" ${s.pod_enabled === '1' ? 'checked' : ''}> Pay on delivery</label><label class="chk"><input type="checkbox" id="spay" ${s.paystack_enabled === '1' ? 'checked' : ''}> Pay online with Paystack</label><label class="chk"><input type="checkbox" id="spodc" ${s.pod_confirm_required !== '0' ? 'checked' : ''}> Staff must confirm pay-on-delivery orders by phone before they are prepared</label><label class="f" style="max-width:260px"><span>Cancel unconfirmed pay-on-delivery orders after (hours)</span><input type="number" min="1" max="168" id="spodh" value="${e(s.pod_confirm_hours || '24')}"></label><p class="mu2">${d.paystack.live ? '✅ Paystack live keys are configured on the server.' : '⚠️ No PAYSTACK_SECRET_KEY is set, so online payment runs in demo mode (no real money). Set it as an environment variable on your host to take real payments.'}</p></div>
    <div class="panel"><h3>Delivery fees by state</h3><div class="tw"><table class="t"><tr><th>State</th><th>Fee (₦)</th><th>Delivery time</th><th>Pay on delivery</th></tr>${d.zones.map((z, i) => `<tr><td>${e(z.state)}</td><td><input type="number" min="0" data-z="${i}" data-k="fee" value="${z.fee}" style="width:110px"></td><td><input data-z="${i}" data-k="eta" value="${e(z.eta)}" maxlength="30" style="width:130px"></td><td><input type="checkbox" data-z="${i}" data-k="pod" ${z.pod ? 'checked' : ''} style="width:auto"></td></tr>`).join('')}</table></div></div>`);
   on('#ssave', 'click', async () => {
