@@ -15,6 +15,7 @@
     "test:stateless": "node --disable-warning=ExperimentalWarning test/stateless.js",
     "migrate:uploads": "node --disable-warning=ExperimentalWarning scripts/migrate-uploads.js",
     "worker": "node --disable-warning=ExperimentalWarning worker.js",
+    "test:delivery": "node --disable-warning=ExperimentalWarning test/delivery.js",
     "test:checkout": "node --disable-warning=ExperimentalWarning test/checkout.js",
     "test:queue": "node --disable-warning=ExperimentalWarning test/queue.js",
     "test:cache": "node --disable-warning=ExperimentalWarning test/cache.js"

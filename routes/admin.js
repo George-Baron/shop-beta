@@ -8,13 +8,15 @@ const S = require('../lib/shop');
 const A = require('../lib/auth');
 const jobs = require('../lib/jobs');
 const queue = require('../lib/queue');
+const D = require('../lib/delivery');
+const geo = require('../lib/geo');
 const { slugify } = require('../lib/seed');
 const { fail, str, int, isEmail, parseImages, getSettings, dayStart } = S;
 
 const router = express.Router();
 
 // Anything the public catalogue shows (products, categories, departments, settings, review approvals) clears the caches: here at once, on other instances within seconds.
-const CATALOGUE_WRITE = /^\/(products|categories|stores|settings|reviews)(\/|$)/;
+const CATALOGUE_WRITE = /^\/(products|categories|stores|settings|reviews|partners|riders)(\/|$)/;
 router.use((req, res, next) => {
   if (req.method === 'GET' || !CATALOGUE_WRITE.test(req.path)) return next();
   cache.clear();                                  // before the change, so nobody re-fills the cache from the old data meanwhile
@@ -87,7 +89,8 @@ router.put('/orders/:id', ah(async (req, res) => {
       const fresh = await get('SELECT status FROM orders WHERE id=? FOR UPDATE', o.id);
       if (fresh.status !== o.status) fail(409, 'Someone else just changed this order. Reload and try again.');
       await run('UPDATE orders SET status=? WHERE id=?', status, o.id);
-      if (status === 'confirmed') await run('UPDATE orders SET confirmed_at=?, confirmed_by=? WHERE id=?', now(), str(req.user.name || req.user.email, 80), o.id);
+      if (status === 'confirmed') { await run('UPDATE orders SET confirmed_at=?, confirmed_by=? WHERE id=?', now(), str(req.user.name || req.user.email, 80), o.id); await D.issueCode(o.id); }
+      if (['paid', 'processing'].includes(status)) await D.issueCode(o.id);
       if (status === 'paid' || (status === 'delivered' && o.payment_method === 'pod')) await run("UPDATE orders SET payment_status='paid' WHERE id=?", o.id);
       await S.addEvent(o.id, status, status === 'confirmed' ? (note || `Confirmed by phone (${str(req.user.name || req.user.email, 80)})`) : note);
     });
@@ -295,6 +298,7 @@ router.put('/settings', ah(async (req, res) => {
   if ('whatsapp' in s) out.whatsapp = str(s.whatsapp, 20).replace(/\D/g, '');
   if ('free_shipping_threshold' in s) out.free_shipping_threshold = String(Math.max(0, int(s.free_shipping_threshold)));
   if ('pod_confirm_hours' in s) out.pod_confirm_hours = String(Math.min(168, Math.max(1, int(s.pod_confirm_hours, 24))));
+  for (const [k, lo, hi, d] of [['max_distance_km', 1, 500, 60], ['per_km_fee', 0, 5000, 0], ['free_km', 0, 500, 0], ['prep_minutes', 0, 600, 20], ['open_hour', 0, 23, 8], ['cutoff_hour', 1, 24, 20]]) if (k in s) out[k] = String(Math.min(hi, Math.max(lo, int(s[k], d))));
   if ('return_days' in s) out.return_days = String(Math.min(365, Math.max(0, int(s.return_days))));
   if ('express_multiplier' in s) { const m = Number(s.express_multiplier); out.express_multiplier = String(Number.isFinite(m) ? Math.min(5, Math.max(1, m)) : 1.5); }
   for (const k of ['pod_enabled', 'paystack_enabled', 'pod_confirm_required']) if (k in s) out[k] = s[k] === '1' || s[k] === true ? '1' : '0';
@@ -303,6 +307,85 @@ router.put('/settings', ah(async (req, res) => {
     for (const z of (Array.isArray(b.zones) ? b.zones : []).slice(0, 60)) await run('UPDATE zones SET fee=?, eta=?, pod=? WHERE state=?', Math.max(0, int(z.fee)), str(z.eta, 30), z.pod ? 1 : 0, str(z.state, 60));
   });
   res.json({ ok: true });
+}));
+
+
+/* ================= partners (pickup points), riders, deliveries ================= */
+const partnerFields = (b) => {
+  const lat = Number(b.lat), lng = Number(b.lng), name = str(b.name, 80);
+  if (!name) fail(400, 'Give the pickup point a name.');
+  if (!geo.inNigeria(lat, lng)) fail(400, 'Set the pickup point on the map inside Nigeria (latitude and longitude).');
+  return [name, str(b.address, 200), str(b.state, 60), str(b.phone, 30), lat, lng, Math.min(500, Math.max(1, Number(b.radius_km) || 15)), b.is_default ? 1 : 0, b.active === false || b.active === 0 ? 0 : 1];
+};
+router.get('/partners', ah(async (req, res) => res.json({ partners: await all('SELECT * FROM partners ORDER BY id') })));
+router.post('/partners', ah(async (req, res) => {
+  const f = partnerFields(req.body || {});
+  const r = await run('INSERT INTO partners (name,address,state,phone,lat,lng,radius_km,is_default,active,created) VALUES (?,?,?,?,?,?,?,?,?,?)', ...f, now());
+  res.json({ ok: true, id: r.lastInsertRowid });
+}));
+router.put('/partners/:id', ah(async (req, res) => {
+  const f = partnerFields(req.body || {});
+  const r = await run('UPDATE partners SET name=?,address=?,state=?,phone=?,lat=?,lng=?,radius_km=?,is_default=?,active=? WHERE id=?', ...f, int(req.params.id));
+  if (!r.changes) fail(404, 'Pickup point not found.');
+  res.json({ ok: true });
+}));
+router.delete('/partners/:id', ah(async (req, res) => {
+  if (await get("SELECT 1 x FROM order_pickups op JOIN orders o ON o.id=op.order_id WHERE op.partner_id=? AND o.status NOT IN ('delivered','cancelled') LIMIT 1", int(req.params.id))) fail(409, 'This pickup point has orders in progress. Switch it off instead.');
+  await run('UPDATE partners SET active=0 WHERE id=?', int(req.params.id)); // kept for order history; just switched off
+  res.json({ ok: true });
+}));
+
+router.put('/products/:id/partner', ah(async (req, res) => {
+  const pid = req.body.partnerId ? int(req.body.partnerId) : null;
+  if (pid && !(await get('SELECT 1 x FROM partners WHERE id=?', pid))) fail(400, 'Pickup point not found.');
+  const r = await run('UPDATE products SET partner_id=? WHERE id=?', pid, int(req.params.id));
+  if (!r.changes) fail(404, 'Product not found.');
+  res.json({ ok: true });
+}));
+router.get('/riders', ah(async (req, res) => res.json({ riders: await all("SELECT id, name, email, phone, coverage, active FROM users WHERE role='rider' ORDER BY id") })));
+router.post('/riders', ah(async (req, res) => {
+  const b = req.body || {}, name = str(b.name, 80), email = str(b.email, 120).toLowerCase(), phone = str(b.phone, 30);
+  if (!name || !isEmail(email) || phone.replace(/\D/g, '').length < 10) fail(400, 'A rider needs a name, a valid email and a phone number.');
+  if (String(b.password || '').length < 8) fail(400, 'The password must be at least 8 characters.');
+  if (await get('SELECT 1 x FROM users WHERE email=?', email)) fail(409, 'That email already has an account.');
+  const r = await run("INSERT INTO users (name,email,phone,password,role,coverage,created) VALUES (?,?,?,?, 'rider', ?, ?)", name, email, phone, await A.hashPassword(b.password), str(b.coverage, 300), now());
+  res.json({ ok: true, id: r.lastInsertRowid });
+}));
+router.put('/riders/:id', ah(async (req, res) => {
+  const b = req.body || {}, id = int(req.params.id);
+  const r = await run("UPDATE users SET coverage=?, active=?, phone=COALESCE(NULLIF(?, ''), phone) WHERE id=? AND role='rider'", str(b.coverage, 300), b.active === false || b.active === 0 ? 0 : 1, str(b.phone, 30), id);
+  if (!r.changes) fail(404, 'Rider not found.');
+  if (b.active === false || b.active === 0) await A.dropUserSessions(id);
+  res.json({ ok: true });
+}));
+
+router.put('/orders/:id/rider', ah(async (req, res) => {
+  const o = await S.loadOrder('id=?', int(req.params.id));
+  if (!o) fail(404, 'Order not found.');
+  if (['delivered', 'cancelled', 'pending'].includes(o.status)) fail(400, o.status === 'pending' ? 'Wait until the order is paid or confirmed before assigning a rider.' : `This order is ${o.status}.`);
+  if (o.delivery === 'pickup') fail(400, 'Store pickup orders do not need a rider.');
+  const riderId = req.body.riderId ? int(req.body.riderId) : null;
+  if (riderId) {
+    const rd = await get("SELECT name FROM users WHERE id=? AND role='rider' AND active=1", riderId);
+    if (!rd) fail(400, 'Choose an active rider.');
+    await run('UPDATE orders SET rider_id=?, accepted_at=NULL WHERE id=?', riderId, o.id);
+    await D.issueCode(o.id);
+    await S.addEvent(o.id, o.status, `Assigned to rider ${rd.name}`);
+  } else { await run('UPDATE orders SET rider_id=NULL, accepted_at=NULL WHERE id=? AND status<>\'shipped\'', o.id); await S.addEvent(o.id, o.status, 'Rider removed'); }
+  res.json({ ok: true });
+}));
+router.post('/orders/:id/handover', ah(async (req, res) => {
+  const r = await D.override(int(req.params.id), req.user, str(req.body.action, 10), req.body.reason, !!req.body.cash);
+  if (!r.ok) fail(r.status || 400, r.message);
+  if (r.order) await S.mailOrderStatus(r.order, 'delivered', '');
+  res.json({ ok: true });
+}));
+// Deliveries in progress, with the promised time, so late ones are easy to see.
+router.get('/deliveries', ah(async (req, res) => {
+  const rows = await all(`SELECT o.id, o.ref, o.status, o.name, o.phone, o.state, o.city, o.total, o.payment_method, o.created, o.promised_at, o.accepted_at, o.picked_up_at, o.on_way_at, o.handover_locked, o.rider_id, u.name rider
+    FROM orders o LEFT JOIN users u ON u.id=o.rider_id WHERE o.delivery<>'pickup' AND o.status IN ('paid','confirmed','processing','shipped') ORDER BY o.promised_at NULLS LAST, o.id LIMIT 300`);
+  const t = now();
+  res.json({ deliveries: rows.map((r) => ({ ...r, late: !!(r.promised_at && Number(r.promised_at) < t), unassigned: !r.rider_id })) });
 }));
 
 module.exports = router;

@@ -5,6 +5,8 @@ const { get, all, run, tx, now } = require('../lib/db');
 const S_ = require('../lib/shop');
 const cache = require('../lib/cache');
 const queue = require('../lib/queue');
+const D = require('../lib/delivery');
+const geo = require('../lib/geo');
 const A = require('../lib/auth');
 const { fail, str, int, isEmail, parseImages, card, RATING_JOIN, getSettings, esc } = S_;
 
@@ -181,6 +183,19 @@ router.post('/checkout', A.limiter('checkout', 20, 3600000), ah(async (req, res)
   } catch (err) { await S_.cancelOrder(order, 'Payment could not be started'); throw err; }
 }));
 
+/* ================= delivery map ================= */
+router.get('/delivery/config', ah(async (req, res) => {
+  res.set('Cache-Control', 'public, max-age=60');
+  res.json({ mapped: await D.hasPartners(), tiles: geo.TILE_URL, search: geo.hasProvider(), attribution: geo.hasProvider() ? 'Powered by <a href="https://www.geoapify.com/" target="_blank" rel="noopener">Geoapify</a> | © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors' : '' });
+}));
+router.get('/delivery/search', A.limiter('geosearch', 60, 600000), ah(async (req, res) => res.json({ results: await geo.search(str(req.query.q, 120)) })));
+router.post('/delivery/quote', A.limiter('quote', 60, 600000), ah(async (req, res) => {
+  const b = req.body || {}, loc = b.location || {};
+  const q = await D.quote({ lat: loc.lat, lng: loc.lng, state: str(b.state, 60), items: b.items });
+  if (q.legs) q.legs = q.legs.map((l) => ({ name: l.name, lat: l.lat, lng: l.lng, km: l.km, minutes: l.minutes, line: l.line })); // no partner phone numbers
+  res.json(q);
+}));
+
 /* ================= orders ================= */
 async function ownedOrder(req, ref, email) {
   const o = await S_.loadOrder('ref=?', str(ref, 20).toUpperCase());
@@ -189,8 +204,18 @@ async function ownedOrder(req, ref, email) {
   if (!ok) fail(404, 'We could not find an order with those details. Check the order number and email.');
   return o;
 }
+// The order as the customer sees it: stages, promised time, their handover code while it is useful, and the rider's position only while the delivery is under way.
+async function customerOrder(o) {
+  const out = S_.publicOrder(o);
+  out.handover_code = await D.visibleCode(o);
+  if (out.delivery_info && o.status === 'shipped' && o.rider_id) {
+    const pt = await get('SELECT lat, lng, created FROM rider_points WHERE order_id=? ORDER BY id DESC LIMIT 1', o.id);
+    out.rider = pt ? { lat: pt.lat, lng: pt.lng, at: Number(pt.created) } : null;
+  }
+  return out;
+}
 router.post('/orders/lookup', A.limiter('lookup', 40, 600000), ah(async (req, res) => {
-  res.json({ order: S_.publicOrder(await ownedOrder(req, req.body.ref, req.body.email)) });
+  res.json({ order: await customerOrder(await ownedOrder(req, req.body.ref, req.body.email)) });
 }));
 router.post('/orders/:ref/cancel', A.limiter('cancel', 10, 600000), ah(async (req, res) => {
   const o = await ownedOrder(req, req.params.ref, req.body.email);
@@ -257,6 +282,7 @@ router.post('/auth/login', ah(async (req, res) => {
   const u = await get('SELECT * FROM users WHERE email=?', email);
   const good = u ? await A.checkPassword(pw, u.password) : await A.burn(pw);
   if (!u || !good) fail(401, 'That email and password do not match.');
+  if (u.active === 0) fail(403, 'This account has been switched off. Please contact the store.');
   if (req.sessionToken) await run('DELETE FROM sessions WHERE id=?', A.sha(req.sessionToken));
   await A.startSession(req, res, u.id);
   res.json({ user: A.publicUser(u) });
