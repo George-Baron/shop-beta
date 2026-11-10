@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const express = require('express');
 const { get, all, run, tx, now } = require('../lib/db');
 const storage = require('../lib/storage');
+const cache = require('../lib/cache');
 const S = require('../lib/shop');
 const A = require('../lib/auth');
 const jobs = require('../lib/jobs');
@@ -10,6 +11,15 @@ const { slugify } = require('../lib/seed');
 const { fail, str, int, isEmail, parseImages, getSettings, dayStart } = S;
 
 const router = express.Router();
+
+// Anything the public catalogue shows (products, categories, departments, settings, review approvals) clears the caches: here at once, on other instances within seconds.
+const CATALOGUE_WRITE = /^\/(products|categories|stores|settings|reviews)(\/|$)/;
+router.use((req, res, next) => {
+  if (req.method === 'GET' || !CATALOGUE_WRITE.test(req.path)) return next();
+  cache.clear();                                  // before the change, so nobody re-fills the cache from the old data meanwhile
+  res.on('finish', () => { if (res.statusCode < 400) cache.bump().catch((e) => console.error('Cache bump failed:', e.message)); else cache.clear(); });
+  next();
+});
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const STATUSES = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled'];
 // "Sales" = orders that are not cancelled and are either paid online or pay-on-delivery.
