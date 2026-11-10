@@ -7,6 +7,7 @@ const cache = require('../lib/cache');
 const S = require('../lib/shop');
 const A = require('../lib/auth');
 const jobs = require('../lib/jobs');
+const queue = require('../lib/queue');
 const { slugify } = require('../lib/seed');
 const { fail, str, int, isEmail, parseImages, getSettings, dayStart } = S;
 
@@ -265,6 +266,13 @@ router.delete('/messages/:id', ah(async (req, res) => { await run('DELETE FROM m
 router.get('/newsletter', ah(async (req, res) => res.json({ subscribers: await all('SELECT email, created FROM newsletter ORDER BY created DESC LIMIT 2000') })));
 router.get('/abandoned', ah(async (req, res) => res.json({ carts: (await all('SELECT email, cart, created, reminded FROM abandoned ORDER BY created DESC LIMIT 200')).map((c) => { let cart = []; try { cart = JSON.parse(c.cart); } catch { /* empty */ } return { ...c, cart }; }) })));
 router.post('/abandoned/remind', ah(async (req, res) => res.json({ sent: await jobs.remindAbandoned() })));
+router.get('/jobs', ah(async (req, res) => res.json({
+  counts: await queue.counts(),
+  failed: await all("SELECT id, kind, payload, attempts, last_error, finished FROM jobs WHERE state='failed' ORDER BY finished DESC LIMIT 100"),
+  waiting: await all("SELECT id, kind, attempts, last_error, run_at FROM jobs WHERE state='queued' AND attempts>0 ORDER BY run_at LIMIT 50"),
+})));
+router.post('/jobs/:id/retry', ah(async (req, res) => { if (!(await queue.retry(int(req.params.id)))) fail(404, 'That job is not in the failed list.'); res.json({ ok: true }); }));
+router.delete('/jobs/:id', ah(async (req, res) => { if (!(await queue.remove(int(req.params.id)))) fail(404, 'That job is not in the failed list.'); res.json({ ok: true }); }));
 router.get('/outbox', ah(async (req, res) => res.json({ emails: await all('SELECT id, to_email, subject, sent, created FROM outbox ORDER BY id DESC LIMIT 100'), live: !!process.env.RESEND_API_KEY })));
 
 /* ---------- settings ---------- */
