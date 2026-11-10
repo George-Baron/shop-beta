@@ -108,7 +108,10 @@ const key = () => crypto.randomUUID();
   await test('orders never move backwards, and a delivered order is final', async () => {
     assert.strictEqual((await call('PUT', '/api/admin/orders/' + podId, { status: 'processing' }, cookie)).s, 400);
     assert.strictEqual((await call('PUT', '/api/admin/orders/' + podId, { status: 'pending' }, cookie)).s, 400);
-    assert.strictEqual((await call('PUT', '/api/admin/orders/' + podId, { status: 'delivered' }, cookie)).s, 200);
+    // With a handover code in play, "delivered" is set by the code or by a logged admin override, not by a dropdown.
+    assert.strictEqual((await call('PUT', '/api/admin/orders/' + podId, { status: 'delivered' }, cookie)).s, 400);
+    assert.strictEqual((await call('POST', '/api/admin/orders/' + podId + '/handover', { action: 'complete', reason: 'short' }, cookie)).s, 400);
+    assert.strictEqual((await call('POST', '/api/admin/orders/' + podId + '/handover', { action: 'complete', reason: 'Rider phone died; customer confirmed by call', cash: true }, cookie)).s, 200);
     assert.strictEqual((await q('SELECT payment_status FROM orders WHERE id=$1', [podId]))[0].payment_status, 'paid'); // cash collected on delivery
     assert.strictEqual((await call('PUT', '/api/admin/orders/' + podId, { status: 'cancelled' }, cookie)).s, 400);
     assert.strictEqual((await call('PUT', '/api/admin/orders/' + podId, { status: 'shipped' }, cookie)).s, 400);

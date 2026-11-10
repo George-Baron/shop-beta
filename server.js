@@ -83,6 +83,7 @@ app.use('/api', (req, res, next) => {
 });
 app.use('/api', A.loadUser);
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/rider', require('./routes/rider'));
 app.use('/api', require('./routes/public'));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
