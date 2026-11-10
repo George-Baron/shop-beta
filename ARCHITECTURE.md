@@ -13,7 +13,7 @@ One Node.js process (Express 4, Node 22.13+) with the built-in SQLite driver (`n
 - uploaded product photos under `/uploads`,
 - server-rendered titles, descriptions, JSON-LD and a text fallback for search engines (`describe()` in `server.js`).
 
-Only one npm dependency: `express`. Everything else (cookies, password hashing, rate limiting, `.env` loading, email, Paystack) is hand written.
+Npm dependencies: `express`, `pg` and (from step 4) `compression`. Everything else (cookies, password hashing, rate limiting, `.env` loading, email, Paystack) is hand written.
 
 ## 2. Files
 
@@ -235,3 +235,37 @@ Goal: any number of identical instances can run behind a load balancer, with not
 **Tests added:** `npm run test:multi` starts two copies with separate disks behind the dev load balancer and checks shared sessions, shared storage, shared rate limits and a zero-failure shutdown under traffic. `npm run test:images` checks the migration script. The upload test in `npm test` now runs against a stand-in for Supabase Storage.
 
 **Not verified here:** the real Supabase Storage service and real Render instances. All storage tests use a stand-in that follows the documented REST calls; run `npm run check:storage` with your keys to confirm.
+
+
+## 14. After step 4: caching
+
+**What is cached, where, for how long** (per instance, in memory, no Redis; details in `docs/CACHING.md`)
+
+| What | Key | Kept for | Shared with Cloudflare/browsers |
+|---|---|---|---|
+| Settings (store name, fees, switches) | `settings` | 30 s | no |
+| `/api/config` (departments, categories, delivery zones) | `config` (the signed-in user is added after, never cached) | 60 s | no (it carries the user) |
+| Department homepage | `home:<slug>` | 30 s | yes, `s-maxage=30` |
+| Product list / search / filters | `list:<normalised options>` | 20 s | yes |
+| Product page data | `product:<slug>` | 10 s | yes |
+| Page title and search-engine data for `/`, `/d/*`, `/product/*`, `/page/*` | `page:<path>` (only pages that exist) | 60 s | no (HTML has a per-visit security nonce) |
+| `sitemap.xml` | `sitemap` | 10 min | yes, 5 min |
+
+**How it stays correct**
+- One cache miss on a busy page runs one database query, however many shoppers ask at that moment.
+- Admin changes to products, categories, departments, reviews or settings clear the cache on that instance *before the admin gets their answer*, and bump a counter in the database (`cache_epoch`). Every other instance checks that counter every 2 s and clears too. Order and message handling do **not** clear it.
+- Failed loads are never cached. A load that was running during a clear never stores its old answer.
+- Memory is capped (3,000 entries, least recently used go first). Only known search options form the key, and only pages that exist are cached, so random addresses cannot fill it.
+- **Stock numbers shown on product pages and lists can be up to 10 to 20 s behind.** Checkout never uses the cache: it reads and reserves stock in the database, so a last unit still cannot be sold twice (tested).
+
+**Also added:** gzip for pages and API answers; photo files already carry `max-age=31536000` (set at upload) and old `/uploads/` links `max-age=86400`; `/health` now reports cache hits/misses.
+
+**Measured after step 4** (same sandbox and 20,060-product catalogue; one instance; Postgres, app and load generator share 2 CPUs)
+
+| Test | After step 2 | After step 4 | Target |
+|---|---|---|---|
+| **2,000 shoppers browsing** | p95 6.6 s, 0 errors | **p95 15 ms, p99 37 ms, 0 errors** (623 req/s, 99% served from memory) | p95 under 800 ms: **passes** |
+| 400 connections, no think time | 288 req/s, p95 1.78 s | 2,218 req/s, p95 250 ms, 0 errors | |
+| 100 checkouts per minute | p95 18 ms | p95 16 ms, 0 errors, 101 orders, no negative stock | passes |
+
+**Read this number carefully:** the k6 shoppers pick from a limited set of departments, search words and products, so most requests hit the cache. Real shoppers will search more widely, so the real hit rate will be lower. The worst case (everything a miss) is the step 2 figure, which is why the next steps still matter. The final answer comes from the step 9 staging test on real Render instances.

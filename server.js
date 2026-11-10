@@ -13,6 +13,8 @@ try {
 } catch { /* no .env file */ }
 
 const express = require('express');
+const compression = require('compression');
+const cache = require('./lib/cache');
 const { get, all, insert, now, DATA_DIR, ping, end } = require('./lib/db');
 const { migrate } = require('./lib/migrate');
 const storage = require('./lib/storage');
@@ -25,6 +27,8 @@ const { esc, BASE_URL, getSettings, parseImages, naira } = S;
 const app = require('./lib/async-router').protect(express());
 app.disable('x-powered-by');
 app.set('trust proxy', process.env.TRUST_PROXY === '0' ? false : 1);
+// gzip for pages and API answers (Cloudflare may compress again with brotli; that is fine). Photos are not served from here.
+app.use(compression({ level: 4, threshold: 1024 }));
 
 /* ---------- first admin from environment variables (optional) ---------- */
 async function bootstrapAdmin() {
@@ -52,7 +56,7 @@ app.use((req, res, next) => { res.setHeader('X-Instance', INSTANCE); next(); });
 app.get('/health', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store'); res.setHeader('X-Instance', INSTANCE);
   if (draining) return res.status(503).json({ ok: false, status: 'shutting down', instance: INSTANCE });
-  try { await ping(); res.json({ ok: true, db: true, instance: INSTANCE }); }
+  try { await ping(); res.json({ ok: true, db: true, instance: INSTANCE, cache: cache.snapshot() }); }
   catch (e) { res.status(503).json({ ok: false, db: false, instance: INSTANCE }); }
 });
 
@@ -91,11 +95,14 @@ app.get('/robots.txt', (req, res) => {
   res.type('text/plain').send(`User-agent: *\nDisallow: /admin\nDisallow: /api/\nDisallow: /checkout\nDisallow: /account\nDisallow: /order/\nDisallow: /login\nDisallow: /register\n\nSitemap: ${BASE_URL}/sitemap.xml\n`);
 });
 app.get('/sitemap.xml', async (req, res) => {
-  const urls = [BASE_URL + '/'];
-  for (const s of await all('SELECT slug FROM stores WHERE active=1 ORDER BY sort')) urls.push(`${BASE_URL}/d/${s.slug}`);
-  for (const p of ['about', 'faq', 'shipping', 'contact', 'privacy', 'terms']) urls.push(`${BASE_URL}/page/${p}`);
-  for (const p of await all('SELECT p.slug FROM products p JOIN stores s ON s.slug=p.store WHERE p.active=1 AND s.active=1 ORDER BY p.id DESC LIMIT 5000')) urls.push(`${BASE_URL}/product/${p.slug}`);
-  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((u) => `<url><loc>${esc(u)}</loc></url>`).join('\n')}\n</urlset>\n`);
+  const xml = await cache.memo('sitemap', 600000, async () => {
+    const urls = [BASE_URL + '/'];
+    for (const s of await all('SELECT slug FROM stores WHERE active=1 ORDER BY sort')) urls.push(`${BASE_URL}/d/${s.slug}`);
+    for (const p of ['about', 'faq', 'shipping', 'contact', 'privacy', 'terms']) urls.push(`${BASE_URL}/page/${p}`);
+    for (const p of await all('SELECT p.slug FROM products p JOIN stores s ON s.slug=p.store WHERE p.active=1 AND s.active=1 ORDER BY p.id DESC LIMIT 5000')) urls.push(`${BASE_URL}/product/${p.slug}`);
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((u) => `<url><loc>${esc(u)}</loc></url>`).join('\n')}\n</urlset>\n`;
+  });
+  res.set('Cache-Control', 'public, max-age=300').type('application/xml').send(xml);
 });
 
 /* ---------- pages (one HTML shell, filled in per URL for search engines and link previews) ---------- */
@@ -109,7 +116,7 @@ function pixelSnippet(id, nonce) {
   return `<script nonce="${nonce}">!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${id}');</script>`;
 }
 
-async function describe(req) {
+async function describeUncached(req) {
   const S0 = await getSettings(), p = req.path.replace(/\/+$/, '') || '/', seg = p.split('/').filter(Boolean);
   const out = { status: 200, store: '', title: S0.store_name, desc: S0.tagline, canonical: BASE_URL + p, image: '', type: 'website', jsonld: null, noindex: false, body: '', S: S0 };
   const stores = await all('SELECT slug, name, tab_label FROM stores WHERE active=1 ORDER BY sort');
@@ -154,6 +161,16 @@ async function describe(req) {
   return out;
 }
 
+// The page details (title, product data for search engines) are the same for everyone, so keep them briefly.
+// Only successful pages are kept, so made-up addresses cannot fill the cache.
+const DESCRIBE_KEYED = new Set(['d', 'product', 'page', 'shop']);
+async function describe(req) {
+  const p = req.path.replace(/\/+$/, '') || '/', seg = p.split('/').filter(Boolean);
+  if (p !== '/' && !DESCRIBE_KEYED.has(seg[0])) return describeUncached(req);
+  if (seg[0] === 'shop') return describeUncached(req); // depends on the search options in the address
+  const key = 'page:' + p;
+  return cache.memo(key, 60000, async () => { const d = await describeUncached(req); return d.status === 200 ? d : cache.skip(d); });
+}
 app.get(/^\/(?!api\/|uploads\/).*/, async (req, res) => {
   const d = await describe(req);
   const nonce = crypto.randomBytes(16).toString('base64');
@@ -205,6 +222,8 @@ async function main() {
     console.log(S.paystackLive() ? 'Paystack: LIVE keys are set.' : 'Paystack: no PAYSTACK_SECRET_KEY set, so online payment runs in demo mode (no real money).');
     if (!process.env.RESEND_API_KEY) console.log('Email: RESEND_API_KEY not set, so emails are stored in Admin > Marketing > Email outbox instead of being sent.');
     jobs.start();
+    cache.start();
+    if (cache.DISABLED) console.log('Cache: DISABLED by CACHE_DISABLED=1.');
   });
 }
 process.on('unhandledRejection', (e) => console.error('Unhandled error:', e));
@@ -214,7 +233,7 @@ let stopping = false;
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => {
   if (stopping) return; stopping = true;
   // Tell the load balancer first (/health now says 503), give it a moment to stop sending traffic, then finish in-flight requests.
-  draining = true;
+  draining = true; cache.stop();
   setTimeout(() => process.exit(0), 15000).unref();
   setTimeout(() => (server ? new Promise((r) => server.close(r)) : Promise.resolve()).then(() => end()).catch(() => {}).then(() => process.exit(0)), Number(process.env.DRAIN_MS ?? 3000));
 });

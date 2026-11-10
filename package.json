@@ -18,9 +18,12 @@
     "check:storage": "node scripts/check-storage.js",
     "lb": "node scripts/dev-lb.js",
     "test:multi": "node --disable-warning=ExperimentalWarning test/two-instances.js",
-    "test:images": "node --disable-warning=ExperimentalWarning test/migrate-images.js"
+    "test:images": "node --disable-warning=ExperimentalWarning test/migrate-images.js",
+    "test:cache": "node --disable-warning=ExperimentalWarning test/cache.js",
+    "test:all": "npm test && npm run test:cache && npm run test:multi && npm run test:images"
   },
   "dependencies": {
+    "compression": "^1.8.1",
     "express": "^4.21.2",
     "pg": "^8.23.1"
   }

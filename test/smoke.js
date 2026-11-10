@@ -1,6 +1,7 @@
 'use strict';
 // End-to-end check: creates a throwaway PostgreSQL database, starts the server on it and walks through a real shopping + admin session.
 // Needs a running Postgres: set TEST_DATABASE_URL (or DATABASE_URL) to any database on it; `npm run db:up` starts one for you.
+// The cache is switched off here so each step can read back what it just changed; `npm run test:cache` tests the cache itself.
 // Run with: npm test
 const { spawn } = require('child_process');
 const assert = require('assert');
@@ -41,7 +42,7 @@ async function test(name, fn) {
 (async () => {
   await adminSql(`CREATE DATABASE ${DB_NAME}`);
   const storageMock = await mockSupabase.start(SERVICE_KEY);
-  const srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, DATABASE_URL: withDb(DB_NAME), PGSSL: process.env.PGSSL_TEST || 'disable', BASE_URL: BASE, SUPABASE_URL: storageMock.url, SUPABASE_SERVICE_ROLE_KEY: SERVICE_KEY, SUPABASE_BUCKET: 'shop-images', STORAGE_DRIVER: '', PAYSTACK_SECRET_KEY: '', RESEND_API_KEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, DATABASE_URL: withDb(DB_NAME), PGSSL: process.env.PGSSL_TEST || 'disable', BASE_URL: BASE, SUPABASE_URL: storageMock.url, SUPABASE_SERVICE_ROLE_KEY: SERVICE_KEY, SUPABASE_BUCKET: 'shop-images', STORAGE_DRIVER: '', CACHE_DISABLED: '1', PAYSTACK_SECRET_KEY: '', RESEND_API_KEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = ''; srv.stdout.on('data', (d) => { log += d; }); srv.stderr.on('data', (d) => { log += d; });
   for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/api/config'); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
 

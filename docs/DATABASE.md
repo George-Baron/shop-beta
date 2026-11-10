@@ -70,4 +70,4 @@ Customers keep their accounts and passwords, order numbers and tracking links ke
 
 ## 6. Not done yet in this step
 
-Uploaded photos still live on the server's disk (step 3), rate limits are still per instance (steps 3 and 7), emails still send from inside the web request (step 5), and nothing is cached yet (step 4). Until steps 3 to 5 are done, run **one** instance.
+Photos (step 3) and caching (step 4) are done, so more than one instance is now safe; emails still send from inside the web request until step 5.

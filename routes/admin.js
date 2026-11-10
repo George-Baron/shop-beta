@@ -6,10 +6,21 @@ const storage = require('../lib/storage');
 const S = require('../lib/shop');
 const A = require('../lib/auth');
 const jobs = require('../lib/jobs');
+const cache = require('../lib/cache');
 const { slugify } = require('../lib/seed');
 const { fail, str, int, isEmail, parseImages, getSettings, dayStart } = S;
 
 const router = require('../lib/async-router').Router();
+// Anything the admin changes that shoppers can see clears the catalogue cache on every instance, before the admin gets their answer.
+// (Orders, messages and customers are not cached, so they do not count: busy order handling must not flush the cache.)
+const SHOPPER_VISIBLE = /^\/(products|categories|stores|reviews|settings)(\/|$)/;
+router.use((req, res, next) => {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && SHOPPER_VISIBLE.test(req.path)) {
+    const json = res.json.bind(res);
+    res.json = (body) => { if (res.statusCode < 400) cache.invalidate(); return json(body); };
+  }
+  next();
+});
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const STATUSES = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled'];
 // "Sales" = orders that are not cancelled and are either paid online or pay-on-delivery.
