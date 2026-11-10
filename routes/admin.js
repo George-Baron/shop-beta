@@ -73,6 +73,7 @@ router.get('/orders', ah(async (req, res) => {
 router.get('/orders/:id', ah(async (req, res) => {
   const o = await S.loadOrder('id=?', int(req.params.id));
   if (!o) fail(404, 'Order not found.');
+  delete o.handover_nonce; delete o.idem_hash;
   res.json({ order: o });
 }));
 router.put('/orders/:id', ah(async (req, res) => {
