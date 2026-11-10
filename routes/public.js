@@ -4,6 +4,7 @@ const express = require('express');
 const { get, all, run, tx, now } = require('../lib/db');
 const S_ = require('../lib/shop');
 const cache = require('../lib/cache');
+const queue = require('../lib/queue');
 const A = require('../lib/auth');
 const { fail, str, int, isEmail, parseImages, card, RATING_JOIN, getSettings, esc } = S_;
 
@@ -203,7 +204,11 @@ router.get('/paystack/verify', A.limiter('verify', 40, 600000), ah(async (req, r
 router.post('/paystack/webhook', ah(async (req, res) => {
   if (!S_.verifyWebhookSignature(req.rawBody, req.headers['x-paystack-signature'])) return res.status(401).json({ error: 'Bad signature' });
   const ev = req.body || {};
-  if (ev.event === 'charge.success' && ev.data && ev.data.reference) await S_.settleWithPaystack(str(ev.data.reference, 40).toUpperCase());
+  // Acknowledge fast and do the work in the background: Paystack retries slow or failed webhooks, and we must not time out.
+  if (ev.event === 'charge.success' && ev.data && ev.data.reference) {
+    const ref = str(ev.data.reference, 40).toUpperCase();
+    await queue.enqueue('paystack.settle', { ref }, { key: 'paystack:' + ref });
+  }
   res.json({ ok: true });
 }));
 // Demo mode only (no PAYSTACK_SECRET_KEY set): lets you test the whole order flow without real money.

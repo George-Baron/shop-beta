@@ -20,7 +20,7 @@ const cache = require('./lib/cache');
 const { seed } = require('./lib/seed');
 const S = require('./lib/shop');
 const A = require('./lib/auth');
-const jobs = require('./lib/jobs');
+const worker = require('./lib/worker');
 
 const { esc, BASE_URL, getSettings, parseImages, naira } = S;
 const app = express();
@@ -212,8 +212,8 @@ let server;
     console.log(`Admin dashboard:   ${BASE_URL}/admin${hasAdmin ? '' : '   (open it now to create your admin account)'}`);
     console.log(S.paystackLive() ? 'Paystack: LIVE keys are set.' : 'Paystack: no PAYSTACK_SECRET_KEY set, so online payment runs in demo mode (no real money).');
     if (!process.env.RESEND_API_KEY) console.log('Email: RESEND_API_KEY not set, so emails are stored in Admin > Marketing > Email outbox instead of being sent.');
-    jobs.start();
+    if (process.env.WORKER_ENABLED !== '0') worker.start(); // set WORKER_ENABLED=0 on web instances when you run `npm run worker` separately
   });
 })().catch((err) => { console.error('Startup failed:', err.message); process.exit(1); });
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { if (server) server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 3000).unref(); });
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { Promise.resolve(worker.stop()).finally(() => { if (server) server.close(() => process.exit(0)); else process.exit(0); }); setTimeout(() => process.exit(0), 3000).unref(); });
 process.on('unhandledRejection', (e) => console.error('Unhandled rejection:', e && e.message ? e.message : e));

@@ -97,3 +97,10 @@ Use the **transaction pooler** connection string (port 6543). Each app instance 
 - Unpaid online orders are cancelled after 2 hours so their stock goes back on sale.
 - Demo products use invented brand names. Replace them before launch.
 - Return, privacy and terms pages in the shop use short generic wording. Have them reviewed for your business.
+
+## Background worker (step 5)
+Emails, Paystack webhooks and the timed chores (expire unpaid orders, abandoned-cart reminders, clean-up) run as jobs in a Postgres table (`jobs`), no Redis.
+- By default the worker runs inside the web process. To run it separately: `npm run worker`, and set `WORKER_ENABLED=0` on the web instances.
+- Failed jobs retry after 30 s, 2 min, 10 min, 1 h and 6 h. After that they appear in Admin > Marketing > Background jobs, where you can Retry or Dismiss them.
+- A Paystack webhook is acknowledged immediately and confirmed with Paystack in the background; duplicate webhooks do nothing extra.
+- Optional: `WORKER_CONCURRENCY` (default 4), `WORKER_POLL_MS` (default 2000). `npm run test:queue` tests it.
