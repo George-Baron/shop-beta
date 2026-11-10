@@ -163,11 +163,22 @@ router.post('/cart/abandon', A.limiter('abandon', 40, 3600000), ah(async (req, r
 }));
 
 router.post('/checkout', A.limiter('checkout', 20, 3600000), ah(async (req, res) => {
-  const order = await S_.createOrder(req.body || {}, req.user);
+  const key = req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey) || '';
+  const order = await S_.createOrder(req.body || {}, req.user, key);
+  if (order.replayed) { // the same checkout sent again: answer exactly as before, send no second email, start no second payment
+    if (order.status === 'cancelled') fail(409, 'That order was cancelled. Please place a new order.');
+    if (order.payment_method === 'pod' || order.payment_status === 'paid') return res.json({ ref: order.ref, next: 'pod', replayed: true });
+    if (!S_.paystackLive()) return res.json({ ref: order.ref, next: 'demo', replayed: true });
+    if (!order.pay_url) { order.pay_url = await S_.paystackInitialize(order); await run('UPDATE orders SET pay_url=? WHERE id=?', order.pay_url, order.id); }
+    return res.json({ ref: order.ref, next: 'paystack', url: order.pay_url, replayed: true });
+  }
   if (order.payment_method === 'pod') { S_.mailOrderPlaced(order); return res.json({ ref: order.ref, next: 'pod' }); }
   if (!S_.paystackLive()) return res.json({ ref: order.ref, next: 'demo' });
-  try { return res.json({ ref: order.ref, next: 'paystack', url: await S_.paystackInitialize(order) }); }
-  catch (err) { await S_.cancelOrder(order, 'Payment could not be started'); throw err; }
+  try {
+    const url = await S_.paystackInitialize(order);
+    await run('UPDATE orders SET pay_url=? WHERE id=?', url, order.id);
+    return res.json({ ref: order.ref, next: 'paystack', url });
+  } catch (err) { await S_.cancelOrder(order, 'Payment could not be started'); throw err; }
 }));
 
 /* ================= orders ================= */

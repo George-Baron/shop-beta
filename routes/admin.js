@@ -22,7 +22,7 @@ router.use((req, res, next) => {
   next();
 });
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const STATUSES = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled'];
+const STATUSES = S.STATUSES;
 // "Sales" = orders that are not cancelled and are either paid online or pay-on-delivery.
 const SALE = "o.status <> 'cancelled' AND (o.payment_method = 'pod' OR o.payment_status = 'paid')";
 
@@ -77,16 +77,19 @@ router.put('/orders/:id', ah(async (req, res) => {
   const o = await S.loadOrder('id=?', int(req.params.id));
   if (!o) fail(404, 'Order not found.');
   const status = str(req.body.status, 20), note = str(req.body.note, 300);
-  if (!STATUSES.includes(status)) fail(400, 'Unknown status.');
-  if (o.status === 'cancelled') fail(400, 'This order is cancelled and cannot be changed.');
+  const problem = S.checkTransition(o, status, await getSettings());
+  if (problem) fail(400, problem);
   if (status === 'cancelled') await S.cancelOrder(o, note || 'Cancelled by the store');
   else if (status === o.status) { if (note) await S.addEvent(o.id, status, note); }
   else {
-    if (['processing', 'shipped', 'delivered'].includes(status) && o.payment_method === 'paystack' && o.payment_status !== 'paid') fail(400, 'This order has not been paid yet. Mark it as paid first if you received the money.');
     await tx(async () => {
+      // The row is locked and re-checked, so two staff clicking at once cannot push an order through a state twice.
+      const fresh = await get('SELECT status FROM orders WHERE id=? FOR UPDATE', o.id);
+      if (fresh.status !== o.status) fail(409, 'Someone else just changed this order. Reload and try again.');
       await run('UPDATE orders SET status=? WHERE id=?', status, o.id);
+      if (status === 'confirmed') await run('UPDATE orders SET confirmed_at=?, confirmed_by=? WHERE id=?', now(), str(req.user.name || req.user.email, 80), o.id);
       if (status === 'paid' || (status === 'delivered' && o.payment_method === 'pod')) await run("UPDATE orders SET payment_status='paid' WHERE id=?", o.id);
-      await S.addEvent(o.id, status, note);
+      await S.addEvent(o.id, status, status === 'confirmed' ? (note || `Confirmed by phone (${str(req.user.name || req.user.email, 80)})`) : note);
     });
     await S.mailOrderStatus(o, status, note);
   }
@@ -291,9 +294,10 @@ router.put('/settings', ah(async (req, res) => {
   if ('contact_email' in s) { const v = str(s.contact_email, 120); if (v && !isEmail(v)) fail(400, 'Please enter a valid contact email.'); out.contact_email = v; }
   if ('whatsapp' in s) out.whatsapp = str(s.whatsapp, 20).replace(/\D/g, '');
   if ('free_shipping_threshold' in s) out.free_shipping_threshold = String(Math.max(0, int(s.free_shipping_threshold)));
+  if ('pod_confirm_hours' in s) out.pod_confirm_hours = String(Math.min(168, Math.max(1, int(s.pod_confirm_hours, 24))));
   if ('return_days' in s) out.return_days = String(Math.min(365, Math.max(0, int(s.return_days))));
   if ('express_multiplier' in s) { const m = Number(s.express_multiplier); out.express_multiplier = String(Number.isFinite(m) ? Math.min(5, Math.max(1, m)) : 1.5); }
-  for (const k of ['pod_enabled', 'paystack_enabled']) if (k in s) out[k] = s[k] === '1' || s[k] === true ? '1' : '0';
+  for (const k of ['pod_enabled', 'paystack_enabled', 'pod_confirm_required']) if (k in s) out[k] = s[k] === '1' || s[k] === true ? '1' : '0';
   await tx(async () => {
     for (const [k, v] of Object.entries(out)) await run('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', k, v);
     for (const z of (Array.isArray(b.zones) ? b.zones : []).slice(0, 60)) await run('UPDATE zones SET fee=?, eta=?, pod=? WHERE state=?', Math.max(0, int(z.fee)), str(z.eta, 30), z.pod ? 1 : 0, str(z.state, 60));

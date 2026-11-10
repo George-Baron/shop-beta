@@ -104,3 +104,10 @@ Emails, Paystack webhooks and the timed chores (expire unpaid orders, abandoned-
 - Failed jobs retry after 30 s, 2 min, 10 min, 1 h and 6 h. After that they appear in Admin > Marketing > Background jobs, where you can Retry or Dismiss them.
 - A Paystack webhook is acknowledged immediately and confirmed with Paystack in the background; duplicate webhooks do nothing extra.
 - Optional: `WORKER_CONCURRENCY` (default 4), `WORKER_POLL_MS` (default 2000). `npm run test:queue` tests it.
+
+## Safe checkout (step 6)
+- **One order per attempt.** The checkout page sends a random key with each attempt. Sending the same key again (double click, dropped connection, back button) returns the same order and never takes stock or starts a payment twice. The same key with a different cart is refused (409).
+- **Order states:** `pending` -> `paid` (online) or `confirmed` (pay on delivery) -> `processing` -> `shipped` -> `delivered`. Orders only move forward and can be cancelled until delivered. Two staff changing an order at the same moment cannot both win.
+- **Pay on delivery needs a confirmation call.** Staff call the customer and set the order to Confirmed before it can be prepared. Unconfirmed orders are cancelled and their stock released after 24 hours. Both are in Admin > Settings > Payments (`pod_confirm_required`, `pod_confirm_hours`).
+- **Payment checks:** an order is marked paid only when Paystack confirms the same reference, NGN, and the exact amount. A mismatch is not paid; the order records why for a person to review.
+- `npm run test:checkout` tests all of this. `RATE_LIMIT_MULTIPLIER` exists for tests only; leave it unset in production.
