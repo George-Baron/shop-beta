@@ -6,6 +6,6 @@ const worker = require('./lib/worker');
   await migrate();
   worker.start();
   console.log('Shop-Beta worker running.');
-})().catch((e) => { console.error('Worker failed to start:', e.message); process.exit(1); });
+})().catch((e) => { require('./lib/log').error('worker failed to start', { err: e }); process.exit(1); });
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, async () => { await worker.stop(); await close().catch(() => {}); process.exit(0); });
 process.on('unhandledRejection', (e) => console.error('Unhandled rejection:', e && e.message ? e.message : e));
