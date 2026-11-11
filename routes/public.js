@@ -36,7 +36,7 @@ async function buildConfig() {
     settings, stores,
     categories,
     zones,
-    payments: { paystack: S.paystack_enabled === '1', pod: S.pod_enabled === '1', demo: !S_.paystackLive() },
+    payments: { paystack: S.paystack_enabled === '1' && (S_.paystackLive() || S_.demoAllowed()), pod: S.pod_enabled === '1', demo: !S_.paystackLive() && S_.demoAllowed() },
   };
 }
 
@@ -140,7 +140,12 @@ router.post('/products/:id/reviews', A.limiter('review', 8, 3600000), ah(async (
   if (!name) fail(400, 'Please enter your name.');
   if (req.user && await get('SELECT 1 x FROM reviews WHERE product_id=? AND user_id=?', pid, req.user.id)) fail(409, 'You have already reviewed this product.');
   try {
-    await run('INSERT INTO reviews (product_id,user_id,name,rating,title,body,approved,created) VALUES (?,?,?,?,?,?,1,?)', pid, req.user ? req.user.id : null, name, rating, title, body, now());
+    // Only people who actually received this product are published at once. Everyone else waits for the store to approve the review.
+    const bought = req.user && await get("SELECT 1 x FROM orders o JOIN order_items i ON i.order_id=o.id WHERE o.user_id=? AND i.product_id=? AND o.status='delivered' LIMIT 1", req.user.id, pid);
+    const live = (await S_.getSettings()).review_moderation === '0' || !!bought;
+    await run('INSERT INTO reviews (product_id,user_id,name,rating,title,body,approved,created) VALUES (?,?,?,?,?,?,?,?)', pid, req.user ? req.user.id : null, name, rating, title, body, live ? 1 : 0, now());
+    cache.drop('product:' + p.slug);
+    return res.json({ ok: true, pending: !live, message: live ? 'Thanks for your review!' : 'Thank you! Your review will appear after we have checked it.' });
   } catch (err) {
     if (err && err.code === '23505') fail(409, 'You have already reviewed this product.');
     throw err;
@@ -169,17 +174,17 @@ router.post('/checkout', A.limiter('checkout', 20, 3600000), ah(async (req, res)
   const order = await S_.createOrder(req.body || {}, req.user, key);
   if (order.replayed) { // the same checkout sent again: answer exactly as before, send no second email, start no second payment
     if (order.status === 'cancelled') fail(409, 'That order was cancelled. Please place a new order.');
-    if (order.payment_method === 'pod' || order.payment_status === 'paid') return res.json({ ref: order.ref, next: 'pod', replayed: true });
-    if (!S_.paystackLive()) return res.json({ ref: order.ref, next: 'demo', replayed: true });
+    if (order.payment_method === 'pod' || order.payment_status === 'paid') return res.json({ ref: order.ref, token: order.access_token, next: 'pod', replayed: true });
+    if (!S_.paystackLive()) return res.json({ ref: order.ref, token: order.access_token, next: 'demo', replayed: true });
     if (!order.pay_url) { order.pay_url = await S_.paystackInitialize(order); await run('UPDATE orders SET pay_url=? WHERE id=?', order.pay_url, order.id); }
-    return res.json({ ref: order.ref, next: 'paystack', url: order.pay_url, replayed: true });
+    return res.json({ ref: order.ref, token: order.access_token, next: 'paystack', url: order.pay_url, replayed: true });
   }
-  if (order.payment_method === 'pod') { S_.mailOrderPlaced(order); return res.json({ ref: order.ref, next: 'pod' }); }
-  if (!S_.paystackLive()) return res.json({ ref: order.ref, next: 'demo' });
+  if (order.payment_method === 'pod') { S_.mailOrderPlaced(order); return res.json({ ref: order.ref, token: order.access_token, next: 'pod' }); }
+  if (!S_.paystackLive()) return res.json({ ref: order.ref, token: order.access_token, next: 'demo' });
   try {
     const url = await S_.paystackInitialize(order);
     await run('UPDATE orders SET pay_url=? WHERE id=?', url, order.id);
-    return res.json({ ref: order.ref, next: 'paystack', url });
+    return res.json({ ref: order.ref, token: order.access_token, next: 'paystack', url });
   } catch (err) { await S_.cancelOrder(order, 'Payment could not be started'); throw err; }
 }));
 
@@ -197,16 +202,27 @@ router.post('/delivery/quote', A.limiter('quote', 60, 600000), ah(async (req, re
 }));
 
 /* ================= orders ================= */
-async function ownedOrder(req, ref, email) {
+// Who is asking? 'full' = the signed-in owner, an admin, or someone holding the order's private link token.
+// 'basic' = someone who only knows the order number and email: they see the status but not the phone number or street address.
+async function ownedOrder(req, ref, email, token) {
   const o = await S_.loadOrder('ref=?', str(ref, 20).toUpperCase());
-  const e = str(email, 120).toLowerCase();
-  const ok = o && ((req.user && (o.user_id === req.user.id || req.user.role === 'admin')) || (e && o.email.toLowerCase() === e));
+  const e = str(email, 120).toLowerCase(), tk = str(token, 80);
+  const tokenOk = !!(o && o.access_token && tk && tk.length === o.access_token.length && require('crypto').timingSafeEqual(Buffer.from(tk), Buffer.from(o.access_token)));
+  const owner = !!(o && req.user && (o.user_id === req.user.id || req.user.role === 'admin'));
+  const ok = o && (owner || tokenOk || (e && o.email.toLowerCase() === e));
   if (!ok) fail(404, 'We could not find an order with those details. Check the order number and email.');
+  o.view = owner || tokenOk ? 'full' : 'basic';
   return o;
 }
 // The order as the customer sees it: stages, promised time, their handover code while it is useful, and the rider's position only while the delivery is under way.
 async function customerOrder(o) {
   const out = S_.publicOrder(o);
+  if (o.view === 'basic') { // order number + email only: hide what a stranger could misuse
+    out.phone = out.phone ? '•••••••' + String(out.phone).slice(-3) : ''; out.address = out.address ? '••••••••' : ''; out.landmark_hidden = true;
+    if (out.delivery_info) { out.delivery_info = { ...out.delivery_info, lat: null, lng: null, landmark: '' }; }
+    out.masked = true;
+    return out; // no delivery code and no rider position for a masked view
+  }
   out.handover_code = await D.visibleCode(o);
   if (out.delivery_info && o.status === 'shipped' && o.rider_id) {
     const pt = await get('SELECT lat, lng, created FROM rider_points WHERE order_id=? ORDER BY id DESC LIMIT 1', o.id);
@@ -215,7 +231,7 @@ async function customerOrder(o) {
   return out;
 }
 router.post('/orders/lookup', A.limiter('lookup', 40, 600000), ah(async (req, res) => {
-  res.json({ order: await customerOrder(await ownedOrder(req, req.body.ref, req.body.email)) });
+  res.json({ order: await customerOrder(await ownedOrder(req, req.body.ref, req.body.email, req.body.token)) });
 }));
 router.post('/orders/:ref/cancel', A.limiter('cancel', 10, 600000), ah(async (req, res) => {
   const o = await ownedOrder(req, req.params.ref, req.body.email);
@@ -249,6 +265,7 @@ router.post('/paystack/webhook', ah(async (req, res) => {
 }));
 // Demo mode only (no PAYSTACK_SECRET_KEY set): lets you test the whole order flow without real money.
 router.post('/pay/demo/:ref', A.limiter('demo', 30, 600000), ah(async (req, res) => {
+  if (!S_.demoAllowed()) fail(404, 'Not found.');
   if (S_.paystackLive()) fail(404, 'Not found.');
   const o = await S_.loadOrder('ref=?', str(req.params.ref, 20).toUpperCase());
   if (!o || o.payment_method !== 'paystack' || o.payment_status === 'paid' || o.status !== 'pending') fail(400, 'This order is not waiting for payment.');
@@ -258,33 +275,38 @@ router.post('/pay/demo/:ref', A.limiter('demo', 30, 600000), ah(async (req, res)
 }));
 
 /* ================= accounts ================= */
-const pwOk = (p) => typeof p === 'string' && p.length >= 8 && p.length <= 200;
-router.post('/auth/register', A.limiter('register', 10, 3600000), ah(async (req, res) => {
+const PW = require('../lib/passwords');
+router.post('/auth/register', A.limiter('register', 5, 3600000), ah(async (req, res) => {
   const b = req.body || {}, name = str(b.name, 80), email = str(b.email, 120).toLowerCase(), phone = str(b.phone, 30);
   if (!name) fail(400, 'Please enter your name.');
   if (!isEmail(email)) fail(400, 'Please enter a valid email address.');
-  if (!pwOk(b.password)) fail(400, 'Your password must be at least 8 characters.');
-  if (await get('SELECT 1 x FROM users WHERE email=?', email)) fail(409, 'An account with that email already exists. Try signing in.');
+  const bad = PW.check(b.password, { email, name }); if (bad) fail(400, bad);
+  // The same answer and the same work whether or not the email is taken, so this form cannot be used to find out who has an account.
   const hash = await A.hashPassword(b.password);
+  const CANT = 'We could not create that account. If you already have one, sign in or use "Forgot password".';
+  if (await get('SELECT 1 x FROM users WHERE email=?', email)) fail(400, CANT);
   let r;
   try {
     r = await run("INSERT INTO users (name,email,phone,password,role,created) VALUES (?,?,?,?,'customer', ?)", name, email, phone, hash, now());
   } catch (err) {
-    if (err && err.code === '23505') fail(409, 'An account with that email already exists. Try signing in.');
+    if (err && err.code === '23505') fail(400, CANT);
     throw err;
   }
-  await A.startSession(req, res, Number(r.lastInsertRowid));
+  await A.startSession(req, res, Number(r.lastInsertRowid), 'customer');
   res.json({ user: A.publicUser(await get('SELECT * FROM users WHERE id=?', Number(r.lastInsertRowid))) });
 }));
 router.post('/auth/login', ah(async (req, res) => {
   const b = req.body || {}, email = str(b.email, 120).toLowerCase(), pw = typeof b.password === 'string' ? b.password.slice(0, 200) : '';
-  if (!A.hit('login-ip:' + req.ip, 30, 900000) || !A.hit('login-email:' + email, 8, 900000)) fail(429, 'Too many sign-in attempts. Please wait 15 minutes and try again.');
+  // Only FAILED attempts are counted, per visitor address and per account-from-this-address. A stranger guessing at your email from his own
+  // connection can lock out only himself, never you.
+  const ip = req.clientIp, kIp = 'login-fail-ip:' + ip, kAcc = `login-fail:${email}:${ip}`;
+  if ((await A.over(kIp, 40)) || (await A.over(kAcc, 8))) fail(429, 'Too many sign-in attempts. Please wait 15 minutes and try again.');
   const u = await get('SELECT * FROM users WHERE email=?', email);
   const good = u ? await A.checkPassword(pw, u.password) : await A.burn(pw);
-  if (!u || !good) fail(401, 'That email and password do not match.');
+  if (!u || !good) { await A.hit(kIp, 1e9, 900000); await A.hit(kAcc, 1e9, 900000); fail(401, 'That email and password do not match.'); }
   if (u.active === 0) fail(403, 'This account has been switched off. Please contact the store.');
   if (req.sessionToken) await run('DELETE FROM sessions WHERE id=?', A.sha(req.sessionToken));
-  await A.startSession(req, res, u.id);
+  await A.startSession(req, res, u.id, u.role);
   res.json({ user: A.publicUser(u) });
 }));
 router.post('/auth/logout', ah(async (req, res) => { await A.endSession(req, res); res.json({ ok: true }); }));
@@ -302,7 +324,7 @@ router.post('/auth/forgot', A.limiter('forgot', 6, 3600000), ah(async (req, res)
 }));
 router.post('/auth/reset', A.limiter('reset', 15, 3600000), ah(async (req, res) => {
   const token = str(req.body.token, 80);
-  if (!pwOk(req.body.password)) fail(400, 'Your password must be at least 8 characters.');
+  { const rr = /^[0-9a-f]{64}$/.test(String(req.body.token || '')) ? await get('SELECT u.email, u.name, u.role FROM resets r JOIN users u ON u.id=r.user_id WHERE r.token=? AND r.expires>?', A.sha(String(req.body.token)), now()) : null; const bad = PW.check(req.body.password, { email: rr && rr.email, name: rr && rr.name, min: rr && rr.role !== 'customer' ? PW.STAFF_MIN : 8 }); if (bad) fail(400, bad); }
   const r = /^[0-9a-f]{64}$/.test(token) ? await get('SELECT * FROM resets WHERE token=? AND expires>?', A.sha(token), now()) : null;
   if (!r) fail(400, 'This reset link has expired. Please ask for a new one.');
   const hash = await A.hashPassword(req.body.password);
@@ -317,7 +339,7 @@ router.put('/me', A.requireUser, ah(async (req, res) => {
   const b = req.body || {}, name = str(b.name, 80), phone = str(b.phone, 30);
   if (!name) fail(400, 'Please enter your name.');
   if (b.newPassword) {
-    if (!pwOk(b.newPassword)) fail(400, 'Your new password must be at least 8 characters.');
+    { const bad = PW.check(b.newPassword, { email: req.user.email, name: req.user.name, min: req.user.role !== 'customer' ? PW.STAFF_MIN : 8 }); if (bad) fail(400, bad); }
     if (!(await A.checkPassword(String(b.password || ''), req.user.password))) fail(400, 'Your current password is not correct.');
     await run('UPDATE users SET password=? WHERE id=?', await A.hashPassword(b.newPassword), req.user.id);
     await A.dropUserSessions(req.user.id, req.sessionToken);

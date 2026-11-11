@@ -96,7 +96,7 @@ const up = async (port) => { for (let i = 0; i < 200; i++) { try { await fetch(`
   const prods = (await call(P1, 'GET', '/api/products?instock=1')).j.products;
   const order = async (email, payment = 'pod') => {
     const p = prods[2]; const d = (await call(P1, 'GET', '/api/products/' + p.slug)).j.product;
-    return call(P1, 'POST', '/api/checkout', { contact: { name: 'Ada Obi', email, phone: '08011112222' }, address: { state: 'Lagos', city: 'Yaba', address: '1 Road Street' }, delivery: 'standard', payment, items: [{ productId: p.id, variantId: d.variants[0] ? d.variants[0].id : null, qty: 1 }] });
+    return call(P1, 'POST', '/api/checkout', { contact: { name: 'Ada Obi', email, phone: ('080' + String(parseInt(require('crypto').createHash('md5').update(email).digest('hex').slice(0, 7), 16)).padStart(8, '0').slice(-8)) }, address: { state: 'Lagos', city: 'Yaba', address: '1 Road Street' }, delivery: 'standard', payment, items: [{ productId: p.id, variantId: d.variants[0] ? d.variants[0].id : null, qty: 1 }] });
   };
   const outbox = async (email) => (await call(P1, 'GET', '/api/admin/outbox', undefined, cookie)).j.emails.filter((m) => m.to_email === email);
 

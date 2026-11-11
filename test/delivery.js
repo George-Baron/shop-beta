@@ -16,7 +16,7 @@ const URL_DB = ADMIN_URL.replace(/\/[^/?]*(\?.*)?$/, '/' + DB + '$1');
 const FAKE = 5000 + Math.floor(Math.random() * 90), P1 = FAKE + 100;
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-delivery-'));
 let passed = 0, failed = 0;
-const test = async (n, f) => { try { await f(); passed++; console.log('  ok   ' + n); } catch (e) { failed++; console.log('  FAIL ' + n + '\n       ' + (e.stack || e.message).split('\n').slice(0, 3).join('\n       ')); } };
+const test = async (n, f) => { try { await f(); passed++; console.log('  ok   ' + n); } catch (e) { failed++; console.log('  FAIL ' + n + '\n       ' + (e.stack || e.message).split('\n').slice(0, 7).join('\n       ')); } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const until = async (f, ms = 15000) => { const end = Date.now() + ms; for (;;) { const v = await f(); if (v) return v; if (Date.now() > end) throw new Error('timed out waiting'); await sleep(200); } };
 const rad = (d) => (d * Math.PI) / 180;
@@ -51,7 +51,7 @@ const MAIN = [6.6018, 3.3515], LEKKI = [6.4698, 3.5852], YABA = [6.5095, 3.3711]
   const admin = (await call('POST', '/api/auth/login', { email: 'owner@example.com', password: 'OwnerPass123' })).c;
   const rows = await q("SELECT id FROM products WHERE active=1 AND stock>=30 AND id NOT IN (SELECT product_id FROM variants) ORDER BY id LIMIT 3");
   const [PA, PB] = rows.map((r) => Number(r.id));
-  const order = (extra = {}) => ({ items: [{ productId: PA, qty: 1 }], contact: { name: 'Ada Obi', email: extra.email || 'ada@example.com', phone: '08011112222' }, address: { state: extra.state || 'Lagos', city: 'Yaba', address: '1 Road Street' }, delivery: 'standard', payment: extra.payment || 'pod', ...(extra.loc ? { location: { lat: extra.loc[0], lng: extra.loc[1], landmark: 'Blue gate' } } : {}), ...(extra.items ? { items: extra.items } : {}) });
+  const order = (extra = {}) => ({ items: [{ productId: PA, qty: 1 }], contact: { name: 'Ada Obi', email: extra.email || 'ada@example.com', phone: ('080' + String(parseInt(require('crypto').createHash('md5').update(extra.email || 'ada').digest('hex').slice(0, 7), 16)).padStart(8, '0').slice(-8)) }, address: { state: extra.state || 'Lagos', city: 'Yaba', address: '1 Road Street' }, delivery: 'standard', payment: extra.payment || 'pod', ...(extra.loc ? { location: { lat: extra.loc[0], lng: extra.loc[1], landmark: 'Blue gate' } } : {}), ...(extra.items ? { items: extra.items } : {}) });
   const quote = (loc, extra = {}) => call('POST', '/api/delivery/quote', { location: { lat: loc[0], lng: loc[1] }, state: extra.state || 'Lagos', items: extra.items || [{ productId: PA, qty: 1 }] });
 
   await test('before any pickup point exists, delivery works as before (state fee only)', async () => {
@@ -127,8 +127,8 @@ const MAIN = [6.6018, 3.3515], LEKKI = [6.4698, 3.5852], YABA = [6.5095, 3.3711]
   });
 
   // ---------- one full delivery ----------
-  const place = async (email, payment = 'pod') => { const r = await call('POST', '/api/checkout', order({ email, loc: YABA, payment })); assert.strictEqual(r.s, 200); const row = (await q('SELECT id, ref, total FROM orders WHERE ref=$1', [r.j.ref]))[0]; return { id: Number(row.id), ref: row.ref, total: Number(row.total), email }; };
-  const lookup = async (o) => (await call('POST', '/api/orders/lookup', { ref: o.ref, email: o.email })).j.order;
+  const place = async (email, payment = 'pod') => { const r = await call('POST', '/api/checkout', order({ email, loc: YABA, payment })); assert.strictEqual(r.s, 200); const row = (await q('SELECT id, ref, total, access_token FROM orders WHERE ref=$1', [r.j.ref]))[0]; return { id: Number(row.id), ref: row.ref, total: Number(row.total), email, token: row.access_token }; };
+  const lookup = async (o) => (await call('POST', '/api/orders/lookup', { ref: o.ref, email: o.email, token: o.token })).j.order;
   const confirm = async (o) => assert.strictEqual((await call('PUT', '/api/admin/orders/' + o.id, { status: 'confirmed' }, admin)).s, 200);
   const assign = async (o, id = rider1Id) => assert.strictEqual((await call('PUT', `/api/admin/orders/${o.id}/rider`, { riderId: id }, admin)).s, 200);
   const toRoad = async (o) => { await confirm(o); await assign(o); assert.strictEqual((await call('POST', `/api/rider/orders/${o.id}/accept`, {}, r1)).s, 200); const pk = await q('SELECT partner_id FROM order_pickups WHERE order_id=$1', [o.id]); for (const p of pk) assert.strictEqual((await call('POST', `/api/rider/orders/${o.id}/pickup`, { partnerId: Number(p.partner_id) }, r1)).s, 200); assert.strictEqual((await call('POST', `/api/rider/orders/${o.id}/start`, {}, r1)).s, 200); };
@@ -146,7 +146,7 @@ const MAIN = [6.6018, 3.3515], LEKKI = [6.4698, 3.5852], YABA = [6.5095, 3.3711]
     assert.strictEqual((await call('GET', '/api/rider/orders', undefined, admin)).s, 401);
     assert.strictEqual((await call('POST', `/api/rider/orders/${d1.id}/accept`, {}, r2)).s, 404);
     const mine = (await call('GET', '/api/rider/orders', undefined, r1)).j.orders; assert.strictEqual(mine.length, 1);
-    const o = mine[0]; assert.strictEqual(o.customer.phone, '08011112222'); assert.ok(o.customer.nav.includes('google.com/maps')); assert.ok(o.pickups[0].nav); assert.strictEqual(o.collect, d1.total);
+    const o = mine[0]; assert.match(o.customer.phone, /^080\d{8}$/); assert.ok(o.customer.nav.includes('google.com/maps')); assert.ok(o.pickups[0].nav); assert.strictEqual(o.collect, d1.total);
     assert.ok(!JSON.stringify(mine).includes(await (async () => (await lookup(d1)).handover_code)()), 'the rider never sees the code');
     assert.strictEqual((await call('GET', '/api/rider/orders', undefined, r2)).j.orders.length, 0);
   });

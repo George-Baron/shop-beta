@@ -49,7 +49,7 @@ const key = () => crypto.randomUUID();
   const [P_A, P_B, P_C, P_D] = rows;
   const stock = async (p) => Number((await q('SELECT stock FROM products WHERE id=$1', [p.id]))[0].stock);
   const count = async (email) => Number((await q('SELECT COUNT(*) n FROM orders WHERE email=$1', [email]))[0].n);
-  const body = (p, email, payment = 'pod', qty = 1) => ({ items: [{ productId: p.id, qty }], contact: { name: 'Ada Obi', email, phone: '08011112222' }, address: { state: 'Lagos', city: 'Yaba', address: '1 Road Street' }, delivery: 'standard', payment });
+  const body = (p, email, payment = 'pod', qty = 1) => ({ items: [{ productId: p.id, qty }], contact: { name: 'Ada Obi', email, phone: ('080' + String(parseInt(require('crypto').createHash('md5').update(email).digest('hex').slice(0, 7), 16)).padStart(8, '0').slice(-8)) }, address: { state: 'Lagos', city: 'Yaba', address: '1 Road Street' }, delivery: 'standard', payment });
   const withKey = (b, k) => ({ ...b, idempotencyKey: k });
 
   await test('the same checkout key twice gives one order and takes stock once', async () => {
