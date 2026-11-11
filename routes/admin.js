@@ -23,9 +23,9 @@ router.use((req, res, next) => {
   next();
 });
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const STATUSES = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled'];
+const STATUSES = S.ORDER_STATUSES;
 // "Sales" = orders that are not cancelled and are either paid online or pay-on-delivery.
-const SALE = "o.status <> 'cancelled' AND (o.payment_method = 'pod' OR o.payment_status = 'paid')";
+const SALE = "o.status NOT IN ('cancelled','refunded') AND (o.payment_method = 'pod' OR o.payment_status = 'paid')";
 
 /* ---------- first-run admin account ---------- */
 router.get('/setup', async (req, res) => res.json({ needed: !await get("SELECT 1 x FROM users WHERE role='admin'") }));
@@ -76,25 +76,21 @@ router.get('/orders', async (req, res) => {
 router.get('/orders/:id', async (req, res) => {
   const o = await S.loadOrder('id=?', int(req.params.id));
   if (!o) fail(404, 'Order not found.');
-  res.json({ order: o });
+  res.json({ order: o, allowed: S.allowedNext(o) });
 });
 router.put('/orders/:id', async (req, res) => {
   const o = await S.loadOrder('id=?', int(req.params.id));
   if (!o) fail(404, 'Order not found.');
-  const status = str(req.body.status, 20), note = str(req.body.note, 300);
-  if (!STATUSES.includes(status)) fail(400, 'Unknown status.');
-  if (o.status === 'cancelled') fail(400, 'This order is cancelled and cannot be changed.');
-  if (status === 'cancelled') await S.cancelOrder(o, note || 'Cancelled by the store');
-  else if (status === o.status) { if (note) await S.addEvent(o.id, status, note); }
-  else {
-    if (['processing', 'shipped', 'delivered'].includes(status) && o.payment_method === 'paystack' && o.payment_status !== 'paid') fail(400, 'This order has not been paid yet. Mark it as paid first if you received the money.');
-    await tx(async () => {
-      await run('UPDATE orders SET status=? WHERE id=?', status, o.id);
-      if (status === 'paid' || (status === 'delivered' && o.payment_method === 'pod')) await run("UPDATE orders SET payment_status='paid' WHERE id=?", o.id);
-      await S.addEvent(o.id, status, note);
-      if (['processing', 'shipped', 'delivered'].includes(status)) await queue.enqueue('order-mail', { kind: 'status', orderId: o.id, status, note: note || '' });
-    });
-  }
+  await S.changeStatus(o, str(req.body.status, 20), str(req.body.note, 300), req.user.name);
+  res.json({ ok: true });
+});
+// Pay on delivery: record that staff phoned the customer. Needed before the order can be confirmed and dispatched.
+router.post('/orders/:id/confirm-phone', async (req, res) => {
+  const o = await S.loadOrder('id=?', int(req.params.id));
+  if (!o) fail(404, 'Order not found.');
+  const note = str(req.body.note, 300);
+  if (note.length < 3) fail(400, 'Please write who you spoke to and what they said (for example "Spoke to Mrs Obi, address confirmed").');
+  await S.confirmByPhone(o, req.user.name, note);
   res.json({ ok: true });
 });
 

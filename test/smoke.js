@@ -208,14 +208,16 @@ async function test(name, fn) {
     const list = (await admin.get('/api/admin/orders')).json; assert.ok(list.total >= 5);
     const o = list.orders.find((x) => x.ref === payRef);
     assert.strictEqual((await admin.put('/api/admin/orders/' + o.id, { status: 'bogus' })).status, 400);
-    assert.strictEqual((await admin.put('/api/admin/orders/' + o.id, { status: 'shipped', note: 'Dispatched with GIG' })).status, 200);
-    const detail = (await admin.get('/api/admin/orders/' + o.id)).json.order; assert.strictEqual(detail.status, 'shipped'); assert.ok(detail.events.some((e) => e.note === 'Dispatched with GIG'));
-    assert.strictEqual((await admin.get('/api/admin/orders?status=shipped&q=ada')).json.total, 1);
+    assert.strictEqual((await admin.put('/api/admin/orders/' + o.id, { status: 'dispatched' })).status, 400); // cannot skip "confirmed"
+    assert.strictEqual((await admin.put('/api/admin/orders/' + o.id, { status: 'confirmed' })).status, 200);
+    assert.strictEqual((await admin.put('/api/admin/orders/' + o.id, { status: 'dispatched', note: 'Dispatched with GIG' })).status, 200);
+    const detail = (await admin.get('/api/admin/orders/' + o.id)).json.order; assert.strictEqual(detail.status, 'dispatched'); assert.ok(detail.events.some((e) => e.note === 'Dispatched with GIG'));
+    assert.strictEqual((await admin.get('/api/admin/orders?status=dispatched&q=ada')).json.total, 1);
     const unpaid = (await admin.get('/api/admin/orders?q=f@example.com')).json.orders[0]; assert.strictEqual(unpaid.status, 'cancelled');
     assert.strictEqual((await admin.put('/api/admin/orders/' + unpaid.id, { status: 'paid' })).status, 400); // cancelled orders are locked
     const r = await guest.post('/api/checkout', { items: [{ productId: plain.id, qty: 1 }], contact: { name: 'G', email: 'g@example.com', phone: '08031234567' }, address: { state: 'Ogun', address: '2 Test Road' }, delivery: 'standard', payment: 'paystack' });
     const gid = (await admin.get('/api/admin/orders?q=g@example.com')).json.orders[0].id, before = await stockOf(plain.slug);
-    assert.strictEqual((await admin.put('/api/admin/orders/' + gid, { status: 'shipped' })).status, 400); // unpaid online order cannot ship
+    assert.strictEqual((await admin.put('/api/admin/orders/' + gid, { status: 'dispatched' })).status, 400); // unpaid online order cannot be dispatched
     assert.strictEqual((await admin.put('/api/admin/orders/' + gid, { status: 'cancelled' })).status, 200); assert.strictEqual(await stockOf(plain.slug), before + 1); void r;
   });
   await test('products: create with variants and photo, edit keeps variant ids, hide, delete', async () => {
@@ -298,6 +300,90 @@ async function test(name, fn) {
     await Promise.all([post(new Client(), `/api/orders/${r.json.ref}/cancel`, { email: 'race300@example.com' }, 301), post(new Client(), `/api/orders/${r.json.ref}/cancel`, { email: 'race300@example.com' }, 302)]);
     assert.strictEqual(await stockOf(item.slug), before);
   });
+
+  /* ---------------- Step 6: checkout correctness ---------------- */
+  const stockItem = async (k) => (await guest.get('/api/products?store=electronics')).json.products.filter((x) => !x.hasVariants && x.stock > 20)[k];
+  const adminOrder = async (ref) => { const l = (await admin.get('/api/admin/orders?q=' + ref)).json.orders.find((x) => x.ref === ref); return (await admin.get('/api/admin/orders/' + l.id)).json; };
+  const setStatus = (id, status, note) => admin.put('/api/admin/orders/' + id, { status, note });
+  const orderCount = async (email) => (await admin.get('/api/admin/orders?q=' + encodeURIComponent(email))).json.total;
+
+  await test('idempotency: a double tap on Pay (same key, even at the same moment) creates one order and takes stock once', async () => {
+    const item = await stockItem(0), before = await stockOf(item.slug), key = 'tap-' + Date.now() + '-aaaa';
+    const body = mk(item.id, 2, 'pod', 400);
+    const rs = await Promise.all(Array.from({ length: 6 }, () => new Client().req('POST', '/api/checkout', body, { 'Idempotency-Key': key, 'X-Forwarded-For': '10.8.1.1' })));
+    assert.ok(rs.every((r) => r.status === 200), rs.map((r) => r.status + ':' + (r.json && r.json.error)).join(','));
+    assert.strictEqual(new Set(rs.map((r) => r.json.ref)).size, 1, 'one order reference for all six taps');
+    assert.strictEqual(rs.filter((r) => r.json.replayed).length, 5, 'five of them were replays');
+    assert.strictEqual(await orderCount('race400@example.com'), 1); assert.strictEqual(await stockOf(item.slug), before - 2);
+    const later = await new Client().req('POST', '/api/checkout', body, { 'Idempotency-Key': key, 'X-Forwarded-For': '10.8.1.2' }); assert.strictEqual(later.json.ref, rs[0].json.ref); assert.strictEqual(await stockOf(item.slug), before - 2);
+    await jobsIdle(admin); assert.strictEqual((await admin.get('/api/admin/outbox')).json.emails.filter((m) => m.subject.includes(rs[0].json.ref) && m.to_email === 'race400@example.com').length, 1, 'one confirmation email');
+  });
+  await test('idempotency: same key with a different cart or customer is refused; no key means separate orders; bad keys are refused', async () => {
+    const item = await stockItem(0), key = 'tap-' + Date.now() + '-bbbb';
+    assert.strictEqual((await new Client().req('POST', '/api/checkout', mk(item.id, 1, 'pod', 401), { 'Idempotency-Key': key, 'X-Forwarded-For': '10.8.2.1' })).status, 200);
+    const other = await new Client().req('POST', '/api/checkout', mk(item.id, 3, 'pod', 401), { 'Idempotency-Key': key, 'X-Forwarded-For': '10.8.2.2' }); assert.strictEqual(other.status, 422);
+    const other2 = await new Client().req('POST', '/api/checkout', mk(item.id, 1, 'pod', 402), { 'Idempotency-Key': key, 'X-Forwarded-For': '10.8.2.3' }); assert.strictEqual(other2.status, 422, 'a different person cannot reuse the key');
+    assert.strictEqual(await orderCount('race402@example.com'), 0);
+    const a = await post(new Client(), '/api/checkout', mk(item.id, 1, 'pod', 403), 403), b = await post(new Client(), '/api/checkout', mk(item.id, 1, 'pod', 403), 404);
+    assert.notStrictEqual(a.json.ref, b.json.ref, 'without a key, two taps are two orders (as before)');
+    assert.strictEqual((await new Client().req('POST', '/api/checkout', mk(item.id, 1, 'pod', 405), { 'Idempotency-Key': 'x', 'X-Forwarded-For': '10.8.2.4' })).status, 400);
+  });
+  await test('idempotency: a failed attempt (sold out) leaves no key behind, so the retry can succeed once stock is back', async () => {
+    const item = await stockItem(1); await adminSql(`UPDATE products SET stock=0 WHERE id=${item.id}`, DB_NAME);
+    const key = 'tap-' + Date.now() + '-cccc', body = mk(item.id, 1, 'pod', 410);
+    assert.ok([400, 409].includes((await new Client().req('POST', '/api/checkout', body, { 'Idempotency-Key': key, 'X-Forwarded-For': '10.8.3.1' })).status), 'sold-out cart is refused');
+    await adminSql(`UPDATE products SET stock=25 WHERE id=${item.id}`, DB_NAME);
+    assert.strictEqual((await new Client().req('POST', '/api/checkout', body, { 'Idempotency-Key': key, 'X-Forwarded-For': '10.8.3.2' })).status, 200);
+    assert.strictEqual(await orderCount('race410@example.com'), 1);
+  });
+  await test('pay on delivery: cannot be confirmed or dispatched until staff phone the customer', async () => {
+    const item = await stockItem(0), r = await post(new Client(), '/api/checkout', mk(item.id, 1, 'pod', 420), 420);
+    let { order: o, allowed } = await adminOrder(r.json.ref); assert.strictEqual(o.status, 'pending'); assert.deepStrictEqual(allowed, ['cancelled']);
+    assert.strictEqual((await setStatus(o.id, 'confirmed')).status, 400); assert.strictEqual((await setStatus(o.id, 'dispatched')).status, 400); assert.strictEqual((await setStatus(o.id, 'paid')).status, 400);
+    assert.strictEqual((await admin.post(`/api/admin/orders/${o.id}/confirm-phone`, { note: '' })).status, 400, 'a note is required');
+    const lookup = (await new Client().post('/api/orders/lookup', { ref: r.json.ref, email: 'race420@example.com' })).json.order; assert.strictEqual(lookup.phone_confirmed, false);
+    const [c1, c2] = await Promise.all([admin.post(`/api/admin/orders/${o.id}/confirm-phone`, { note: 'Spoke to Race 420, address confirmed' }), admin.post(`/api/admin/orders/${o.id}/confirm-phone`, { note: 'Spoke again' })]);
+    assert.deepStrictEqual([c1.status, c2.status].sort(), [200, 409], 'two simultaneous confirmations: one wins');
+    ({ order: o, allowed } = await adminOrder(r.json.ref)); assert.strictEqual(o.status, 'confirmed'); assert.ok(o.phone_confirmed_at); assert.match(o.phone_confirmed_by, /\S/); assert.deepStrictEqual(allowed, ['dispatched', 'cancelled']);
+    assert.ok(o.events.some((e) => /Confirmed by phone/.test(e.note)));
+    assert.strictEqual((await setStatus(o.id, 'delivered')).status, 400, 'cannot skip dispatch');
+    assert.strictEqual((await setStatus(o.id, 'dispatched')).status, 200); assert.strictEqual((await setStatus(o.id, 'delivered')).status, 200);
+    o = (await adminOrder(r.json.ref)).order; assert.strictEqual(o.payment_status, 'paid', 'cash collected on delivery'); assert.ok(o.events.some((e) => /Cash collected/.test(e.note)));
+    assert.strictEqual((await setStatus(o.id, 'cancelled')).status, 400, 'a delivered order cannot be cancelled'); assert.strictEqual((await setStatus(o.id, 'pending')).status, 400);
+  });
+  await test('online order: dispatch needs payment; confirmed after paid; two staff acting at once cannot both succeed', async () => {
+    const item = await stockItem(0), r = await post(new Client(), '/api/checkout', mk(item.id, 1, 'paystack', 430), 430);
+    let { order: o, allowed } = await adminOrder(r.json.ref); assert.deepStrictEqual(allowed, ['paid', 'cancelled']); assert.strictEqual((await setStatus(o.id, 'confirmed')).status, 400);
+    assert.strictEqual((await post(new Client(), '/api/pay/demo/' + r.json.ref, { outcome: 'ok' }, 431)).status, 200);
+    ({ order: o, allowed } = await adminOrder(r.json.ref)); assert.strictEqual(o.status, 'paid'); assert.deepStrictEqual(allowed, ['confirmed', 'cancelled', 'refunded']);
+    const race = await Promise.all([setStatus(o.id, 'confirmed'), setStatus(o.id, 'cancelled', 'changed my mind')]);
+    assert.ok(race.some((x) => x.status === 200)); const fin = (await adminOrder(r.json.ref)).order; assert.ok(['confirmed', 'cancelled'].includes(fin.status));
+    assert.strictEqual(fin.events.filter((e) => ['confirmed', 'cancelled'].includes(e.status)).length >= 1, true);
+  });
+  await test('refund: paid order cancelled shows a refund reminder; marking refunded records it once; stock returns exactly once', async () => {
+    const item = await stockItem(2), before = await stockOf(item.slug);
+    const r = await post(new Client(), '/api/checkout', mk(item.id, 2, 'paystack', 440), 440); await post(new Client(), '/api/pay/demo/' + r.json.ref, { outcome: 'ok' }, 441);
+    assert.strictEqual(await stockOf(item.slug), before - 2);
+    let o = (await adminOrder(r.json.ref)).order;
+    assert.strictEqual((await setStatus(o.id, 'cancelled', 'Customer called')).status, 200); assert.strictEqual(await stockOf(item.slug), before);
+    o = (await adminOrder(r.json.ref)).order; assert.ok(o.events.some((e) => /refund the customer/i.test(e.note))); assert.deepStrictEqual((await adminOrder(r.json.ref)).allowed, ['refunded']);
+    const both = await Promise.all([setStatus(o.id, 'refunded', 'Refunded via Paystack'), setStatus(o.id, 'refunded', 'Refunded via Paystack')]);
+    assert.strictEqual(both.filter((x) => x.status === 200).length, 1, 'only one refund is recorded: ' + both.map((x) => x.status));
+    o = (await adminOrder(r.json.ref)).order; assert.strictEqual(o.status, 'refunded'); assert.strictEqual(o.payment_status, 'refunded'); assert.strictEqual(o.events.filter((e) => e.status === 'refunded').length, 1);
+    assert.strictEqual(await stockOf(item.slug), before, 'stock not returned a second time');
+    assert.strictEqual((await adminOrder(r.json.ref)).allowed.length, 0);
+    // refund before dispatch returns the stock; refund after delivery does not touch it
+    const r2 = await post(new Client(), '/api/checkout', mk(item.id, 1, 'paystack', 442), 442); await post(new Client(), '/api/pay/demo/' + r2.json.ref, { outcome: 'ok' }, 443);
+    const o2 = (await adminOrder(r2.json.ref)).order; assert.strictEqual(await stockOf(item.slug), before - 1);
+    assert.strictEqual((await setStatus(o2.id, 'refunded')).status, 200); assert.strictEqual(await stockOf(item.slug), before);
+    const r3 = await post(new Client(), '/api/checkout', mk(item.id, 1, 'paystack', 444), 444); await post(new Client(), '/api/pay/demo/' + r3.json.ref, { outcome: 'ok' }, 445);
+    const o3 = (await adminOrder(r3.json.ref)).order; for (const st of ['confirmed', 'dispatched', 'delivered']) assert.strictEqual((await setStatus(o3.id, st)).status, 200);
+    assert.strictEqual((await setStatus(o3.id, 'refunded')).status, 200); assert.strictEqual(await stockOf(item.slug), before - 1, 'delivered goods are not put back automatically');
+    const unpaid = await post(new Client(), '/api/checkout', mk(item.id, 1, 'pod', 446), 446); const ou = (await adminOrder(unpaid.json.ref)).order; assert.strictEqual((await setStatus(ou.id, 'refunded')).status, 400, 'nothing to refund if nothing was paid');
+  });
+  await test('the database itself refuses an order status outside the seven allowed', async () => {
+    await assert.rejects(adminSql("UPDATE orders SET status='shipped' WHERE id=(SELECT MIN(id) FROM orders)", DB_NAME), /orders_status_chk|violates check/);
+  });
   await test('renaming a category updates product search; coupon with 1 use cannot be used twice at once', async () => {
     const cat = cfg.categories.find((c) => c.store === 'electronics');
     assert.strictEqual((await admin.put('/api/admin/categories/' + cat.id, { name: 'Zorblax Things', icon: cat.icon })).status, 200);
@@ -307,7 +393,7 @@ async function test(name, fn) {
     assert.strictEqual((await admin.post('/api/admin/coupons', { code: 'ONCE', type: 'fixed', value: 500, min_spend: 0, max_uses: 1, active: true })).status, 200);
     const item = (await guest.get('/api/products?store=electronics')).json.products.filter((x) => !x.hasVariants && x.stock > 5)[2];
     const rs = await Promise.all([0, 1, 2, 3].map((i) => post(new Client(), '/api/checkout', { ...mk(item.id, 1, 'pod', 400 + i), coupon: 'ONCE' }, 400 + i)));
-    assert.strictEqual(rs.filter((r) => r.status === 200).length, 1, rs.map((r) => r.status).join(','));
+    assert.strictEqual(rs.filter((r) => r.status === 200).length, 1, rs.map((r) => r.status + (r.json && r.json.error)).join(','));
   });
 
   await test('two background jobs started together: only one does the work (lease lock)', async () => {

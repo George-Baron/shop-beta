@@ -149,11 +149,18 @@ router.post('/cart/abandon', A.limiter('abandon', 40, 3600000), async (req, res)
 });
 
 router.post('/checkout', A.limiter('checkout', 20, 3600000), ah(async (req, res) => {
-  const order = await S_.createOrder(req.body || {}, req.user);
-  if (order.payment_method === 'pod') return res.json({ ref: order.ref, next: 'pod' }); // confirmation email was queued with the order
-  if (!S_.paystackLive()) return res.json({ ref: order.ref, next: 'demo' });
-  try { return res.json({ ref: order.ref, next: 'paystack', url: await S_.paystackInitialize(order) }); }
-  catch (err) { await S_.cancelOrder(order, 'Payment could not be started'); throw err; }
+  // The page sends one key per "Place order" tap, so a double tap or a retry after a dropped connection gives back the same order.
+  const order = await S_.createOrder(req.body || {}, req.user, req.get('Idempotency-Key') || (req.body || {}).idempotencyKey);
+  if (order.status === 'cancelled') fail(409, 'That order was cancelled. Please place the order again.');
+  if (order.payment_method === 'pod') return res.json({ ref: order.ref, next: 'pod', replayed: !!order.replayed }); // confirmation email was queued with the order
+  if (!S_.paystackLive()) return res.json({ ref: order.ref, next: 'demo', replayed: !!order.replayed });
+  try { return res.json({ ref: order.ref, next: 'paystack', url: await S_.startPayment(order), replayed: !!order.replayed }); }
+  catch (err) {
+    if (order.replayed) throw err; // the first request owns the order; it decides whether to cancel it
+    await S_.cancelOrder(order, 'Payment could not be started');
+    await run('DELETE FROM idempotency_keys WHERE order_id=?', order.id); // so the shopper can try again
+    throw err;
+  }
 }));
 
 /* ================= orders ================= */

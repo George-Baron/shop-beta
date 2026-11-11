@@ -22,7 +22,7 @@ function start() {
         const ref = decodeURIComponent(v[1]); state.paystack.calls.push({ verify: ref });
         if (state.paystack.verifyDown) return send(503, { status: false, message: 'down' });
         const d = state.paystack.verify[ref]; if (!d) return send(404, { status: false, message: 'Transaction reference not found' });
-        return send(200, { status: true, data: { reference: ref, status: d.status, amount: d.amount, currency: d.currency || 'NGN' } });
+        return send(200, { status: true, data: { reference: d.reference || ref, status: d.status, amount: d.amount, currency: d.currency || 'NGN' } });
       }
       send(404, { error: 'no route' });
     });

@@ -281,3 +281,8 @@ A PostgreSQL job queue (`jobs` table, `lib/queue.js`) claims work with `FOR UPDA
 - Not a job on purpose: stock reservation and release. They stay inside the order transaction (correctness before speed).
 
 Tests: `npm run test:queue` (19 checks). `npm test` waits for the worker before reading the outbox.
+
+
+## 16. After step 6: checkout correctness
+
+Order states are now `pending, paid, confirmed, dispatched, delivered, cancelled, refunded` (database check constraint). Pay-on-delivery orders need a recorded phone confirmation before they can be confirmed or dispatched. Double taps are made safe with an `Idempotency-Key` header stored in `idempotency_keys` inside the order transaction. Refunds and cancellations are recorded once and return stock only when the goods never left. Paystack payments are marked paid only after signature, Paystack's own verify, reference, NGN and exact-amount checks. Payment start is claimed once per order (`orders.pay_url`), so repeated requests get the same payment page. Full rules, and what is not verified: `docs/CHECKOUT.md`. Migration 007 renames live statuses: staging first.

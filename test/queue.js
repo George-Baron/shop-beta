@@ -187,6 +187,31 @@ class Client {
       assert.strictEqual((await admin.get('/api/admin/orders')).json.orders.find((x) => x.ref === ref).payment_status, 'unpaid'); assert.match(f.last_error, /not confirmed/);
       await admin.del('/api/admin/jobs/' + f.id);
     });
+    await test('Paystack: the same Place order tap sent 5 times at once makes one order and starts one payment', async () => {
+      const key = 'tap-' + Date.now() + '-pppp'; m.state.paystack.calls.length = 0;
+      const body = { items: [{ productId: prods[0].id, qty: 1 }], contact: { name: 'Q', email: 'dbl@example.com', phone: '08031234567' }, address: { state: 'Lagos', address: '1 Test Road' }, delivery: 'standard', payment: 'paystack' };
+      const rs = await Promise.all(Array.from({ length: 5 }, (_, i) => (i % 2 ? A : B).req('POST', '/api/checkout', body, { 'Idempotency-Key': key, 'X-Forwarded-For': '10.7.7.' + (i + 1) })));
+      assert.ok(rs.every((r) => r.status === 200), JSON.stringify(rs.map((r) => r.status + (r.json && r.json.error || ''))));
+      assert.strictEqual(new Set(rs.map((r) => r.json.ref)).size, 1); assert.strictEqual(new Set(rs.map((r) => r.json.url)).size, 1); assert.match(rs[0].json.url, /^https:\/\/checkout\.paystack\.test\//);
+      assert.strictEqual(m.state.paystack.calls.filter((c) => c.init === rs[0].json.ref).length, 1, 'Paystack was asked once');
+    });
+    await test('Paystack: a webhook whose body was changed after signing is refused', async () => {
+      const raw = JSON.stringify({ event: 'charge.success', data: { reference: 'SB-AAAAAA' } }); const sig = crypto.createHmac('sha512', KEY).update(raw).digest('hex');
+      const tampered = raw.replace('SB-AAAAAA', 'SB-BBBBBB'); const before = (await sql("SELECT COUNT(*) FROM jobs WHERE queue='paystack-webhook'", DB)).rows[0].count;
+      assert.strictEqual((await A.post('/api/paystack/webhook', tampered, { 'x-paystack-signature': sig })).status, 401); assert.strictEqual((await A.post('/api/paystack/webhook', raw, { 'x-paystack-signature': sig.toUpperCase() })).status, 401);
+      assert.strictEqual((await sql("SELECT COUNT(*) FROM jobs WHERE queue='paystack-webhook'", DB)).rows[0].count, before);
+    });
+    await test('Paystack: wrong currency or a different reference is never marked paid, and the order explains why (once)', async () => {
+      for (const [email, verify, expect] of [['cur@example.com', (ref, total) => ({ status: 'success', amount: total * 100, currency: 'USD' }), /currency USD/], ['ref@example.com', (ref, total) => ({ status: 'success', amount: total * 100, reference: 'SB-ZZZZZZ' }), /different reference/]]) {
+        const r = await order(A, prods[1], 'paystack', email); const ref = r.json.ref; const total = (await admin.get('/api/admin/orders')).json.orders.find((o) => o.ref === ref).total;
+        const v = verify(ref, total); m.state.paystack.verify[ref] = v; if (v.reference) m.state.paystack.verify[ref] = { ...v };
+        assert.strictEqual((await hook(A, { event: 'charge.success', data: { reference: ref } })).status, 200);
+        const f = await waitFor(async () => (await jobsOf()).failed.find((x) => x.payload.includes(ref)), 10000, 'failed webhook job for ' + email);
+        const list = (await admin.get('/api/admin/orders')).json.orders.find((o) => o.ref === ref); assert.strictEqual(list.payment_status, 'unpaid');
+        const detail = (await admin.get('/api/admin/orders/' + list.id)).json.order; const notes = detail.events.filter((e) => expect.test(e.note)); assert.strictEqual(notes.length, 1, 'one explanation, not one per retry: ' + notes.length);
+        await admin.del('/api/admin/jobs/' + f.id);
+      }
+    });
     await test('a payment for an order that does not exist is ignored safely', async () => {
       assert.strictEqual((await hook(A, { event: 'charge.success', data: { reference: 'SB-NOSUCH' } })).status, 200); await idle();
       assert.strictEqual((await jobsOf()).overview.failed, 0);
