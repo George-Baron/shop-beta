@@ -9,6 +9,7 @@ const A = require('../lib/auth');
 const jobs = require('../lib/jobs');
 const queue = require('../lib/queue');
 const D = require('../lib/delivery');
+const PW = require('../lib/passwords');
 const geo = require('../lib/geo');
 const { slugify } = require('../lib/seed');
 const { fail, str, int, isEmail, parseImages, getSettings, dayStart } = S;
@@ -29,19 +30,36 @@ const STATUSES = S.STATUSES;
 const SALE = "o.status <> 'cancelled' AND (o.payment_method = 'pod' OR o.payment_status = 'paid')";
 
 /* ---------- first-run admin account ---------- */
-router.get('/setup', ah(async (req, res) => res.json({ needed: !(await get("SELECT 1 x FROM users WHERE role='admin'")) })));
-router.post('/setup', A.limiter('setup', 10, 3600000), ah(async (req, res) => {
+// In production the first admin must be created with ADMIN_EMAIL + ADMIN_PASSWORD, or with the SETUP_CODE you put in the environment.
+// Otherwise the first stranger to find /admin could become the owner.
+const setupMode = () => (process.env.NODE_ENV !== 'production' ? 'open' : process.env.SETUP_CODE ? 'code' : 'closed');
+router.get('/setup', ah(async (req, res) => res.json({ needed: !(await get("SELECT 1 x FROM users WHERE role='admin'")) && setupMode() !== 'closed', needsCode: setupMode() === 'code' })));
+router.post('/setup', A.limiter('setup', 5, 3600000), ah(async (req, res) => {
   if (await get("SELECT 1 x FROM users WHERE role='admin'")) fail(403, 'An administrator already exists. Please sign in.');
+  if (setupMode() === 'closed') fail(403, 'First-time setup is switched off. Set ADMIN_EMAIL and ADMIN_PASSWORD (or SETUP_CODE) on the server.');
+  if (setupMode() === 'code') { const given = Buffer.from(String((req.body || {}).setupCode || '')), want = Buffer.from(process.env.SETUP_CODE); if (given.length !== want.length || !require('crypto').timingSafeEqual(given, want)) fail(403, 'That setup code is not right.'); }
   const b = req.body || {}, email = str(b.email, 120).toLowerCase(), name = str(b.name, 80) || 'Store owner';
   if (!isEmail(email)) fail(400, 'Please enter a valid email address.');
-  if (typeof b.password !== 'string' || b.password.length < 8 || b.password.length > 200) fail(400, 'Your password must be at least 8 characters.');
+  { const bad = PW.check(b.password, { email, name, min: PW.STAFF_MIN }); if (bad) fail(400, bad); }
   if (await get('SELECT 1 x FROM users WHERE email=?', email)) fail(409, 'That email is already registered as a customer. Use a different email.');
   const r = await run("INSERT INTO users (name,email,phone,password,role,created) VALUES (?,?,'',?, 'admin', ?)", name, email, await A.hashPassword(b.password), now());
-  await A.startSession(req, res, Number(r.lastInsertRowid));
+  await A.startSession(req, res, Number(r.lastInsertRowid), 'admin');
   res.json({ user: A.publicUser(await get('SELECT * FROM users WHERE id=?', Number(r.lastInsertRowid))) });
 }));
 
 router.use(A.requireAdmin);
+
+// Activity log: every change an admin makes (not reads) is written down with who, what and from where. Passwords are never recorded.
+router.use((req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  res.on('finish', () => {
+    let detail = '';
+    try { const b = { ...(req.body || {}) }; for (const k of Object.keys(b)) if (/pass|token|secret|data$/i.test(k)) b[k] = '[hidden]'; detail = JSON.stringify(b).slice(0, 600); } catch { /* ignore */ }
+    run('INSERT INTO audit_log (user_id,user_name,method,path,status,detail,ip,created) VALUES (?,?,?,?,?,?,?,?)', req.user ? req.user.id : null, req.user ? String(req.user.name || req.user.email).slice(0, 80) : '', req.method, req.originalUrl.slice(0, 200), res.statusCode, detail, String(req.clientIp || '').slice(0, 60), now()).catch((e) => console.error('Audit log failed:', e.message));
+  });
+  next();
+});
+router.get('/audit', ah(async (req, res) => res.json({ log: await all('SELECT id, user_name, method, path, status, detail, ip, created FROM audit_log ORDER BY id DESC LIMIT 300') })));
 
 /* ---------- dashboard ---------- */
 router.get('/dashboard', ah(async (req, res) => {
@@ -188,7 +206,7 @@ const MAGIC = [
   { ext: 'gif', mime: 'image/gif', test: (b) => b.length > 6 && b.toString('latin1', 0, 4) === 'GIF8' },
   { ext: 'webp', mime: 'image/webp', test: (b) => b.length > 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP' },
 ];
-router.post('/upload', ah(async (req, res) => {
+router.post('/upload', express.json({ limit: '4mb' }), ah(async (req, res) => { // the larger body is only read here, after the admin check above
   const m = /^data:image\/(?:png|jpeg|webp|gif);base64,([A-Za-z0-9+/=]+)$/.exec(String((req.body && req.body.data) || ''));
   if (!m) fail(400, 'Please choose a PNG, JPG, WEBP or GIF image.');
   const buf = Buffer.from(m[1], 'base64');
@@ -347,7 +365,7 @@ router.get('/riders', ah(async (req, res) => res.json({ riders: await all("SELEC
 router.post('/riders', ah(async (req, res) => {
   const b = req.body || {}, name = str(b.name, 80), email = str(b.email, 120).toLowerCase(), phone = str(b.phone, 30);
   if (!name || !isEmail(email) || phone.replace(/\D/g, '').length < 10) fail(400, 'A rider needs a name, a valid email and a phone number.');
-  if (String(b.password || '').length < 8) fail(400, 'The password must be at least 8 characters.');
+  { const bad = PW.check(b.password, { email, name, min: PW.STAFF_MIN }); if (bad) fail(400, bad); }
   if (await get('SELECT 1 x FROM users WHERE email=?', email)) fail(409, 'That email already has an account.');
   const r = await run("INSERT INTO users (name,email,phone,password,role,coverage,created) VALUES (?,?,?,?, 'rider', ?, ?)", name, email, phone, await A.hashPassword(b.password), str(b.coverage, 300), now());
   res.json({ ok: true, id: r.lastInsertRowid });

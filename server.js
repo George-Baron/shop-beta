@@ -30,13 +30,17 @@ const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
 app.use(compression({ threshold: 1024, level: 1, filter: (req, res) => !(req.headers['cf-ray'] && /text\/html/.test(String(res.getHeader('Content-Type') || ''))) && compression.filter(req, res) }));
 app.disable('x-powered-by');
 app.set('trust proxy', process.env.TRUST_PROXY === '0' ? false : 1);
+app.use((req, res, next) => { req.clientIp = require('./lib/clientip').clientIp(req); next(); });
 
 /* ---------- first admin from environment variables (optional) ---------- */
 async function bootstrapAdmin() {
   const email = (process.env.ADMIN_EMAIL || '').toLowerCase(), pw = process.env.ADMIN_PASSWORD || '';
-  if (email && pw.length >= 8 && !(await get("SELECT 1 x FROM users WHERE role='admin'")) && !(await get('SELECT 1 x FROM users WHERE email=?', email))) {
-    await run("INSERT INTO users (name,email,phone,password,role,created) VALUES ('Store owner',?,'',?, 'admin', ?)", email, await A.hashPassword(pw), now());
-    console.log('Admin account created for', email);
+  const weak = email && pw ? require('./lib/passwords').check(pw, { min: require('./lib/passwords').STAFF_MIN }) : '';
+  if (weak) console.error('ADMIN_PASSWORD was not used: ' + weak);
+  if (email && pw && !weak && !(await get("SELECT 1 x FROM users WHERE role='admin'")) && !(await get('SELECT 1 x FROM users WHERE email=?', email))) {
+    // ON CONFLICT: two instances starting together must not crash each other
+    const made = await run("INSERT INTO users (name,email,phone,password,role,created) VALUES ('Store owner',?,'',?, 'admin', ?) ON CONFLICT (email) DO NOTHING", email, await A.hashPassword(pw), now());
+    if (!made || made.changes !== 0) console.log('Admin account created for', email);
   }
 }
 
@@ -44,6 +48,8 @@ async function bootstrapAdmin() {
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self)');
   if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
@@ -73,8 +79,9 @@ app.get('/health', async (req, res) => {
 });
 
 /* ---------- API ---------- */
-app.use('/api/admin/upload', express.json({ limit: '4mb' }));
-app.use('/api', express.json({ limit: '200kb', verify: (req, res, buf) => { req.rawBody = buf; } }));
+// Request bodies are small by default. The photo upload is the one exception, and it reads its larger body only AFTER the admin check (see routes/admin.js).
+const smallJson = express.json({ limit: '100kb', verify: (req, res, buf) => { req.rawBody = buf; } });
+app.use('/api', (req, res, next) => (req.path === '/admin/upload' ? next() : smallJson(req, res, next)));
 app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin) {
@@ -202,6 +209,10 @@ app.use((err, req, res, next) => {
 });
 
 /* ---------- start ---------- */
+if (process.env.NODE_ENV === 'production') {
+  if (!process.env.PAYSTACK_SECRET_KEY && process.env.ALLOW_DEMO_PAYMENTS !== '1') console.warn('WARNING: PAYSTACK_SECRET_KEY is not set, so online payment is switched off. Customers can only pay on delivery until you add it.');
+  if (!process.env.HANDOVER_SECRET) console.warn('WARNING: HANDOVER_SECRET is not set. A random one is kept in the database. Set your own long random value.');
+}
 const PORT = Number(process.env.PORT) || 3000;
 let server;
 (async () => {

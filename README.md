@@ -120,3 +120,16 @@ Emails, Paystack webhooks and the timed chores (expire unpaid orders, abandoned-
 - **Privacy:** only the assigned rider sees the customer's pin and phone, and only while the delivery is active. Rider location points are deleted after 30 days. Add this to your privacy policy (NDPA).
 - **Map provider:** set `GEOAPIFY_API_KEY` (free plan: 3,000 requests/day, commercial use allowed, needs the "Powered by Geoapify" link, which the map shows). Restrict the key to your domain in the Geoapify dashboard because the tile URL is visible in the browser. Route and address answers are cached in the database; if the provider is down, quotes fall back to a straight-line estimate. The public OpenStreetMap servers are not used for production traffic. Leaflet is served from this server (`/vendor/leaflet`).
 - `npm run test:delivery` tests all of this.
+
+## Security and limits (step 7)
+
+- **Rate limits live in Postgres**, so every instance shares one count. They are keyed on the real visitor IP (`CF-Connecting-IP`, trusted only when the request came from a Cloudflare address).
+- **Login lockout** counts failed attempts only, per IP and per account+IP, so a stranger cannot lock the real owner out.
+- **Passwords**: customers 8+, staff 12+, no common passwords, nothing containing the email or name. Registration never says whether an email already exists.
+- **Guest order lookup** (order number + email) shows status only. Phone, address, delivery code and rider position need the private link sent to the customer (`&t=` token) or the signed-in owner.
+- **Reviews** from people who have not received the product wait for admin approval (`review_moderation` setting, default on).
+- **Production**: demo payments are off, first-run admin setup is closed unless `SETUP_CODE` is set, staff sessions last 3 days.
+- **Pay-on-delivery abuse**: at most 2 unconfirmed POD orders per phone or email.
+- **Admin activity log**: every admin change is recorded (passwords never) at `GET /api/admin/audit`.
+- Not included yet: admin two-factor login (recommended next) and email verification at sign-up.
+- Run `npm run test:security`.
