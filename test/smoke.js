@@ -35,6 +35,11 @@ class Client {
   put(u, b = {}) { return this.req('PUT', u, b); }
   del(u) { return this.req('DELETE', u); }
 }
+// Emails are sent by the background worker, so wait until it has nothing left to do before reading the outbox.
+async function jobsIdle(admin) {
+  for (let i = 0; i < 150; i++) { const o = (await admin.get('/api/admin/jobs')).json.overview; if (o && !o.queued && !o.active) return; await new Promise((r) => setTimeout(r, 100)); }
+  throw new Error('background jobs did not finish');
+}
 async function test(name, fn) {
   try { await fn(); passed++; console.log('  ok   ' + name); } catch (e) { failures.push(name); console.log('  FAIL ' + name + '\n       ' + String(e.message).split('\n').join('\n       ')); }
 }
@@ -253,7 +258,7 @@ async function test(name, fn) {
     await admin.put('/api/admin/messages/' + m[0].id, { read: true });
     assert.strictEqual((await admin.get('/api/admin/newsletter')).json.subscribers.length, 1);
     const ab = (await admin.get('/api/admin/abandoned')).json.carts; assert.strictEqual(ab.length, 1); assert.strictEqual((await admin.post('/api/admin/abandoned/remind', {})).json.sent, 0); // too recent
-    const ob = (await admin.get('/api/admin/outbox')).json; assert.ok(ob.emails.length >= 4 && ob.live === false);
+    await jobsIdle(admin); const ob = (await admin.get('/api/admin/outbox')).json; assert.ok(ob.emails.length >= 4 && ob.live === false);
     const s = (await admin.get('/api/admin/settings')).json; assert.strictEqual(s.paystack.live, false); assert.ok(!('demo_seeded' in s.settings));
     const zones = s.zones.map((z) => (z.state === 'Lagos' ? { ...z, fee: 1500 } : z));
     assert.strictEqual((await admin.put('/api/admin/settings', { settings: { instagram: 'javascript:alert(1)' }, zones })).status, 400);
@@ -282,7 +287,7 @@ async function test(name, fn) {
     assert.ok(both.some((x) => x.status === 200));
     const o = (await new Client().post('/api/orders/lookup', { ref: r.json.ref, email: 'race200@example.com' })).json.order;
     assert.strictEqual(o.events.filter((e) => e.status === 'paid').length, 1);
-    const mails = (await admin.get('/api/admin/outbox')).json.emails.filter((m) => m.subject.includes('Payment received for ' + r.json.ref));
+    await jobsIdle(admin); const mails = (await admin.get('/api/admin/outbox')).json.emails.filter((m) => m.subject.includes('Payment received for ' + r.json.ref));
     assert.strictEqual(mails.length, 1);
   });
   await test('cancelling twice at the same moment returns stock once', async () => {

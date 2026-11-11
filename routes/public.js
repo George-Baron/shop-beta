@@ -5,6 +5,7 @@ const { get, all, run, insert, tx, now } = require('../lib/db');
 const S_ = require('../lib/shop');
 const A = require('../lib/auth');
 const cache = require('../lib/cache');
+const queue = require('../lib/queue');
 const { fail, str, int, isEmail, parseImages, card, RATING_JOIN, getSettings, esc } = S_;
 
 const router = require('../lib/async-router').Router();
@@ -149,7 +150,7 @@ router.post('/cart/abandon', A.limiter('abandon', 40, 3600000), async (req, res)
 
 router.post('/checkout', A.limiter('checkout', 20, 3600000), ah(async (req, res) => {
   const order = await S_.createOrder(req.body || {}, req.user);
-  if (order.payment_method === 'pod') { await S_.mailOrderPlaced(order); return res.json({ ref: order.ref, next: 'pod' }); }
+  if (order.payment_method === 'pod') return res.json({ ref: order.ref, next: 'pod' }); // confirmation email was queued with the order
   if (!S_.paystackLive()) return res.json({ ref: order.ref, next: 'demo' });
   try { return res.json({ ref: order.ref, next: 'paystack', url: await S_.paystackInitialize(order) }); }
   catch (err) { await S_.cancelOrder(order, 'Payment could not be started'); throw err; }
@@ -189,7 +190,12 @@ router.get('/paystack/verify', A.limiter('verify', 40, 600000), ah(async (req, r
 router.post('/paystack/webhook', ah(async (req, res) => {
   if (!S_.verifyWebhookSignature(req.rawBody, req.headers['x-paystack-signature'])) return res.status(401).json({ error: 'Bad signature' });
   const ev = req.body || {};
-  if (ev.event === 'charge.success' && ev.data && ev.data.reference) await S_.settleWithPaystack(str(ev.data.reference, 40).toUpperCase());
+  // Answer Paystack straight away; the worker confirms the payment with Paystack and marks the order paid (with retries if Paystack or we are slow).
+  // Saved to the queue BEFORE we say OK, so a payment is never acknowledged and then forgotten.
+  if (ev.event === 'charge.success' && ev.data && ev.data.reference) {
+    const reference = str(ev.data.reference, 40).toUpperCase();
+    await queue.enqueue('paystack-webhook', { reference }, { singletonKey: 'ps:' + reference, maxAttempts: 10 });
+  }
   res.json({ ok: true });
 }));
 // Demo mode only (no PAYSTACK_SECRET_KEY set): lets you test the whole order flow without real money.

@@ -935,7 +935,7 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings']];
+const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['marketing', '📣', 'Marketing'], ['jobs', '🛠', 'Jobs'], ['settings', '⚙️', 'Settings']];
 async function shell(page, body, unread) {
   root.innerHTML = `<div class="adm"><aside class="side"><div class="side-top"><div><b>🛠 Shop-Beta</b><div class="who">${e(me.email)}</div></div><div><a class="btn ghost sm" href="/" target="_blank" rel="noopener">View store</a> <button class="btn ghost sm" id="lo">Sign out</button></div></div>
   <nav>${NAV.map(([k, ic, t]) => `<a data-nav="${k}" class="${page === k ? 'on' : ''}">${ic} ${t}${k === 'messages' && unread ? ` <span class="dot">${unread}</span>` : ''}</a>`).join('')}</nav></aside><main class="main" id="mn">${body}</main></div>`;
@@ -1115,6 +1115,18 @@ views.marketing = async () => {
    <div class="panel"><h3>Newsletter subscribers (${n.subscribers.length})</h3><div class="tw"><table class="t"><tr><th>Email</th><th>Joined</th></tr>${n.subscribers.map((s) => `<tr><td>${e(s.email)}</td><td class="mu2">${dt(s.created)}</td></tr>`).join('') || '<tr><td colspan="2" class="mu">No subscribers yet.</td></tr>'}</table></div></div>
    <div class="panel"><h3>Email outbox</h3><p class="mu2">${o.live ? 'Emails are sent through Resend.' : 'Email sending is not set up yet, so messages are only stored here. Add RESEND_API_KEY and MAIL_FROM to send them.'}</p><div class="tw"><table class="t"><tr><th>To</th><th>Subject</th><th>Sent</th><th>Queued</th></tr>${o.emails.map((m) => `<tr><td>${e(m.to_email)}</td><td>${e(m.subject)}</td><td>${m.sent ? 'Yes' : 'No'}</td><td class="mu2">${dt(m.created)}</td></tr>`).join('') || '<tr><td colspan="4" class="mu">Nothing queued.</td></tr>'}</table></div></div>`);
   on('#rem', 'click', async () => { const r = await api('/api/admin/abandoned/remind', { body: {} }); toast(`${r.sent} reminder${r.sent === 1 ? '' : 's'} queued`); route(); });
+};
+
+/* ---------------- background jobs: emails, payment confirmations, housekeeping ---------------- */
+views.jobs = async () => {
+  const d = await api('/api/admin/jobs'); const o = d.overview;
+  const card = (n, l) => `<div class="panel" style="flex:1;min-width:130px"><h3 style="margin:0">${n}</h3><p class="mu2" style="margin:4px 0 0">${l}</p></div>`;
+  mn(hd('Jobs', d.failed.length ? '<button class="btn" id="jall">Retry all</button>' : '') + `<p class="mu2">Emails, payment confirmations and housekeeping run in the background. If one keeps failing it stops here so you can see why and try again.${d.worker ? '' : ' <b>The background worker is switched off on this server.</b>'}</p>
+   <div style="display:flex;gap:12px;flex-wrap:wrap">${card(o.queued, 'waiting')}${card(o.active, 'running now')}${card(o.failed, 'failed')}${card(o.done24h, 'done in the last 24 hours')}</div>
+   <div class="panel"><h3>Failed jobs (${d.failed.length})</h3><div class="tw"><table class="t"><tr><th>Job</th><th>What went wrong</th><th>Tries</th><th>When</th><th></th></tr>${d.failed.map((j) => `<tr><td>${e(j.queue)}<div class="mu2">${e(j.payload)}</div></td><td>${e(j.last_error)}</td><td>${j.attempts}</td><td class="mu2">${dt(j.finished || j.created)}</td><td><button class="btn" data-retry="${j.id}">Try again</button> <button class="btn" data-drop="${j.id}">Dismiss</button></td></tr>`).join('') || '<tr><td colspan="5" class="mu">Nothing has failed. 🎉</td></tr>'}</table></div></div>`);
+  on('#jall', 'click', async () => { const r = await api('/api/admin/jobs/retry-all', { body: {} }); toast(`${r.retried} job${r.retried === 1 ? '' : 's'} queued again`); route(); });
+  $$('[data-retry]', $('#mn')).forEach((b) => b.addEventListener('click', async () => { await api('/api/admin/jobs/' + b.dataset.retry + '/retry', { body: {} }); toast('Queued again'); route(); }));
+  $$('[data-drop]', $('#mn')).forEach((b) => b.addEventListener('click', async () => { if (!confirm('Dismiss this failed job? It will not be tried again.')) return; await api('/api/admin/jobs/' + b.dataset.drop, { method: 'DELETE' }); route(); }));
 };
 
 /* ---------------- settings ---------------- */

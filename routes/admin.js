@@ -7,6 +7,7 @@ const S = require('../lib/shop');
 const A = require('../lib/auth');
 const jobs = require('../lib/jobs');
 const cache = require('../lib/cache');
+const queue = require('../lib/queue');
 const { slugify } = require('../lib/seed');
 const { fail, str, int, isEmail, parseImages, getSettings, dayStart } = S;
 
@@ -91,8 +92,8 @@ router.put('/orders/:id', async (req, res) => {
       await run('UPDATE orders SET status=? WHERE id=?', status, o.id);
       if (status === 'paid' || (status === 'delivered' && o.payment_method === 'pod')) await run("UPDATE orders SET payment_status='paid' WHERE id=?", o.id);
       await S.addEvent(o.id, status, note);
+      if (['processing', 'shipped', 'delivered'].includes(status)) await queue.enqueue('order-mail', { kind: 'status', orderId: o.id, status, note: note || '' });
     });
-    await S.mailOrderStatus(o, status, note);
   }
   res.json({ ok: true });
 });
@@ -271,6 +272,12 @@ router.get('/newsletter', async (req, res) => res.json({ subscribers: await all(
 router.get('/abandoned', async (req, res) => res.json({ carts: (await all('SELECT email, cart, created, reminded FROM abandoned ORDER BY created DESC LIMIT 200')).map((c) => { let cart = []; try { cart = JSON.parse(c.cart); } catch { /* empty */ } return { ...c, cart }; }) }));
 router.post('/abandoned/remind', async (req, res) => res.json({ sent: await jobs.remindAbandoned() }));
 router.get('/outbox', async (req, res) => res.json({ emails: await all('SELECT id, to_email, subject, sent, created FROM outbox ORDER BY id DESC LIMIT 100'), live: !!process.env.RESEND_API_KEY }));
+
+/* ---------- background jobs ---------- */
+router.get('/jobs', async (req, res) => res.json({ overview: await queue.overview(), failed: await queue.failedList(100), worker: process.env.WORKER !== '0' }));
+router.post('/jobs/:id/retry', async (req, res) => { if (!await queue.retry(int(req.params.id))) fail(404, 'That job is not in the failed list.'); res.json({ ok: true }); });
+router.post('/jobs/retry-all', async (req, res) => res.json({ retried: (await run("UPDATE jobs SET state='queued', attempts=0, run_at=?, locked_until=0, last_error='', finished=NULL WHERE state='failed'", now())).changes }));
+router.delete('/jobs/:id', async (req, res) => { if (!await queue.discard(int(req.params.id))) fail(404, 'That job is not in the failed list.'); res.json({ ok: true }); });
 
 /* ---------- settings ---------- */
 const TEXT_KEYS = ['store_name', 'tagline', 'announcement', 'contact_phone', 'address', 'pickup_address', 'tax_note', 'ga_id', 'meta_pixel_id'];

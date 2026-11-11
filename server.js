@@ -235,5 +235,5 @@ for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => {
   // Tell the load balancer first (/health now says 503), give it a moment to stop sending traffic, then finish in-flight requests.
   draining = true; cache.stop();
   setTimeout(() => process.exit(0), 15000).unref();
-  setTimeout(() => (server ? new Promise((r) => server.close(r)) : Promise.resolve()).then(() => end()).catch(() => {}).then(() => process.exit(0)), Number(process.env.DRAIN_MS ?? 3000));
+  setTimeout(() => (server ? new Promise((r) => server.close(r)) : Promise.resolve()).then(() => jobs.stop()).then(() => end()).catch(() => {}).then(() => process.exit(0)), Number(process.env.DRAIN_MS ?? 3000));
 });

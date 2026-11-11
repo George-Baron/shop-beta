@@ -192,7 +192,7 @@ All five are covered by the new "Concurrency" tests in `npm test` (28 tests now,
 | 2 | Uploaded photos | Still local disk. **Blocks running two instances** (step 3) |
 | 5 | Rate-limit counters | Still in memory per instance (steps 3 and 7) |
 | 6 | Background timers | Still run on every instance, now guarded by database leases |
-| 7 | Email sending | Still inside the request process (step 5) |
+| 7 | Email sending | **Background worker (step 5)**, see section 15 |
 | 9 | Settings | Still read from the database on every request (step 4) |
 
 **Measured after step 2** (same sandbox, same 20,060-product catalogue, same k6 scripts as section 11; the Postgres server shares the 2 CPUs with the app and the load generator)
@@ -269,3 +269,15 @@ Goal: any number of identical instances can run behind a load balancer, with not
 | 100 checkouts per minute | p95 18 ms | p95 16 ms, 0 errors, 101 orders, no negative stock | passes |
 
 **Read this number carefully:** the k6 shoppers pick from a limited set of departments, search words and products, so most requests hit the cache. Real shoppers will search more widely, so the real hit rate will be lower. The worst case (everything a miss) is the step 2 figure, which is why the next steps still matter. The final answer comes from the step 9 staging test on real Render instances.
+
+
+## 15. After step 5: background worker and job queue
+
+A PostgreSQL job queue (`jobs` table, `lib/queue.js`) claims work with `FOR UPDATE SKIP LOCKED`, which also works through the Supabase transaction pooler. I wrote this small queue instead of adding pg-boss, because it needs fewer moving parts on the pooler and every behaviour here is covered by tests. The worker runs inside each web instance (no extra paid service); `scripts/worker.js` can run it alone later.
+
+- Emails, order emails, Paystack webhook confirmation and the three housekeeping tasks are jobs (see `docs/JOBS.md`). Checkout, the webhook and the admin screens no longer wait for Resend or Paystack.
+- Jobs are saved in the same transaction as the change that caused them. Retries with backoff; failed jobs show in the new **Admin > Jobs** screen with Try again / Dismiss.
+- The old lease table `job_locks` is no longer used (left in place; safe to drop later).
+- Not a job on purpose: stock reservation and release. They stay inside the order transaction (correctness before speed).
+
+Tests: `npm run test:queue` (19 checks). `npm test` waits for the worker before reading the outbox.
