@@ -14,6 +14,7 @@ try {
 
 const express = require('express');
 const { get, all, run, now, migrate, health } = require('./lib/db');
+const log = require('./lib/log');
 const storage = require('./lib/storage');
 const compression = require('compression');
 const cache = require('./lib/cache');
@@ -31,6 +32,7 @@ app.use(compression({ threshold: 1024, level: 1, filter: (req, res) => !(req.hea
 app.disable('x-powered-by');
 app.set('trust proxy', process.env.TRUST_PROXY === '0' ? false : 1);
 app.use((req, res, next) => { req.clientIp = require('./lib/clientip').clientIp(req); next(); });
+app.use(log.requestLogger); // request id on every response and one log line per request
 
 /* ---------- first admin from environment variables (optional) ---------- */
 async function bootstrapAdmin() {
@@ -73,9 +75,10 @@ if (storage.DRIVER === 'local') {
 }
 
 /* ---------- health (for uptime checks and the load balancer) ---------- */
+// Deliberately tiny and public: only "the app is up and can reach the database". Details (queue, backups) are in Admin > Status.
 app.get('/health', async (req, res) => {
-  try { await health(); res.set('Cache-Control', 'no-store').json({ ok: true }); }
-  catch { res.status(503).set('Cache-Control', 'no-store').json({ ok: false }); }
+  try { await Promise.race([health(), new Promise((_, rej) => setTimeout(() => rej(new Error('database timeout')), 4000))]); res.set('Cache-Control', 'no-store').json({ ok: true }); }
+  catch (e) { log.error('health check failed', { err: e }); res.status(503).set('Cache-Control', 'no-store').json({ ok: false }); }
 });
 
 /* ---------- API ---------- */
@@ -204,8 +207,8 @@ app.use((err, req, res, next) => {
   if (err instanceof S.HttpError) return res.status(err.status).json({ error: err.message });
   if (err && err.type === 'entity.parse.failed') return res.status(400).json({ error: 'That request was not understood.' });
   if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'That upload is too large.' });
-  console.error(`${req.method} ${req.originalUrl}:`, err);
-  res.status(500).json({ error: 'Something went wrong on our side. Please try again.' });
+  log.error('unhandled error', { id: req.id, method: req.method, path: String(req.originalUrl || '').split('?')[0], err });
+  res.status(500).json({ error: 'Something went wrong on our side. Please try again.', requestId: req.id });
 });
 
 /* ---------- start ---------- */
@@ -228,6 +231,6 @@ let server;
     if (!process.env.RESEND_API_KEY) console.log('Email: RESEND_API_KEY not set, so emails are stored in Admin > Marketing > Email outbox instead of being sent.');
     if (process.env.WORKER_ENABLED !== '0') worker.start(); // set WORKER_ENABLED=0 on web instances when you run `npm run worker` separately
   });
-})().catch((err) => { console.error('Startup failed:', err.message); process.exit(1); });
+})().catch((err) => { log.error('startup failed', { err }); process.exit(1); });
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { Promise.resolve(worker.stop()).finally(() => { if (server) server.close(() => process.exit(0)); else process.exit(0); }); setTimeout(() => process.exit(0), 3000).unref(); });
-process.on('unhandledRejection', (e) => console.error('Unhandled rejection:', e && e.message ? e.message : e));
+process.on('unhandledRejection', (e) => log.error('unhandled rejection', { err: e }));

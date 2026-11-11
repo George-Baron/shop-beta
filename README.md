@@ -133,3 +133,12 @@ Emails, Paystack webhooks and the timed chores (expire unpaid orders, abandoned-
 - **Admin activity log**: every admin change is recorded (passwords never) at `GET /api/admin/audit`.
 - Not included yet: admin two-factor login (recommended next) and email verification at sign-up.
 - Run `npm run test:security`.
+
+## Operations (step 8)
+
+- `GET /health` is public and only says "up and the database answers" (503 otherwise). Point an uptime monitor at it.
+- **Logs**: one JSON line per request in production, with a request id (`X-Request-Id`, also shown on error responses). Query strings are never logged. `LOG_LEVEL`, `LOG_FORMAT`, `SLOW_REQUEST_MS` tune it.
+- **Admin > Settings > Status and backups**: database speed, job queue, stuck-worker warning, last backup, "Back up now" and downloads.
+- **Backups**: nightly, to the private Supabase bucket `backups` (create it), newest 14 kept, optional encryption with `BACKUP_PASSPHRASE`. `npm run backup` makes one now.
+- **Restore**: `npm run restore -- <file>` into a new empty database. Full guide: [docs/RESTORE.md](docs/RESTORE.md).
+- Run `npm run test:ops`.

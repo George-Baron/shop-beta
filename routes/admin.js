@@ -296,6 +296,37 @@ router.get('/jobs', ah(async (req, res) => res.json({
   failed: await all("SELECT id, kind, payload, attempts, last_error, finished FROM jobs WHERE state='failed' ORDER BY finished DESC LIMIT 100"),
   waiting: await all("SELECT id, kind, attempts, last_error, run_at FROM jobs WHERE state='queued' AND attempts>0 ORDER BY run_at LIMIT 50"),
 })));
+/* ---------- status and backups ---------- */
+router.get('/status', ah(async (req, res) => {
+  const t0 = Date.now(); await get('SELECT 1 x'); const dbMs = Date.now() - t0;
+  const oldest = await get("SELECT MIN(run_at) t FROM jobs WHERE state='queued' AND run_at<=?", now());
+  const { pool } = require('../lib/db');
+  res.json({
+    ok: true, version: process.env.RENDER_GIT_COMMIT ? String(process.env.RENDER_GIT_COMMIT).slice(0, 7) : '', node: process.version, uptimeSeconds: Math.round(process.uptime()),
+    database: { ms: dbMs, pool: { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount } },
+    memoryMb: Math.round(process.memoryUsage().rss / 1048576),
+    queue: { ...(await queue.counts()), oldestDueSeconds: oldest && oldest.t ? Math.max(0, now() - Number(oldest.t)) : 0 },
+    workerLooksStuck: !!(oldest && oldest.t && now() - Number(oldest.t) > 600),
+    backups: await require('../lib/backup').status(),
+    warnings: [
+      process.env.NODE_ENV === 'production' && !process.env.BACKUP_PASSPHRASE ? 'Backups are not encrypted. Set BACKUP_PASSPHRASE.' : '',
+      process.env.NODE_ENV === 'production' && !process.env.PAYSTACK_SECRET_KEY ? 'Online payment is off (no PAYSTACK_SECRET_KEY).' : '',
+      storage.DRIVER === 'local' && process.env.NODE_ENV === 'production' ? 'Photos and backups are on the server disk, which is wiped on restart.' : '',
+    ].filter(Boolean),
+  });
+}));
+router.get('/backups', ah(async (req, res) => res.json({ ...(await require('../lib/backup').status()), files: await storage.backups.list() })));
+router.post('/backups', ah(async (req, res) => {
+  const snap = await require('../lib/backup').create('admin');
+  res.json({ ok: true, name: snap.name, bytes: snap.buffer.length, rows: snap.rows });
+}));
+// Downloading is recorded in the activity log (reads are not logged by default, but this one is sensitive).
+router.get('/backups/:name', ah(async (req, res) => {
+  let buf; try { buf = await storage.backups.get(String(req.params.name)); } catch { fail(404, 'That backup was not found.'); }
+  await run('INSERT INTO audit_log (user_id,user_name,method,path,status,detail,ip,created) VALUES (?,?,?,?,?,?,?,?)', req.user.id, String(req.user.name || req.user.email).slice(0, 80), 'GET', req.originalUrl.slice(0, 200), 200, 'backup downloaded', String(req.clientIp || '').slice(0, 60), now());
+  res.set({ 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="${String(req.params.name).replace(/[^A-Za-z0-9._-]/g, '')}"`, 'Cache-Control': 'no-store' }).send(buf);
+}));
+
 router.post('/jobs/:id/retry', ah(async (req, res) => { if (!(await queue.retry(int(req.params.id)))) fail(404, 'That job is not in the failed list.'); res.json({ ok: true }); }));
 router.delete('/jobs/:id', ah(async (req, res) => { if (!(await queue.remove(int(req.params.id)))) fail(404, 'That job is not in the failed list.'); res.json({ ok: true }); }));
 router.get('/outbox', ah(async (req, res) => res.json({ emails: await all('SELECT id, to_email, subject, sent, created FROM outbox ORDER BY id DESC LIMIT 100'), live: !!process.env.RESEND_API_KEY })));
