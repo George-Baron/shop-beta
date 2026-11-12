@@ -24,7 +24,7 @@ async function adminSql(sql, db) { const c = new PgClient({ connectionString: db
 class Client {
   constructor() { this.cookie = ''; }
   async req(method, url, body, headers = {}) {
-    const r = await fetch(BASE + url, { method, redirect: 'manual', headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(this.cookie ? { Cookie: this.cookie } : {}), ...headers }, body: body !== undefined ? JSON.stringify(body) : undefined });
+    const r = await fetch(BASE + url, { method, redirect: 'manual', headers: { 'X-Requested-With': 'shop-beta', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(this.cookie ? { Cookie: this.cookie } : {}), ...headers }, body: body !== undefined ? JSON.stringify(body) : undefined });
     const sc = r.headers.getSetCookie ? r.headers.getSetCookie() : [];
     for (const c of sc) { const kv = c.split(';')[0]; if (/=$/.test(kv)) this.cookie = ''; else this.cookie = kv; }
     const text = await r.text(); let json = null; try { json = JSON.parse(text); } catch { /* html */ }
@@ -47,7 +47,7 @@ async function test(name, fn) {
 (async () => {
   await adminSql(`CREATE DATABASE ${DB_NAME}`);
   const storageMock = await mockSupabase.start(SERVICE_KEY);
-  const srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, DATABASE_URL: withDb(DB_NAME), PGSSL: process.env.PGSSL_TEST || 'disable', BASE_URL: BASE, SUPABASE_URL: storageMock.url, SUPABASE_SERVICE_ROLE_KEY: SERVICE_KEY, SUPABASE_BUCKET: 'shop-images', STORAGE_DRIVER: '', CACHE_DISABLED: '1', PAYSTACK_SECRET_KEY: '', RESEND_API_KEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, DATABASE_URL: withDb(DB_NAME), PGSSL: process.env.PGSSL_TEST || 'disable', BASE_URL: BASE, SUPABASE_URL: storageMock.url, SUPABASE_SERVICE_ROLE_KEY: SERVICE_KEY, SUPABASE_BUCKET: 'shop-images', STORAGE_DRIVER: '', CACHE_DISABLED: '1', ADMIN_SETUP_CODE: 'test-setup-code', PAYSTACK_SECRET_KEY: '', RESEND_API_KEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = ''; srv.stdout.on('data', (d) => { log += d; }); srv.stderr.on('data', (d) => { log += d; });
   for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/api/config'); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
 
@@ -120,7 +120,7 @@ async function test(name, fn) {
   let podRef;
   await test('pay on delivery order reduces stock and can be tracked', async () => {
     const before = await stockOf(plain.slug);
-    const r = await guest.post('/api/checkout', { items: [{ productId: plain.id, qty: 2 }], contact: { name: 'Chidi Eze', email: 'chidi@example.com', phone: '08031234567' }, address: { state: 'Lagos', city: 'Yaba', address: '5 Herbert Macaulay Way' }, delivery: 'standard', payment: 'pod' });
+    const r = await guest.post('/api/checkout', { items: [{ productId: plain.id, qty: 2 }], contact: { name: 'Chidi Eze', email: 'chidi@example.com', phone: '08039000001' }, address: { state: 'Lagos', city: 'Yaba', address: '5 Herbert Macaulay Way' }, delivery: 'standard', payment: 'pod' });
     assert.strictEqual(r.json.next, 'pod'); podRef = r.json.ref; assert.match(podRef, /^SB-[A-Z0-9]{6}$/);
     assert.strictEqual(await stockOf(plain.slug), before - 2);
     const o = await guest.post('/api/orders/lookup', { ref: podRef, email: 'CHIDI@example.com' });
@@ -137,7 +137,7 @@ async function test(name, fn) {
     assert.strictEqual((await guest.post('/api/orders/lookup', { ref: podRef, email: 'chidi@example.com' })).json.order.status, 'cancelled');
   });
   await test('server rejects tampered or impossible orders', async () => {
-    const base = { items: [{ productId: plain.id, qty: 1, price: 1 }], contact: { name: 'T', email: 't@example.com', phone: '08031234567' }, address: { state: 'Borno', address: '1 Test Road' }, delivery: 'standard', payment: 'pod' };
+    const base = { items: [{ productId: plain.id, qty: 1, price: 1 }], contact: { name: 'T', email: 't@example.com', phone: '08039000002' }, address: { state: 'Borno', address: '1 Test Road' }, delivery: 'standard', payment: 'pod' };
     assert.strictEqual((await guest.post('/api/checkout', base)).status, 400); // Borno has no pay-on-delivery
     assert.strictEqual((await guest.post('/api/checkout', { ...base, address: { state: 'Lagos', address: '' } })).status, 400);
     assert.strictEqual((await guest.post('/api/checkout', { ...base, address: { state: 'Lagos', address: '1 Test Road' }, contact: { name: 'T', email: 'bad', phone: '1' } })).status, 400);
@@ -148,7 +148,7 @@ async function test(name, fn) {
   });
   await test('last unit cannot be sold twice', async () => {
     const tiny = fashion.find((x) => /Aviator/.test(x.name)); const left = await stockOf(tiny.slug);
-    const body = (n) => ({ items: [{ productId: tiny.id, qty: n }], contact: { name: 'T', email: 't@example.com', phone: '08031234567' }, address: { state: 'Lagos', address: '1 Test Road' }, delivery: 'standard', payment: 'pod' });
+    const body = (n) => ({ items: [{ productId: tiny.id, qty: n }], contact: { name: 'T', email: 't@example.com', phone: '08039000003' }, address: { state: 'Lagos', address: '1 Test Road' }, delivery: 'standard', payment: 'pod' });
     const a = await guest.post('/api/checkout', body(left)); assert.strictEqual(a.status, 200);
     const b = await guest.post('/api/checkout', body(1)); assert.strictEqual(b.status, 400); assert.match(b.json.error, /sold out|no longer available/);
     assert.strictEqual(await stockOf(tiny.slug), 0);
@@ -167,7 +167,7 @@ async function test(name, fn) {
   });
   await test('failed demo payment cancels the order and releases stock and coupon use', async () => {
     const before = await stockOf(plain.slug), used = () => admin.get('/api/admin/coupons');
-    const r = await guest.post('/api/checkout', { items: [{ productId: plain.id, qty: 1 }], contact: { name: 'F', email: 'f@example.com', phone: '08031234567' }, address: { state: 'Lagos', address: '1 Test Road' }, delivery: 'standard', payment: 'paystack' });
+    const r = await guest.post('/api/checkout', { items: [{ productId: plain.id, qty: 1 }], contact: { name: 'F', email: 'f@example.com', phone: '08039000004' }, address: { state: 'Lagos', address: '1 Test Road' }, delivery: 'standard', payment: 'paystack' });
     assert.strictEqual(await stockOf(plain.slug), before - 1); void used;
     await guest.post('/api/pay/demo/' + r.json.ref, { outcome: 'fail' });
     assert.strictEqual(await stockOf(plain.slug), before); assert.strictEqual((await guest.post('/api/orders/lookup', { ref: r.json.ref, email: 'f@example.com' })).json.order.status, 'cancelled');
@@ -185,13 +185,17 @@ async function test(name, fn) {
   });
 
   console.log('\nAdmin');
-  await test('only the first visitor can create the admin; others are locked out', async () => {
+  await test('the first administrator needs the setup code; only one can ever be created; others are locked out', async () => {
     assert.strictEqual((await guest.get('/api/admin/setup')).json.needed, true);
     assert.strictEqual((await shopper.get('/api/admin/dashboard')).status, 401); assert.strictEqual((await guest.get('/api/admin/orders')).status, 401);
-    assert.strictEqual((await admin.post('/api/admin/setup', { email: 'owner@example.com', password: 'tiny' })).status, 400);
-    assert.strictEqual((await admin.post('/api/admin/setup', { name: 'Owner', email: 'owner@example.com', password: 'a long password' })).json.user.role, 'admin');
+    const good = { code: 'test-setup-code', name: 'Owner', email: 'owner@example.com', password: 'a long password' };
+    assert.strictEqual((await admin.post('/api/admin/setup', { ...good, code: undefined })).status, 403, 'no code');
+    assert.strictEqual((await admin.post('/api/admin/setup', { ...good, code: 'wrong-code-here' })).status, 403, 'wrong code');
+    assert.strictEqual((await admin.post('/api/admin/setup', { ...good, password: 'tiny' })).status, 400);
+    assert.strictEqual((await admin.post('/api/admin/setup', { ...good, password: 'eleven char' })).status, 400, 'admin passwords need 12 characters');
+    assert.strictEqual((await admin.post('/api/admin/setup', good)).json.user.role, 'admin');
     assert.strictEqual((await guest.get('/api/admin/setup')).json.needed, false);
-    assert.strictEqual((await guest.post('/api/admin/setup', { email: 'evil@example.com', password: 'a long password' })).status, 403);
+    assert.strictEqual((await guest.post('/api/admin/setup', { ...good, email: 'evil@example.com' })).status, 403);
     assert.strictEqual((await shopper.get('/api/admin/products')).status, 401);
   });
   await test('cross-site requests are blocked', async () => {
@@ -215,7 +219,7 @@ async function test(name, fn) {
     assert.strictEqual((await admin.get('/api/admin/orders?status=dispatched&q=ada')).json.total, 1);
     const unpaid = (await admin.get('/api/admin/orders?q=f@example.com')).json.orders[0]; assert.strictEqual(unpaid.status, 'cancelled');
     assert.strictEqual((await admin.put('/api/admin/orders/' + unpaid.id, { status: 'paid' })).status, 400); // cancelled orders are locked
-    const r = await guest.post('/api/checkout', { items: [{ productId: plain.id, qty: 1 }], contact: { name: 'G', email: 'g@example.com', phone: '08031234567' }, address: { state: 'Ogun', address: '2 Test Road' }, delivery: 'standard', payment: 'paystack' });
+    const r = await guest.post('/api/checkout', { items: [{ productId: plain.id, qty: 1 }], contact: { name: 'G', email: 'g@example.com', phone: '08039000005' }, address: { state: 'Ogun', address: '2 Test Road' }, delivery: 'standard', payment: 'paystack' });
     const gid = (await admin.get('/api/admin/orders?q=g@example.com')).json.orders[0].id, before = await stockOf(plain.slug);
     assert.strictEqual((await admin.put('/api/admin/orders/' + gid, { status: 'dispatched' })).status, 400); // unpaid online order cannot be dispatched
     assert.strictEqual((await admin.put('/api/admin/orders/' + gid, { status: 'cancelled' })).status, 200); assert.strictEqual(await stockOf(plain.slug), before + 1); void r;
@@ -272,7 +276,7 @@ async function test(name, fn) {
   });
 
   console.log('\nConcurrency (many shoppers at once, real Postgres locks)');
-  const mk = (pid, qty, payment, n) => ({ items: [{ productId: pid, qty }], contact: { name: 'Race ' + n, email: `race${n}@example.com`, phone: '08031234567' }, address: { state: 'Lagos', address: '1 Test Road' }, delivery: 'standard', payment });
+  const mk = (pid, qty, payment, n) => ({ items: [{ productId: pid, qty }], contact: { name: 'Race ' + n, email: `race${n}@example.com`, phone: '0803' + String(1000000 + n) }, address: { state: 'Lagos', address: '1 Test Road' }, delivery: 'standard', payment });
   const post = (c, url, body, n) => c.req('POST', url, body, { 'X-Forwarded-For': `10.9.${n % 250}.${(n * 7) % 250}` });
   await test('10 shoppers racing for 3 units: exactly 3 orders succeed, stock ends at 0', async () => {
     const item = (await guest.get('/api/products?store=electronics')).json.products.find((x) => !x.hasVariants && x.stock > 0);

@@ -7,6 +7,7 @@ const S = require('../lib/shop');
 const A = require('../lib/auth');
 const jobs = require('../lib/jobs');
 const cache = require('../lib/cache');
+const boot = require('../lib/bootstrap-admin');
 const queue = require('../lib/queue');
 const { slugify } = require('../lib/seed');
 const { fail, str, int, isEmail, parseImages, getSettings, dayStart } = S;
@@ -28,14 +29,21 @@ const STATUSES = S.ORDER_STATUSES;
 const SALE = "o.status NOT IN ('cancelled','refunded') AND (o.payment_method = 'pod' OR o.payment_status = 'paid')";
 
 /* ---------- first-run admin account ---------- */
-router.get('/setup', async (req, res) => res.json({ needed: !await get("SELECT 1 x FROM users WHERE role='admin'") }));
+// Normally the administrator is created from ADMIN_EMAIL / ADMIN_PASSWORD when the server starts. This page route exists only when
+// ADMIN_SETUP_CODE is set, and then only works for someone who knows the code and only while no administrator exists.
+router.get('/setup', async (req, res) => res.json({ needed: Boolean(boot.setupEnabled() && !await get("SELECT 1 x FROM users WHERE role='admin'")) }));
 router.post('/setup', A.limiter('setup', 10, 3600000), ah(async (req, res) => {
+  if (!boot.setupEnabled()) fail(403, 'Setup is switched off. The administrator is created from the server settings.');
+  const b = req.body || {};
+  if (!boot.setupCodeOk(b.code)) fail(403, 'That setup code is not right.');
   if (await get("SELECT 1 x FROM users WHERE role='admin'")) fail(403, 'An administrator already exists. Please sign in.');
-  const b = req.body || {}, email = str(b.email, 120).toLowerCase(), name = str(b.name, 80) || 'Store owner';
+  const email = str(b.email, 120).toLowerCase(), name = str(b.name, 80) || 'Store owner';
   if (!isEmail(email)) fail(400, 'Please enter a valid email address.');
-  if (typeof b.password !== 'string' || b.password.length < 8 || b.password.length > 200) fail(400, 'Your password must be at least 8 characters.');
+  if (typeof b.password !== 'string' || b.password.length < boot.MIN_ADMIN_PASSWORD || b.password.length > 200) fail(400, `The administrator password must be at least ${boot.MIN_ADMIN_PASSWORD} characters.`);
   if (await get('SELECT 1 x FROM users WHERE lower(email)=?', email)) fail(409, 'That email is already registered as a customer. Use a different email.');
-  const uid = await insert("INSERT INTO users (name,email,phone,password,role,created) VALUES (?,?,'',?, 'admin', ?)", name, email, await A.hashPassword(b.password), now());
+  let uid;
+  try { uid = await insert("INSERT INTO users (name,email,phone,password,role,created) VALUES (?,?,'',?, 'admin', ?)", name, email, await A.hashPassword(b.password), now()); }
+  catch (e) { if (e && e.code === '23505') fail(403, 'An administrator already exists. Please sign in.'); throw e; } // two setups at the same moment: only one wins
   await A.startSession(req, res, uid);
   res.json({ user: A.publicUser(await get('SELECT * FROM users WHERE id=?', uid)) });
 }));

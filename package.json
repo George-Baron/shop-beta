@@ -20,9 +20,10 @@
     "test:multi": "node --disable-warning=ExperimentalWarning test/two-instances.js",
     "test:images": "node --disable-warning=ExperimentalWarning test/migrate-images.js",
     "test:cache": "node --disable-warning=ExperimentalWarning test/cache.js",
-    "test:all": "npm test && npm run test:cache && npm run test:queue && npm run test:multi && npm run test:images",
+    "test:all": "npm test && npm run test:security && npm run test:cache && npm run test:queue && npm run test:multi && npm run test:images",
     "test:queue": "node --disable-warning=ExperimentalWarning test/queue.js",
-    "worker": "node --disable-warning=ExperimentalWarning scripts/worker.js"
+    "worker": "node --disable-warning=ExperimentalWarning scripts/worker.js",
+    "test:security": "node --disable-warning=ExperimentalWarning test/security.js"
   },
   "dependencies": {
     "compression": "^1.8.1",

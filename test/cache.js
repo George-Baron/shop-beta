@@ -21,7 +21,7 @@ async function test(name, fn) { try { await fn(); passed++; console.log('  ok   
 class Client {
   constructor(base) { this.base = base; this.cookie = ''; }
   async req(method, url, body, headers = {}) {
-    const r = await fetch(this.base + url, { method, headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(this.cookie ? { Cookie: this.cookie } : {}), ...headers }, body: body !== undefined ? JSON.stringify(body) : undefined });
+    const r = await fetch(this.base + url, { method, headers: { 'X-Requested-With': 'shop-beta', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(this.cookie ? { Cookie: this.cookie } : {}), ...headers }, body: body !== undefined ? JSON.stringify(body) : undefined });
     for (const c of (r.headers.getSetCookie ? r.headers.getSetCookie() : [])) this.cookie = c.split(';')[0];
     const text = await r.text(); let json = null; try { json = JSON.parse(text); } catch { /* html */ }
     return { status: r.status, json, text, headers: r.headers };
@@ -69,13 +69,13 @@ const rawGet = (base, p) => new Promise((res, rej) => http.get(base + p, { heade
   console.log('\nTwo instances, one database');
   await sql(`CREATE DATABASE ${DB}`);
   const base = 3900 + Math.floor(Math.random() * 90), P = [base, base + 1], procs = [];
-  const start = (port, name) => { const p = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(port), INSTANCE_ID: name, DATABASE_URL: withDb(DB), PGSSL: process.env.PGSSL_TEST || 'disable', BASE_URL: 'http://127.0.0.1:' + port, STORAGE_DRIVER: 'local', DATA_DIR: require('os').tmpdir() + '/sb-cache-' + name, CACHE_DISABLED: '', CACHE_POLL_MS: '500', PAYSTACK_SECRET_KEY: '', RESEND_API_KEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] }); p.log = ''; p.stdout.on('data', (d) => { p.log += d; }); p.stderr.on('data', (d) => { p.log += d; }); procs.push(p); return p; };
+  const start = (port, name) => { const p = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(port), INSTANCE_ID: name, DATABASE_URL: withDb(DB), PGSSL: process.env.PGSSL_TEST || 'disable', BASE_URL: 'http://127.0.0.1:' + port, STORAGE_DRIVER: 'local', DATA_DIR: require('os').tmpdir() + '/sb-cache-' + name, CACHE_DISABLED: '', CACHE_POLL_MS: '500', PAYSTACK_SECRET_KEY: '', ADMIN_SETUP_CODE: 'test-setup-code', RESEND_API_KEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] }); p.log = ''; p.stdout.on('data', (d) => { p.log += d; }); p.stderr.on('data', (d) => { p.log += d; }); procs.push(p); return p; };
   const up = async (port) => { for (let i = 0; i < 100; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) return; } catch { /* wait */ } await sleep(100); } throw new Error('no start on ' + port); };
   try {
     start(P[0], 'A'); await up(P[0]); start(P[1], 'B'); await up(P[1]);
     const A = new Client('http://127.0.0.1:' + P[0]), B = new Client('http://127.0.0.1:' + P[1]), admin = new Client(A.base);
     const stats = async (c) => (await c.get('/health')).json.cache;
-    assert.strictEqual((await admin.post('/api/admin/setup', { name: 'Boss', email: 'boss@example.com', password: 'correct horse' })).status, 200);
+    assert.strictEqual((await admin.post('/api/admin/setup', { code: 'test-setup-code', name: 'Boss', email: 'boss@example.com', password: 'correct horse' })).status, 200);
     const list = (await A.get('/api/products?store=fashion')).json.products; const prod = list.find((p) => p.stock > 5) || list[0];
 
     await test('pages and API answers are gzip-compressed', async () => {

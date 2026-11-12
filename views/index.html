@@ -252,7 +252,7 @@ const naira = (n) => '₦' + Number(n || 0).toLocaleString('en-NG');
 const store = { cfg: null, user: null };
 
 async function api(path, opts = {}) {
-  const o = { method: opts.method || 'GET', headers: {}, credentials: 'same-origin' };
+  const o = { method: opts.method || 'GET', headers: { 'X-Requested-With': 'shop-beta' }, credentials: 'same-origin' };
   if (opts.body !== undefined) { o.method = opts.method || 'POST'; o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(opts.body); }
   if (opts.idem) o.headers['Idempotency-Key'] = opts.idem;
   let r; try { r = await fetch(path, o); } catch { throw new Error('Network problem. Check your connection and try again.'); }
@@ -925,14 +925,14 @@ async function loginView(msg) {
   loginForm(msg);
 }
 function setupView() {
-  root.innerHTML = `<div class="login"><div class="card"><h1 style="font-size:24px">Create your admin account</h1><p class="mu">This is the first visit, so you can set up the store owner login. It only works once.</p>
-  <form id="sf" novalidate><label class="f">Your name<input id="sn" autocomplete="name" maxlength="80"></label><label class="f">Email<input id="se" type="email" autocomplete="username" required></label><label class="f">Password (8+ characters)<input id="sp" type="password" autocomplete="new-password" required></label><label class="f">Repeat password<input id="sp2" type="password" autocomplete="new-password" required></label>
+  root.innerHTML = `<div class="login"><div class="card"><h1 style="font-size:24px">Create your admin account</h1><p class="mu">There is no administrator yet. Enter the setup code from your server settings to create the store owner login. It only works once.</p>
+  <form id="sf" novalidate><label class="f">Setup code<input id="sc" type="password" autocomplete="off" required></label><label class="f">Your name<input id="sn" autocomplete="name" maxlength="80"></label><label class="f">Email<input id="se" type="email" autocomplete="username" required></label><label class="f">Password (12+ characters)<input id="sp" type="password" autocomplete="new-password" required></label><label class="f">Repeat password<input id="sp2" type="password" autocomplete="new-password" required></label>
   <p class="err hide" id="serr" role="alert"></p><button class="btn block" id="sb">Create admin account</button></form></div></div>`;
   $('#sf').addEventListener('submit', async (ev) => {
     ev.preventDefault(); const b = $('#sb'); const err = (m) => { const x = $('#serr'); x.textContent = m; x.classList.remove('hide'); b.disabled = false; };
     if ($('#sp').value !== $('#sp2').value) return err('The two passwords do not match.');
     b.disabled = true;
-    try { const d = await api('/api/admin/setup', { body: { name: $('#sn').value, email: $('#se').value, password: $('#sp').value } }); me = d.user; boot(); } catch (er) { err(er.message); }
+    try { const d = await api('/api/admin/setup', { body: { code: $('#sc').value, name: $('#sn').value, email: $('#se').value, password: $('#sp').value } }); me = d.user; boot(); } catch (er) { err(er.message); }
   });
 }
 function loginForm(msg) {

@@ -21,7 +21,7 @@ const waitFor = async (fn, ms = 8000, what = 'condition') => { const end = Date.
 class Client {
   constructor(base) { this.base = base; this.cookie = ''; }
   async req(method, url, body, headers = {}) {
-    const r = await fetch(this.base + url, { method, headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(this.cookie ? { Cookie: this.cookie } : {}), ...headers }, body: typeof body === 'string' ? body : body !== undefined ? JSON.stringify(body) : undefined });
+    const r = await fetch(this.base + url, { method, headers: { 'X-Requested-With': 'shop-beta', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(this.cookie ? { Cookie: this.cookie } : {}), ...headers }, body: typeof body === 'string' ? body : body !== undefined ? JSON.stringify(body) : undefined });
     for (const c of (r.headers.getSetCookie ? r.headers.getSetCookie() : [])) this.cookie = c.split(';')[0];
     const text = await r.text(); let json = null; try { json = JSON.parse(text); } catch { /* html */ }
     return { status: r.status, json, text, headers: r.headers };
@@ -108,12 +108,12 @@ class Client {
   const m = await mocks.start();
   const base = 4000 + Math.floor(Math.random() * 90), P = [base, base + 1], procs = [];
   const KEY = 'sk_test_queuetest';
-  const start = (port, name) => { const p = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(port), INSTANCE_ID: name, DATABASE_URL: withDb(DB), PGSSL: process.env.PGSSL_TEST || 'disable', BASE_URL: 'http://127.0.0.1:' + port, STORAGE_DRIVER: 'local', DATA_DIR: require('os').tmpdir() + '/sb-queue-' + name, WORKER: '', WORKER_POLL_MS: '100', JOB_BACKOFF_BASE_SECONDS: '0', CACHE_DISABLED: '1', RESEND_API_KEY: 're_test', RESEND_API_URL: m.url, PAYSTACK_SECRET_KEY: KEY, PAYSTACK_API_URL: m.url }, stdio: ['ignore', 'pipe', 'pipe'] }); p.log = ''; p.stdout.on('data', (d) => { p.log += d; }); p.stderr.on('data', (d) => { p.log += d; }); procs.push(p); return p; };
+  const start = (port, name) => { const p = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(port), INSTANCE_ID: name, DATABASE_URL: withDb(DB), PGSSL: process.env.PGSSL_TEST || 'disable', BASE_URL: 'http://127.0.0.1:' + port, STORAGE_DRIVER: 'local', DATA_DIR: require('os').tmpdir() + '/sb-queue-' + name, WORKER: '', WORKER_POLL_MS: '100', JOB_BACKOFF_BASE_SECONDS: '0', CACHE_DISABLED: '1', RESEND_API_KEY: 're_test', RESEND_API_URL: m.url, PAYSTACK_SECRET_KEY: KEY, PAYSTACK_API_URL: m.url, ADMIN_SETUP_CODE: 'test-setup-code' }, stdio: ['ignore', 'pipe', 'pipe'] }); p.log = ''; p.stdout.on('data', (d) => { p.log += d; }); p.stderr.on('data', (d) => { p.log += d; }); procs.push(p); return p; };
   const up = async (port) => { for (let i = 0; i < 100; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) return; } catch { /* wait */ } await sleep(100); } throw new Error('no start on ' + port); };
   try {
     start(P[0], 'A'); await up(P[0]); start(P[1], 'B'); await up(P[1]);
     const A = new Client('http://127.0.0.1:' + P[0]), B = new Client('http://127.0.0.1:' + P[1]), admin = new Client(A.base);
-    assert.strictEqual((await admin.post('/api/admin/setup', { name: 'Boss', email: 'boss@example.com', password: 'correct horse' })).status, 200);
+    assert.strictEqual((await admin.post('/api/admin/setup', { code: 'test-setup-code', name: 'Boss', email: 'boss@example.com', password: 'correct horse' })).status, 200);
     // Three plain products with plenty of stock (raised through the admin so the test does not depend on the demo data).
     const prods = [];
     for (const cand of (await A.get('/api/products?store=electronics')).json.products.filter((x) => !x.hasVariants).slice(0, 3)) {
@@ -122,7 +122,7 @@ class Client {
     }
     assert.strictEqual(prods.length, 3);
     let ipn = 0;
-    const order = (c, item, payment, email, n = 1) => c.post('/api/checkout', { items: [{ productId: item.id, qty: n }], contact: { name: 'Q Tester', email, phone: '08031234567' }, address: { state: 'Lagos', address: '1 Test Road' }, delivery: 'standard', payment }, { 'X-Forwarded-For': '10.1.' + Math.floor(++ipn / 250) + '.' + (ipn % 250) }); // one address per shopper, so the per-address checkout limit does not interfere
+    const order = (c, item, payment, email, n = 1) => c.post('/api/checkout', { items: [{ productId: item.id, qty: n }], contact: { name: 'Q Tester', email, phone: '0803' + String(2000000 + ipn) }, address: { state: 'Lagos', address: '1 Test Road' }, delivery: 'standard', payment }, { 'X-Forwarded-For': '10.1.' + Math.floor(++ipn / 250) + '.' + (ipn % 250) }); // one address per shopper, so the per-address checkout limit does not interfere
     global.__dbg = () => sql("SELECT id,queue,state,attempts,run_at,locked_until,last_error FROM jobs WHERE state IN ('queued','active') ORDER BY id", DB);
     const jobsOf = async () => (await admin.get('/api/admin/jobs')).json;
     const idle = () => waitFor(async () => { const o = (await jobsOf()).overview; return !o.queued && !o.active; }, 10000, 'worker to finish');
@@ -189,7 +189,7 @@ class Client {
     });
     await test('Paystack: the same Place order tap sent 5 times at once makes one order and starts one payment', async () => {
       const key = 'tap-' + Date.now() + '-pppp'; m.state.paystack.calls.length = 0;
-      const body = { items: [{ productId: prods[0].id, qty: 1 }], contact: { name: 'Q', email: 'dbl@example.com', phone: '08031234567' }, address: { state: 'Lagos', address: '1 Test Road' }, delivery: 'standard', payment: 'paystack' };
+      const body = { items: [{ productId: prods[0].id, qty: 1 }], contact: { name: 'Q', email: 'dbl@example.com', phone: '08033330001' }, address: { state: 'Lagos', address: '1 Test Road' }, delivery: 'standard', payment: 'paystack' };
       const rs = await Promise.all(Array.from({ length: 5 }, (_, i) => (i % 2 ? A : B).req('POST', '/api/checkout', body, { 'Idempotency-Key': key, 'X-Forwarded-For': '10.7.7.' + (i + 1) })));
       assert.ok(rs.every((r) => r.status === 200), JSON.stringify(rs.map((r) => r.status + (r.json && r.json.error || ''))));
       assert.strictEqual(new Set(rs.map((r) => r.json.ref)).size, 1); assert.strictEqual(new Set(rs.map((r) => r.json.url)).size, 1); assert.match(rs[0].json.url, /^https:\/\/checkout\.paystack\.test\//);

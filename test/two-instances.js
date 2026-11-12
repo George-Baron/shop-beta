@@ -22,7 +22,7 @@ let passed = 0; const procs = [];
 const ok = (m) => { passed++; console.log('  ok   ' + m); };
 
 function start(port, name, dataDir, storageUrl) {
-  const p = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(port), INSTANCE_ID: name, DATA_DIR: dataDir, DATABASE_URL: withDb(DB), PGSSL: process.env.PGSSL_TEST || 'disable', BASE_URL: 'http://127.0.0.1:' + LB, SUPABASE_URL: storageUrl, SUPABASE_SERVICE_ROLE_KEY: KEY, SUPABASE_BUCKET: 'shop-images', STORAGE_DRIVER: '', DRAIN_MS: '300', PAYSTACK_SECRET_KEY: '', RESEND_API_KEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const p = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(port), INSTANCE_ID: name, DATA_DIR: dataDir, DATABASE_URL: withDb(DB), PGSSL: process.env.PGSSL_TEST || 'disable', BASE_URL: 'http://127.0.0.1:' + LB, SUPABASE_URL: storageUrl, SUPABASE_SERVICE_ROLE_KEY: KEY, SUPABASE_BUCKET: 'shop-images', STORAGE_DRIVER: '', DRAIN_MS: '300', PAYSTACK_SECRET_KEY: '', ADMIN_SETUP_CODE: 'test-setup-code', RESEND_API_KEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
   p.log = ''; p.stdout.on('data', (d) => { p.log += d; }); p.stderr.on('data', (d) => { p.log += d; }); procs.push(p); return p;
 }
 async function waitUp(port) { for (let i = 0; i < 100; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) return; } catch { /* wait */ } await new Promise((r) => setTimeout(r, 100)); } throw new Error('instance on ' + port + ' did not start'); }
@@ -30,7 +30,7 @@ async function waitUp(port) { for (let i = 0; i < 100; i++) { try { if ((await f
 class Client {
   constructor(url) { this.url = url; this.cookie = ''; this.seen = new Set(); }
   async req(method, p, body) {
-    const r = await fetch(this.url + p, { method, headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(this.cookie ? { Cookie: this.cookie } : {}) }, body: body !== undefined ? JSON.stringify(body) : undefined });
+    const r = await fetch(this.url + p, { method, headers: { 'X-Requested-With': 'shop-beta', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(this.cookie ? { Cookie: this.cookie } : {}) }, body: body !== undefined ? JSON.stringify(body) : undefined });
     for (const c of (r.headers.getSetCookie ? r.headers.getSetCookie() : [])) this.cookie = c.split(';')[0];
     if (r.headers.get('x-instance')) this.seen.add(r.headers.get('x-instance'));
     const t = await r.text(); let json = null; try { json = JSON.parse(t); } catch { /* html */ }
@@ -64,7 +64,7 @@ class Client {
     ok('a sign-in made on one instance is recognised by the other (sessions live in the database)');
 
     // Admin uploads a photo through the LB; both instances give back the same stored photo; neither writes to its disk.
-    const adm = new Client(LBURL); assert.strictEqual((await adm.post('/api/admin/setup', { name: 'Boss', email: 'boss@example.com', password: 'correct horse' })).status, 200);
+    const adm = new Client(LBURL); assert.strictEqual((await adm.post('/api/admin/setup', { code: 'test-setup-code', name: 'Boss', email: 'boss@example.com', password: 'correct horse' })).status, 200);
     const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
     const up = await adm.post('/api/admin/upload', { data: png }); assert.strictEqual(up.status, 200);
     assert.ok(up.json.url.startsWith(storage.url), 'photo URL points at storage, not at an instance');

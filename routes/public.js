@@ -12,6 +12,24 @@ const router = require('../lib/async-router').Router();
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const PRODUCT_SELECT = `SELECT p.*, c.name AS category, c.slug AS category_slug, COALESCE(rv.r,0) AS rating, COALESCE(rv.n,0) AS rating_n
   FROM products p LEFT JOIN categories c ON c.id = p.category_id ${RATING_JOIN}`;
+/* Rate limits are per person (email or phone), plus a loose per-IP ceiling, because mobile networks share IP addresses. */
+const bodyOf = (req) => (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {});
+const rl = (name, ids, max, windowMs, ipMax) => A.limitBy(name, { ids, max, windowMs, ipMax });
+const LIM = {
+  checkout: rl('checkout', (req) => { const c = bodyOf(req).contact; const x = c && typeof c === 'object' ? c : {}; return [A.emailKey(x.email), A.phoneKey(x.phone)]; }, 10, 3600000, 400),
+  review: rl('review', (req) => [req.user ? 'u' + req.user.id : '', A.emailKey(bodyOf(req).email)], 8, 3600000, 200),
+  abandon: rl('abandon', (req) => [A.emailKey(bodyOf(req).email)], 40, 3600000, 400),
+  lookup: rl('lookup', (req) => [A.emailKey(bodyOf(req).email), A.textKey(bodyOf(req).ref, 20)], 40, 600000, 300),
+  cancel: rl('cancel', (req) => [A.emailKey(bodyOf(req).email), A.textKey(req.params.ref, 20)], 10, 600000, 100),
+  verify: rl('verify', (req) => [A.textKey(req.query.reference || req.query.trxref, 20)], 40, 600000, 300),
+  demo: rl('demo', (req) => [A.textKey(req.params.ref, 20)], 30, 600000, 100),
+  register: rl('register', (req) => [A.emailKey(bodyOf(req).email), A.phoneKey(bodyOf(req).phone)], 5, 3600000, 200),
+  login: rl('login', (req) => [A.emailKey(bodyOf(req).email)], 8, 900000, 300),
+  forgot: rl('forgot', (req) => [A.emailKey(bodyOf(req).email)], 6, 3600000, 100),
+  reset: rl('reset', (req) => [A.textKey(bodyOf(req).token, 16)], 15, 3600000, 100),
+  contact: rl('contact', (req) => [A.emailKey(bodyOf(req).email), A.phoneKey(bodyOf(req).phone)], 6, 3600000, 200),
+  newsletter: rl('news', (req) => [A.emailKey(bodyOf(req).email)], 10, 3600000, 200),
+};
 const PER_PAGE = 20;
 // Catalogue answers are the same for every shopper, so they can be kept by Cloudflare/browsers too (they never include the signed-in user).
 const EDGE = Math.max(0, Number(process.env.EDGE_CACHE_SECONDS === undefined ? 30 : process.env.EDGE_CACHE_SECONDS) || 0);
@@ -119,7 +137,7 @@ router.get('/products/:slug', async (req, res) => {
   }, PUBLIC_CC);
 });
 
-router.post('/products/:id/reviews', A.limiter('review', 8, 3600000), async (req, res) => {
+router.post('/products/:id/reviews', LIM.review, async (req, res) => {
   const pid = int(req.params.id), b = req.body || {};
   const p = await get('SELECT id FROM products WHERE id=? AND active=1', pid);
   if (!p) fail(404, 'We could not find that product.');
@@ -139,7 +157,7 @@ router.post('/cart/price', async (req, res) => {
   res.json(out);
 });
 
-router.post('/cart/abandon', A.limiter('abandon', 40, 3600000), async (req, res) => {
+router.post('/cart/abandon', LIM.abandon, async (req, res) => {
   const email = str(req.body.email, 120).toLowerCase();
   if (!isEmail(email)) return res.json({ ok: true });
   const items = (Array.isArray(req.body.items) ? req.body.items : []).slice(0, 30).map((i) => ({ productId: int(i && i.productId), variantId: i && i.variantId ? int(i.variantId) : null, qty: Math.min(99, Math.max(1, int(i && i.qty, 1))) })).filter((i) => i.productId > 0);
@@ -148,7 +166,7 @@ router.post('/cart/abandon', A.limiter('abandon', 40, 3600000), async (req, res)
   res.json({ ok: true });
 });
 
-router.post('/checkout', A.limiter('checkout', 20, 3600000), ah(async (req, res) => {
+router.post('/checkout', LIM.checkout, ah(async (req, res) => {
   // The page sends one key per "Place order" tap, so a double tap or a retry after a dropped connection gives back the same order.
   const order = await S_.createOrder(req.body || {}, req.user, req.get('Idempotency-Key') || (req.body || {}).idempotencyKey);
   if (order.status === 'cancelled') fail(409, 'That order was cancelled. Please place the order again.');
@@ -171,10 +189,10 @@ async function ownedOrder(req, ref, email) {
   if (!ok) fail(404, 'We could not find an order with those details. Check the order number and email.');
   return o;
 }
-router.post('/orders/lookup', A.limiter('lookup', 40, 600000), async (req, res) => {
+router.post('/orders/lookup', LIM.lookup, async (req, res) => {
   res.json({ order: S_.publicOrder(await ownedOrder(req, req.body.ref, req.body.email)) });
 });
-router.post('/orders/:ref/cancel', A.limiter('cancel', 10, 600000), async (req, res) => {
+router.post('/orders/:ref/cancel', LIM.cancel, async (req, res) => {
   const o = await ownedOrder(req, req.params.ref, req.body.email);
   if (o.status !== 'pending' || o.payment_status === 'paid') fail(400, 'This order can no longer be cancelled. Please contact us.');
   await S_.cancelOrder(o, 'Cancelled by customer');
@@ -188,7 +206,7 @@ router.get('/orders', A.requireUser, async (req, res) => {
 });
 
 /* ================= payments ================= */
-router.get('/paystack/verify', A.limiter('verify', 40, 600000), ah(async (req, res) => {
+router.get('/paystack/verify', LIM.verify, ah(async (req, res) => {
   const ref = str(req.query.reference || req.query.trxref, 20).toUpperCase();
   if (!S_.paystackLive()) return res.json({ ok: true });
   const o = await S_.settleWithPaystack(ref);
@@ -206,7 +224,7 @@ router.post('/paystack/webhook', ah(async (req, res) => {
   res.json({ ok: true });
 }));
 // Demo mode only (no PAYSTACK_SECRET_KEY set): lets you test the whole order flow without real money.
-router.post('/pay/demo/:ref', A.limiter('demo', 30, 600000), async (req, res) => {
+router.post('/pay/demo/:ref', LIM.demo, async (req, res) => {
   if (S_.paystackLive()) fail(404, 'Not found.');
   const o = await S_.loadOrder('ref=?', str(req.params.ref, 20).toUpperCase());
   if (!o || o.payment_method !== 'paystack' || o.payment_status === 'paid' || o.status !== 'pending') fail(400, 'This order is not waiting for payment.');
@@ -217,7 +235,7 @@ router.post('/pay/demo/:ref', A.limiter('demo', 30, 600000), async (req, res) =>
 
 /* ================= accounts ================= */
 const pwOk = (p) => typeof p === 'string' && p.length >= 8 && p.length <= 200;
-router.post('/auth/register', A.limiter('register', 10, 3600000), ah(async (req, res) => {
+router.post('/auth/register', LIM.register, ah(async (req, res) => {
   const b = req.body || {}, name = str(b.name, 80), email = str(b.email, 120).toLowerCase(), phone = str(b.phone, 30);
   if (!name) fail(400, 'Please enter your name.');
   if (!isEmail(email)) fail(400, 'Please enter a valid email address.');
@@ -227,18 +245,18 @@ router.post('/auth/register', A.limiter('register', 10, 3600000), ah(async (req,
   await A.startSession(req, res, uid);
   res.json({ user: A.publicUser(await get('SELECT * FROM users WHERE id=?', uid)) });
 }));
-router.post('/auth/login', ah(async (req, res) => {
-  const b = req.body || {}, email = str(b.email, 120).toLowerCase(), pw = typeof b.password === 'string' ? b.password.slice(0, 200) : '';
-  if (!(await A.hit('login-ip:' + req.ip, 30, 900000)) || !(await A.hit('login-email:' + email, 8, 900000))) fail(429, 'Too many sign-in attempts. Please wait 15 minutes and try again.');
+router.post('/auth/login', LIM.login, ah(async (req, res) => {
+  const b = bodyOf(req), email = str(b.email, 120).toLowerCase(), pw = typeof b.password === 'string' ? b.password.slice(0, 200) : '';
   const u = await get('SELECT * FROM users WHERE lower(email)=?', email);
   const good = u ? await A.checkPassword(pw, u.password) : await A.burn(pw);
   if (!u || !good) fail(401, 'That email and password do not match.');
+  if (A.needsRehash(u.password)) await run('UPDATE users SET password=? WHERE id=?', await A.hashPassword(pw), u.id); // upgrade old hashes while we have the password
   if (req.sessionToken) await run('DELETE FROM sessions WHERE id=?', A.sha(req.sessionToken));
   await A.startSession(req, res, u.id);
   res.json({ user: A.publicUser(u) });
 }));
 router.post('/auth/logout', async (req, res) => { await A.endSession(req, res); res.json({ ok: true }); });
-router.post('/auth/forgot', A.limiter('forgot', 6, 3600000), async (req, res) => {
+router.post('/auth/forgot', LIM.forgot, async (req, res) => {
   const email = str(req.body.email, 120).toLowerCase();
   const u = isEmail(email) ? await get('SELECT * FROM users WHERE lower(email)=?', email) : null;
   if (u) {
@@ -250,7 +268,7 @@ router.post('/auth/forgot', A.limiter('forgot', 6, 3600000), async (req, res) =>
   }
   res.json({ ok: true });
 });
-router.post('/auth/reset', A.limiter('reset', 15, 3600000), ah(async (req, res) => {
+router.post('/auth/reset', LIM.reset, ah(async (req, res) => {
   const token = str(req.body.token, 80);
   if (!pwOk(req.body.password)) fail(400, 'Your password must be at least 8 characters.');
   const r = /^[0-9a-f]{64}$/.test(token) ? await get('SELECT * FROM resets WHERE token=? AND expires>?', A.sha(token), now()) : null;
@@ -302,7 +320,7 @@ router.post('/wishlist/:id', A.requireUser, async (req, res) => {
 router.delete('/wishlist/:id', A.requireUser, async (req, res) => { await run('DELETE FROM wishlist WHERE user_id=? AND product_id=?', req.user.id, int(req.params.id)); res.json({ ok: true }); });
 
 /* ================= contact & newsletter ================= */
-router.post('/contact', A.limiter('contact', 6, 3600000), async (req, res) => {
+router.post('/contact', LIM.contact, async (req, res) => {
   const b = req.body || {};
   if (b.website) return res.json({ ok: true }); // honeypot: real visitors never fill this in
   const name = str(b.name, 80), email = str(b.email, 120), body = str(b.body, 2000), subject = str(b.subject, 120);
@@ -312,7 +330,7 @@ router.post('/contact', A.limiter('contact', 6, 3600000), async (req, res) => {
   if (S.contact_email) await S_.queueMail(S.contact_email, `New message: ${subject || '(no subject)'}`, S_.mailWrap(S, `<p><b>${esc(name)}</b> (${esc(email)}) wrote:</p><p style="white-space:pre-wrap">${esc(body)}</p>`));
   res.json({ ok: true });
 });
-router.post('/newsletter', A.limiter('news', 10, 3600000), async (req, res) => {
+router.post('/newsletter', LIM.newsletter, async (req, res) => {
   const email = str(req.body.email, 120).toLowerCase();
   if (!isEmail(email)) fail(400, 'Please enter a valid email address.');
   await run('INSERT INTO newsletter (email,created) VALUES (?,?) ON CONFLICT DO NOTHING', email, now());
