@@ -17,6 +17,8 @@
     "worker": "node --disable-warning=ExperimentalWarning worker.js",
     "backup": "node --disable-warning=ExperimentalWarning -e \"require('./lib/db').migrate().then(()=>require('./lib/backup').create('manual')).then((s)=>{console.log('Backup saved:',s.name,s.rows,'rows');process.exit(0)}).catch((e)=>{console.error(e.message);process.exit(1)})\"",
     "restore": "node --disable-warning=ExperimentalWarning scripts/restore.js",
+    "loadtest": "node scripts/loadtest.js",
+    "test:load": "node --disable-warning=ExperimentalWarning test/load.js",
     "test:ops": "node --disable-warning=ExperimentalWarning test/ops.js",
     "test:security": "node --disable-warning=ExperimentalWarning test/security.js",
     "test:delivery": "node --disable-warning=ExperimentalWarning test/delivery.js",

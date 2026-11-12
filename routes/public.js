@@ -60,7 +60,8 @@ async function buildHome(slug) {
 }
 
 const likeEsc = (s) => s.replace(/[\\%_]/g, (c) => '\\' + c);
-router.get('/products', ah(async (req, res) => {
+const searchLimit = A.quickLimiter('search', 90, 60000, 'Too many searches. Please wait a moment and try again.');
+router.get('/products', (req, res, next) => (req.query.q ? searchLimit(req, res, next) : next()), ah(async (req, res) => {
   const key = queryKey('products:', req.query);
   const data = key ? await cache.cached(key, 30000, () => listProducts(req.query)) : await listProducts(req.query);
   publicCache(res);
@@ -71,10 +72,15 @@ async function listProducts(q) {
   const store = str(q.store, 40), category = str(q.category, 60);
   if (store) { where.push('p.store=?'); args.push(store); facetWhere.push('p.store=?'); facetArgs.push(store); }
   if (category) { where.push('c.slug=?'); args.push(category); facetWhere.push('c.slug=?'); facetArgs.push(category); }
-  for (const w of str(q.q, 80).toLowerCase().split(/\s+/).filter(Boolean).slice(0, 5)) {
+  const words = str(q.q, 80).toLowerCase().split(/\s+/).filter(Boolean).slice(0, 5);
+  // Category names are matched in JavaScript against a small cached list, so the SQL only tests plain product columns and can use the search indexes
+  // (matching c.name inside the OR forced a scan of the whole catalogue: about 100 times slower).
+  const catNames = words.length ? await cache.cached('catnames', 30000, () => all('SELECT id, LOWER(name) AS name FROM categories')) : [];
+  for (const w of words) {
     const l = '%' + likeEsc(w) + '%';
-    where.push("(LOWER(p.name) LIKE ? ESCAPE '\\' OR LOWER(p.brand) LIKE ? ESCAPE '\\' OR LOWER(p.sku) LIKE ? ESCAPE '\\' OR LOWER(COALESCE(c.name,'')) LIKE ? ESCAPE '\\' OR LOWER(p.description) LIKE ? ESCAPE '\\')");
-    args.push(l, l, l, l, l);
+    const catIds = catNames.filter((c) => c.name.includes(w)).map((c) => Number(c.id)).filter(Number.isInteger);
+    where.push(`(LOWER(p.name) LIKE ? ESCAPE '\\' OR LOWER(p.brand) LIKE ? ESCAPE '\\' OR LOWER(p.sku) LIKE ? ESCAPE '\\' OR LOWER(p.description) LIKE ? ESCAPE '\\'${catIds.length ? ` OR p.category_id IN (${catIds.join(',')})` : ''})`);
+    args.push(l, l, l, l);
   }
   const min = int(q.min, -1), max = int(q.max, -1);
   if (min >= 0) { where.push('p.price >= ?'); args.push(min); }
@@ -94,7 +100,8 @@ async function listProducts(q) {
   const total = (await get(`SELECT COUNT(*) n ${from}`, ...args)).n;
   const pages = Math.max(1, Math.ceil(total / PER_PAGE)), page = Math.min(pages, Math.max(1, int(q.page, 1)));
   const products = (await all(`SELECT p.*, c.name AS category, COALESCE(rv.r,0) AS rating, COALESCE(rv.n,0) AS rating_n ${from} ORDER BY ${order} LIMIT ${PER_PAGE} OFFSET ${(page - 1) * PER_PAGE}`, ...args)).map(card);
-  const fr = await all(`SELECT DISTINCT v.size, v.color FROM variants v JOIN products p ON p.id=v.product_id LEFT JOIN categories c ON c.id=p.category_id WHERE ${facetWhere.join(' AND ')}`, ...facetArgs);
+  // The size/colour lists depend only on department and category (never on the search words), so they are kept for a minute instead of re-reading every variant on each search.
+  const fr = await cache.cached(`facets:${store}:${category}`, 60000, () => all(`SELECT DISTINCT v.size, v.color FROM variants v JOIN products p ON p.id=v.product_id LEFT JOIN categories c ON c.id=p.category_id WHERE ${facetWhere.join(' AND ')}`, ...facetArgs));
   const nat = (a, b) => a.localeCompare(b, undefined, { numeric: true });
   return { products, total, page, pages, facets: { sizes: [...new Set(fr.map((x) => x.size).filter(Boolean))].sort(nat), colors: [...new Set(fr.map((x) => x.color).filter(Boolean))].sort(nat) } };
 }
@@ -110,11 +117,14 @@ router.post('/products/by-ids', ah(async (req, res) => {
 router.get('/products/:slug', ah(async (req, res) => {
   const slug = str(req.params.slug, 120);
   const base = await cache.cached('product:' + slug, 20000, () => buildProduct(slug));
-  // Description, reviews and related products may be 20 seconds old, but stock must be live (two small indexed queries).
-  const live = await get('SELECT stock FROM products WHERE id=?', base.product.id);
-  const variants = await all('SELECT id, size, color, stock FROM variants WHERE product_id=? ORDER BY id', base.product.id);
+  // Description, reviews and related products may be 20 seconds old. Stock is at most 3 seconds old (a popular product is asked for many times a second,
+  // so one read serves them all). It is only for display: checkout takes stock atomically and refuses what is gone.
+  const { stock, variants } = await cache.cached('stock:' + base.product.id, 3000, async () => ({
+    stock: (await get('SELECT stock FROM products WHERE id=?', base.product.id) || { stock: 0 }).stock,
+    variants: await all('SELECT id, size, color, stock FROM variants WHERE product_id=? ORDER BY id', base.product.id),
+  }));
   res.set('Cache-Control', 'no-cache'); // stock changes with every order, so browsers must ask again (the server answer is cheap)
-  res.json({ ...base, product: { ...base.product, stock: live ? live.stock : 0, variants } });
+  res.json({ ...base, product: { ...base.product, stock, variants } });
 }));
 async function buildProduct(slug) {
   const p = await get(`${PRODUCT_SELECT} WHERE p.active=1 AND p.slug=?`, slug);
