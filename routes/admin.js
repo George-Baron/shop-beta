@@ -9,6 +9,9 @@ const jobs = require('../lib/jobs');
 const cache = require('../lib/cache');
 const boot = require('../lib/bootstrap-admin');
 const queue = require('../lib/queue');
+const backup = require('../lib/backup');
+const errors = require('../lib/errors');
+const log = require('../lib/log');
 const { slugify } = require('../lib/seed');
 const { fail, str, int, isEmail, parseImages, getSettings, dayStart } = S;
 
@@ -282,6 +285,33 @@ router.get('/jobs', async (req, res) => res.json({ overview: await queue.overvie
 router.post('/jobs/:id/retry', async (req, res) => { if (!await queue.retry(int(req.params.id))) fail(404, 'That job is not in the failed list.'); res.json({ ok: true }); });
 router.post('/jobs/retry-all', async (req, res) => res.json({ retried: (await run("UPDATE jobs SET state='queued', attempts=0, run_at=?, locked_until=0, last_error='', finished=NULL WHERE state='failed'", now())).changes }));
 router.delete('/jobs/:id', async (req, res) => { if (!await queue.discard(int(req.params.id))) fail(404, 'That job is not in the failed list.'); res.json({ ok: true }); });
+
+/* ---------- errors and backups (docs/OPERATIONS.md) ---------- */
+router.get('/ops', async (req, res) => res.json({
+  errors: await errors.list(), backups: await backup.list(), backupStatus: await backup.status(), keep: backup.KEEP,
+  storage: storage.DRIVER, backupsOn: process.env.BACKUPS !== '0',
+  alerts: { email: !!process.env.ALERT_EMAIL && !!process.env.RESEND_API_KEY, webhook: !!process.env.ALERT_WEBHOOK_URL },
+}));
+router.post('/errors/:id/resolve', async (req, res) => { if (!await errors.resolve(int(req.params.id))) fail(404, 'That error is already marked fixed.'); res.json({ ok: true }); });
+router.post('/backups', async (req, res) => {
+  const id = await queue.enqueue('backup', { kind: 'manual' }, { singletonKey: 'backup-now', maxAttempts: 2 });
+  res.status(202).json({ queued: !!id, message: id ? 'Backup started. It appears in the list in a minute or two.' : 'A backup is already waiting to run.' });
+});
+// Download a fresh copy of the whole database right now (no storage needed). Contains customer data and password hashes: keep it private.
+router.get('/backups/download', A.limitBy('backup-download', { ids: (req) => [req.user.id], max: 4, windowMs: 3600e3, ipMax: 30, msg: 'You can download at most 4 backups an hour.' }), async (req, res) => {
+  const name = `shop-beta-${backup.stamp()}.ndjson.gz`;
+  res.setHeader('Content-Type', 'application/gzip'); res.setHeader('Content-Disposition', `attachment; filename="${name}"`); res.setHeader('Cache-Control', 'no-store');
+  await run("INSERT INTO backups (started,finished,state,kind,location,instance) VALUES (?,?,'ok','download',?,?)", now(), now(), 'downloaded by ' + req.user.email, log.INSTANCE);
+  log.warn('Database backup downloaded', { by: req.user.email, ip: req.ip, file: name });
+  try { await backup.dumpToStream(res); } catch (e) { log.error('Backup download failed:', e); errors.record(e, { source: 'backup', route: 'download' }); }
+});
+router.get('/backups/:id/download', A.limitBy('backup-download', { ids: (req) => [req.user.id], max: 4, windowMs: 3600e3, ipMax: 30, msg: 'You can download at most 4 backups an hour.' }), async (req, res) => {
+  const b = await get("SELECT * FROM backups WHERE id=? AND state='ok' AND kind IN ('scheduled','manual')", int(req.params.id));
+  if (!b || !b.location) fail(404, 'That backup was not found.');
+  const buf = await storage.backupGet(b.location);
+  log.warn('Stored backup downloaded', { by: req.user.email, ip: req.ip, file: b.location });
+  res.setHeader('Content-Type', 'application/gzip'); res.setHeader('Content-Disposition', `attachment; filename="${b.location}"`); res.setHeader('Cache-Control', 'no-store'); res.send(buf);
+});
 
 /* ---------- settings ---------- */
 const TEXT_KEYS = ['store_name', 'tagline', 'announcement', 'contact_phone', 'address', 'pickup_address', 'tax_note', 'ga_id', 'meta_pixel_id'];

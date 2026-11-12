@@ -5,6 +5,7 @@ const http = require('http');
 
 function start(serviceKey) {
   const objects = new Map(); // "bucket/path" -> { buf, type, cache }
+  const buckets = new Map(); // id -> public?
   const log = [];
   const server = http.createServer((req, res) => {
     const chunks = []; req.on('data', (c) => chunks.push(c));
@@ -12,10 +13,10 @@ function start(serviceKey) {
       const buf = Buffer.concat(chunks), url = new URL(req.url, 'http://x');
       const send = (code, body, type = 'application/json') => { res.writeHead(code, { 'Content-Type': type }); res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body)); };
       const pub = /^\/storage\/v1\/object\/public\/(.+)$/.exec(url.pathname);
-      if (req.method === 'GET' && pub) { const o = objects.get(decodeURIComponent(pub[1])); return o ? send(200, o.buf, o.type) : send(404, { error: 'not found' }); }
+      if (req.method === 'GET' && pub) { const k = decodeURIComponent(pub[1]), o = buckets.get(k.split('/')[0]) === false ? null : objects.get(k); return o ? send(200, o.buf, o.type) : send(404, { error: 'not found' }); }
       // everything else needs the service key, like the real thing
       if (req.headers.authorization !== 'Bearer ' + serviceKey || req.headers.apikey !== serviceKey) { log.push({ denied: req.method + ' ' + url.pathname }); return send(401, { error: 'Unauthorized' }); }
-      if (req.method === 'POST' && url.pathname === '/storage/v1/bucket') { const b = JSON.parse(buf.toString()); log.push({ bucket: b }); return send(b.id === 'exists' ? 409 : 200, { name: b.name }); }
+      if (req.method === 'POST' && url.pathname === '/storage/v1/bucket') { const b = JSON.parse(buf.toString()); log.push({ bucket: b }); if (b.id !== 'exists') buckets.set(b.id, b.public !== false); return send(b.id === 'exists' ? 409 : 200, { name: b.name }); }
       const obj = /^\/storage\/v1\/object\/([^/]+)\/(.+)$/.exec(url.pathname);
       if (obj && req.method === 'POST') {
         const key = obj[1] + '/' + decodeURIComponent(obj[2]);
@@ -23,6 +24,7 @@ function start(serviceKey) {
         objects.set(key, { buf, type: req.headers['content-type'], cache: req.headers['cache-control'] });
         log.push({ put: key, type: req.headers['content-type'], bytes: buf.length }); return send(200, { Key: key });
       }
+      if (obj && req.method === 'GET') { const o = objects.get(obj[1] + '/' + decodeURIComponent(obj[2])); return o ? send(200, o.buf, o.type) : send(404, { error: 'not found' }); }
       if (obj && req.method === 'DELETE') { objects.delete(obj[1] + '/' + decodeURIComponent(obj[2])); return send(200, { message: 'Successfully deleted' }); }
       send(404, { error: 'no route' });
     });

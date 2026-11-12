@@ -291,3 +291,15 @@ Order states are now `pending, paid, confirmed, dispatched, delivered, cancelled
 ## 17. After step 7: security and limits
 
 Admin account only from environment variables (or a setup code), no defaults; scrypt hashing with upgrade of old hashes; rate limits per phone/email with loose per-IP ceilings; CSRF protection, `__Host-` secure cookies, stronger headers; every route fuzzed for 5xx (found and fixed NUL-byte and out-of-range-number errors). Dependencies updated so `npm audit --omit=dev` reports 0 vulnerabilities. Details and the lost-password recovery command are in `docs/SECURITY.md`. Tests: `npm run test:security` (18 checks).
+
+
+## 18. After step 8: operations
+
+- **Logs:** `lib/log.js` writes one JSON object per line (time, level, message, instance, fields). Request lines carry a request id (`X-Request-Id`, also returned to the browser), status and timing, never query strings, bodies or cookies. Secrets in fields are redacted.
+- **Errors:** `lib/errors.js` stores unexpected errors (5xx, background jobs that give up, crashes, failed backups) in `error_log`, grouped by place so the same mistake is one row with a count. New errors alert the owner by email and/or webhook (throttled). Shown in Admin > Jobs & backups. No paid error-tracking service was added.
+- **Uptime:** `/health` (shallow, for the load balancer) and `/health/deep` (database, job queue moving, a recent backup) for an external uptime monitor. The app cannot alert you when it is down, so the monitor is a free account you create (steps in `docs/OPERATIONS.md`).
+- **Backups:** `lib/backup.js`. A consistent snapshot, gzip JSON lines, written nightly by a background job to a private Supabase bucket (newest 14 kept), on demand with "Back up now", or downloaded straight from the admin screen. This is in addition to Supabase's own daily backups.
+- **Restore:** `scripts/restore-backup.js`, one transaction, refuses a wrong host, a cut-off file or a non-empty target. Tested by restoring into a brand-new database and comparing every table.
+
+Tests: `npm run test:ops` (24 checks). Migration 009 adds `error_log` and `backups`.
+

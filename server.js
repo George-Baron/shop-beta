@@ -1,5 +1,6 @@
 'use strict';
 // Shop-Beta server: serves the single-page storefront + admin, and the JSON API behind them.
+const log = require('./lib/log');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -23,6 +24,8 @@ const { seed } = require('./lib/seed');
 const S = require('./lib/shop');
 const A = require('./lib/auth');
 const jobs = require('./lib/jobs');
+const backup = require('./lib/backup');
+const errors = require('./lib/errors');
 
 const { esc, BASE_URL, getSettings, parseImages, naira } = S;
 const app = require('./lib/async-router').protect(express());
@@ -32,14 +35,6 @@ app.set('trust proxy', process.env.TRUST_PROXY === '0' ? false : 1);
 // gzip for pages and API answers (Cloudflare may compress again with brotli; that is fine). Photos are not served from here.
 app.use(compression({ level: 4, threshold: 1024 }));
 
-/* ---------- first admin from environment variables (optional) ---------- */
-async function bootstrapAdmin() {
-  const email = (process.env.ADMIN_EMAIL || '').toLowerCase(), pw = process.env.ADMIN_PASSWORD || '';
-  if (email && pw.length >= 8 && !(await get("SELECT 1 x FROM users WHERE role='admin'")) && !(await get('SELECT 1 x FROM users WHERE lower(email)=?', email))) {
-    await insert("INSERT INTO users (name,email,phone,password,role,created) VALUES ('Store owner',?,'',?, 'admin', ?)", email, await A.hashPassword(pw), now());
-    console.log('Admin account created for', email);
-  }
-}
 
 /* ---------- security headers ---------- */
 app.use((req, res, next) => {
@@ -58,11 +53,51 @@ app.use((req, res, next) => {
 const INSTANCE = process.env.INSTANCE_ID || process.env.RENDER_INSTANCE_ID || require('os').hostname();
 let draining = false;
 app.use((req, res, next) => { res.setHeader('X-Instance', INSTANCE); next(); });
+// One log line per request worth knowing about (LOG_REQUESTS=errors default: status 400+, slower than SLOW_MS, checkout and webhook; all; off).
+// Never logs the query string, body, cookies or headers: those can hold phone numbers, emails and tokens.
+const LOG_REQUESTS = (process.env.LOG_REQUESTS || 'errors').toLowerCase(), SLOW_MS = Number(process.env.SLOW_MS) || 800;
+app.use((req, res, next) => {
+  req.id = (String(req.headers['x-request-id'] || '').replace(/[^\w.-]/g, '').slice(0, 40)) || require('crypto').randomBytes(6).toString('hex');
+  res.setHeader('X-Request-Id', req.id);
+  if (LOG_REQUESTS === 'off' || req.path === '/health') return next();
+  const t0 = process.hrtime.bigint(), fullPath = req.originalUrl.split('?')[0]; // taken now: inside a router, req.path is shortened
+  res.on('finish', () => {
+    const ms = Math.round(Number(process.hrtime.bigint() - t0) / 1e6);
+    if (LOG_REQUESTS === 'all' || res.statusCode >= 400 || ms >= SLOW_MS || /^\/api\/(checkout|paystack\/webhook)/.test(fullPath)) {
+      const rec = { reqId: req.id, method: req.method, path: fullPath.slice(0, 120), status: res.statusCode, ms, ip: req.ip };
+      if (req.user) rec.user = req.user.role === 'admin' ? 'admin' : req.user.id;
+      (res.statusCode >= 500 ? log.error : ms >= SLOW_MS ? log.warn : log.info)('request', rec);
+    }
+  });
+  next();
+});
 app.get('/health', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store'); res.setHeader('X-Instance', INSTANCE);
   if (draining) return res.status(503).json({ ok: false, status: 'shutting down', instance: INSTANCE });
   try { await ping(); res.json({ ok: true, db: true, instance: INSTANCE, cache: cache.snapshot() }); }
   catch (e) { res.status(503).json({ ok: false, db: false, instance: INSTANCE }); }
+});
+
+// For an uptime monitor (UptimeRobot, Better Stack, Cloudflare health check): 200 only when the database answers, the job queue is moving
+// and a database backup has completed recently. Shows no customer data. Keep /health for the load balancer (it must stay fast and shallow).
+app.get('/health/deep', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const checks = {};
+  try { await ping(); checks.database = { ok: true }; } catch { checks.database = { ok: false, why: 'database not reachable' }; }
+  if (checks.database.ok) {
+    try {
+      const failed = (await get("SELECT COUNT(*) c FROM jobs WHERE state='failed' AND finished > ?", now() - 86400)).c;
+      const stuck = (await get("SELECT COUNT(*) c FROM jobs WHERE state IN ('queued','active') AND run_at <= ? AND (state='queued' OR locked_until < ?)", now() - 600, now())).c;
+      checks.queue = stuck ? { ok: false, why: stuck + ' job(s) waiting for over 10 minutes (is a worker running?)' } : { ok: true, failedLast24h: failed };
+      const b = await backup.status(), maxAge = (Number(process.env.BACKUP_MAX_AGE_HOURS) || 36) * 3600;
+      if (process.env.BACKUPS === '0') checks.backup = { ok: true, note: 'backups switched off' };
+      else if (b.lastOk && now() - b.lastOk < maxAge) checks.backup = { ok: true, ageHours: Math.round((now() - b.lastOk) / 360) / 10 };
+      else if (!b.lastOk && (!b.firstAttempt || now() - b.firstAttempt < maxAge)) checks.backup = { ok: true, note: 'no backup yet (first one is due)' };
+      else checks.backup = { ok: false, why: 'no successful database backup in the last ' + Math.round(maxAge / 3600) + ' hours' };
+    } catch { checks.queue = { ok: false, why: 'could not read job queue' }; }
+  }
+  const ok = Object.values(checks).every((c) => c.ok);
+  res.status(ok ? 200 : 503).json({ ok, instance: INSTANCE, checks });
 });
 
 /* ---------- uploads ---------- */
@@ -218,7 +253,8 @@ app.use((err, req, res, next) => {
   if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'That upload is too large.' });
   // Postgres says the input itself is impossible (bad text encoding, number too big, wrong type): that is the caller's mistake, not ours.
   if (err && ['22021', '22003', '22P02', '22007', '22008'].includes(err.code)) return res.status(400).json({ error: 'That request was not understood.' });
-  console.error(`${req.method} ${req.originalUrl}:`, err);
+  log.error('Unhandled error in request', err, { reqId: req.id, method: req.method, path: req.path });
+  errors.record(err, { source: 'request', route: `${req.method} ${req.route && req.route.path ? req.baseUrl + req.route.path : req.path.replace(/\d+/g, ':n')}`, status: 500 });
   res.status(500).json({ error: 'Something went wrong on our side. Please try again.' });
 });
 
@@ -227,27 +263,26 @@ const PORT = Number(process.env.PORT) || 3000;
 let server;
 async function main() {
   await ping();                 // fail fast with a clear message if the database cannot be reached
-  await storage.init();
-  if (process.env.MIGRATE_ON_START !== '0') { const done = await migrate(); if (done.length) console.log('Database migrated:', done.join(', ')); }
+  await storage.init(); await storage.backupInit();
+  if (process.env.MIGRATE_ON_START !== '0') { const done = await migrate(); if (done.length) log.log('Database migrated:', done.join(', ')); }
   await ensureAdmin();          // creates the first administrator from ADMIN_EMAIL/ADMIN_PASSWORD; in production refuses to start with none
   await seed();
-  await bootstrapAdmin();
   // Node closes idle connections after 5 s by default, which makes load balancers (Render, Cloudflare) see random 502 errors. Keep them longer than the balancer does.
   const setTimeouts = (srv) => { srv.keepAliveTimeout = 65000; srv.headersTimeout = 66000; srv.requestTimeout = 60000; };
   server = app.listen(PORT, process.env.HOST || '0.0.0.0', async () => {
     setTimeouts(server);
-    console.log(`\nShop-Beta is running at ${BASE_URL}`);
-    console.log(`Admin dashboard:   ${BASE_URL}/admin${(await get("SELECT 1 x FROM users WHERE role='admin'")) ? '' : '   (open it now to create your admin account)'}`);
-    console.log(storage.DRIVER === 'supabase' ? 'Photos: Supabase Storage.' : storage.DRIVER === 'local' ? 'Photos: LOCAL DISK (development only; they would be lost on a hosted server).' : 'Photos: storage not configured, uploads are disabled (set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY).');
-    console.log(S.paystackLive() ? 'Paystack: LIVE keys are set.' : 'Paystack: no PAYSTACK_SECRET_KEY set, so online payment runs in demo mode (no real money).');
-    if (!process.env.RESEND_API_KEY) console.log('Email: RESEND_API_KEY not set, so emails are stored in Admin > Marketing > Email outbox instead of being sent.');
+    log.log(`\nShop-Beta is running at ${BASE_URL}`);
+    log.log(`Admin dashboard:   ${BASE_URL}/admin${(await get("SELECT 1 x FROM users WHERE role='admin'")) ? '' : '   (open it now to create your admin account)'}`);
+    log.log(storage.DRIVER === 'supabase' ? 'Photos: Supabase Storage.' : storage.DRIVER === 'local' ? 'Photos: LOCAL DISK (development only; they would be lost on a hosted server).' : 'Photos: storage not configured, uploads are disabled (set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY).');
+    log.log(S.paystackLive() ? 'Paystack: LIVE keys are set.' : 'Paystack: no PAYSTACK_SECRET_KEY set, so online payment runs in demo mode (no real money).');
+    if (!process.env.RESEND_API_KEY) log.log('Email: RESEND_API_KEY not set, so emails are stored in Admin > Marketing > Email outbox instead of being sent.');
     jobs.start();
     cache.start();
-    if (cache.DISABLED) console.log('Cache: DISABLED by CACHE_DISABLED=1.');
+    if (cache.DISABLED) log.log('Cache: DISABLED by CACHE_DISABLED=1.');
   });
 }
-process.on('unhandledRejection', (e) => console.error('Unhandled error:', e));
-main().catch((e) => { console.error('Could not start:', e.message); process.exit(1); });
+errors.installProcessHandlers(() => { if (server) server.close(); });
+main().catch((e) => { log.error('Could not start:', e.message); process.exit(1); });
 // Finish in-flight requests, then close the database connections.
 let stopping = false;
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => {

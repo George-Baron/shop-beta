@@ -950,7 +950,7 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['marketing', '📣', 'Marketing'], ['jobs', '🛠', 'Jobs'], ['settings', '⚙️', 'Settings']];
+const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['marketing', '📣', 'Marketing'], ['jobs', '🛠', 'Jobs & backups'], ['settings', '⚙️', 'Settings']];
 async function shell(page, body, unread) {
   root.innerHTML = `<div class="adm"><aside class="side"><div class="side-top"><div><b>🛠 Shop-Beta</b><div class="who">${e(me.email)}</div></div><div><a class="btn ghost sm" href="/" target="_blank" rel="noopener">View store</a> <button class="btn ghost sm" id="lo">Sign out</button></div></div>
   <nav>${NAV.map(([k, ic, t]) => `<a data-nav="${k}" class="${page === k ? 'on' : ''}">${ic} ${t}${k === 'messages' && unread ? ` <span class="dot">${unread}</span>` : ''}</a>`).join('')}</nav></aside><main class="main" id="mn">${body}</main></div>`;
@@ -1136,7 +1136,7 @@ views.marketing = async () => {
 };
 
 /* ---------------- background jobs: emails, payment confirmations, housekeeping ---------------- */
-views.jobs = async () => {
+views.jobs0 = async () => {
   const d = await api('/api/admin/jobs'); const o = d.overview;
   const card = (n, l) => `<div class="panel" style="flex:1;min-width:130px"><h3 style="margin:0">${n}</h3><p class="mu2" style="margin:4px 0 0">${l}</p></div>`;
   mn(hd('Jobs', d.failed.length ? '<button class="btn" id="jall">Retry all</button>' : '') + `<p class="mu2">Emails, payment confirmations and housekeeping run in the background. If one keeps failing it stops here so you can see why and try again.${d.worker ? '' : ' <b>The background worker is switched off on this server.</b>'}</p>
@@ -1145,6 +1145,23 @@ views.jobs = async () => {
   on('#jall', 'click', async () => { const r = await api('/api/admin/jobs/retry-all', { body: {} }); toast(`${r.retried} job${r.retried === 1 ? '' : 's'} queued again`); route(); });
   $$('[data-retry]', $('#mn')).forEach((b) => b.addEventListener('click', async () => { await api('/api/admin/jobs/' + b.dataset.retry + '/retry', { body: {} }); toast('Queued again'); route(); }));
   $$('[data-drop]', $('#mn')).forEach((b) => b.addEventListener('click', async () => { if (!confirm('Dismiss this failed job? It will not be tried again.')) return; await api('/api/admin/jobs/' + b.dataset.drop, { method: 'DELETE' }); route(); }));
+};
+
+views.jobs = async () => {
+  await views.jobs0();
+  const o = await api('/api/admin/ops'), mb = (n) => (n / 1048576).toFixed(n < 1048576 * 10 ? 2 : 1) + ' MB', st = o.backupStatus;
+  const ago = (t) => { const h = (Date.now() / 1000 - t) / 3600; return h < 1 ? Math.max(1, Math.round(h * 60)) + ' min ago' : h < 48 ? Math.round(h) + ' h ago' : Math.round(h / 24) + ' days ago'; };
+  const open = o.errors.filter((x) => !x.resolved_at);
+  $('#mn').insertAdjacentHTML('beforeend', `
+   <div class="panel"><h3>Errors (${open.length} open)</h3><p class="mu2">Unexpected problems on the server, grouped so the same mistake is one line. ${o.alerts.email || o.alerts.webhook ? 'New ones are sent to you as an alert.' : '<b>No alert address is set (ALERT_EMAIL or ALERT_WEBHOOK_URL), so nobody is told when this list grows.</b>'}</p>
+    ${o.errors.length ? `<div class="tw"><table class="t"><tr><th>What happened</th><th>Where</th><th>Times</th><th>Last</th><th></th></tr>${o.errors.map((x) => `<tr${x.resolved_at ? ' style="opacity:.5"' : ''}><td>${e(x.message)}</td><td class="mu2">${e(x.source)} ${e(x.route)}</td><td>${x.count}</td><td class="mu2">${ago(x.last_seen)}</td><td>${x.resolved_at ? 'fixed' : `<button class="btn" data-fixed="${x.id}">Mark fixed</button>`}</td></tr>`).join('')}</table></div>` : '<p class="mu2">No errors recorded. 🎉</p>'}</div>
+   <div class="panel"><h3>Database backups</h3>
+    <p class="mu2">${!o.backupsOn ? 'Backups are switched off (BACKUPS=0).' : st.lastOk ? `Last good backup: <b>${ago(st.lastOk)}</b> (${mb(st.bytes)}, ${st.rows} records). A backup runs automatically every night about 3 am and the newest ${o.keep} are kept.` : 'No backup has completed yet. The first one runs automatically at night, or press "Back up now".'}${o.storage === 'none' ? ' <b>Backup storage is not set up: add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.</b>' : ''}${o.storage === 'local' ? ' (Development: stored on this computer.)' : ''}</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0"><button class="btn" id="bknow">Back up now</button><a class="btn" href="/api/admin/backups/download" download>⬇ Download a fresh backup</a></div>
+    <p class="mu2">A downloaded backup contains customer names, phone numbers, addresses and password hashes. Keep it somewhere private and never email it.</p>
+    <div class="tw"><table class="t"><tr><th>When</th><th>Kind</th><th>Result</th><th>Size</th><th></th></tr>${o.backups.map((b) => `<tr><td class="mu2">${dt(b.started)}</td><td>${e(b.kind)}</td><td>${b.state === 'ok' ? '✅ ok' : b.state === 'failed' ? '❌ ' + e(b.error) : '⏳ running'}${b.kind === 'download' ? ' <span class="mu2">' + e(b.location) + '</span>' : ''}</td><td>${b.bytes ? mb(b.bytes) : ''}</td><td>${b.state === 'ok' && b.kind !== 'download' ? `<a href="/api/admin/backups/${b.id}/download" download>Download</a>` : ''}</td></tr>`).join('')}</table></div></div>`);
+  $$('[data-fixed]', $('#mn')).forEach((b) => b.addEventListener('click', async () => { await api('/api/admin/errors/' + b.dataset.fixed + '/resolve', { body: {} }); route(); }));
+  on('#bknow', 'click', async () => { const r = await api('/api/admin/backups', { body: {} }); toast(r.message); });
 };
 
 /* ---------------- settings ---------------- */
