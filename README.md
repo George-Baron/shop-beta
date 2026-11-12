@@ -142,3 +142,7 @@ Emails, Paystack webhooks and the timed chores (expire unpaid orders, abandoned-
 - **Backups**: nightly, to the private Supabase bucket `backups` (create it), newest 14 kept, optional encryption with `BACKUP_PASSPHRASE`. `npm run backup` makes one now.
 - **Restore**: `npm run restore -- <file>` into a new empty database. Full guide: [docs/RESTORE.md](docs/RESTORE.md).
 - Run `npm run test:ops`.
+
+## Load testing (step 9)
+
+`npm run test:load` (quick) or `LOAD_FULL=1 npm run test:load` (staged to 800 shoppers). `npm run loadtest` points the same tool at a staging site. Results, fixes and caveats: [docs/LOAD_TEST.md](docs/LOAD_TEST.md).

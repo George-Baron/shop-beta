@@ -133,6 +133,13 @@ const call = async (port, method, url, body, { cookie, headers = {}, raw } = {})
     assert.strictEqual((await call(A, 'POST', '/api/checkout', order('h1@example.com', '08077776667'), { headers: h })).s, 200, 'second order on same email is still the second');
     assert.strictEqual((await call(A, 'POST', '/api/checkout', order('h1@example.com', '08077776668'), { headers: h })).s, 429, 'same email, new phone: also blocked');
   });
+  await test('search still finds products by category name, and one visitor cannot hammer the search box', async () => {
+    const cfg = (await call(A, 'GET', '/api/config')).j; const cat = cfg.categories.find((c) => c.name.length > 3);
+    const r = (await call(A, 'GET', '/api/products?q=' + encodeURIComponent(cat.name.toLowerCase()), undefined, { headers: behindCf('10.8.0.1') })).j; assert.ok(r.total > 0, 'category name search finds products');
+    let blocked = 0; for (let i = 0; i < 100; i++) { const x = await call(A, 'GET', '/api/products?q=zz' + i, undefined, { headers: behindCf('10.8.0.2') }); if (x.s === 429) blocked++; } assert.ok(blocked >= 5, 'blocked ' + blocked);
+    assert.strictEqual((await call(A, 'GET', '/api/products?q=shirt', undefined, { headers: behindCf('10.8.0.3') })).s, 200, 'other visitors unaffected');
+    assert.strictEqual((await call(A, 'GET', '/api/products?store=fashion', undefined, { headers: behindCf('10.8.0.2') })).s, 200, 'browsing without a search is never limited');
+  });
   await test('staff passwords need 12 characters', async () => {
     assert.strictEqual((await call(A, 'POST', '/api/admin/riders', { name: 'R', email: 'r9@example.com', phone: '08033334444', password: 'Short-Pass1' }, { cookie: acookie })).s, 400);
     assert.strictEqual((await call(A, 'POST', '/api/admin/riders', { name: 'R', email: 'r9@example.com', phone: '08033334444', password: 'Long-Enough-Pass-9' }, { cookie: acookie })).s, 200);
