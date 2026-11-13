@@ -311,3 +311,8 @@ Summary: 2,000 browsing shoppers p95 42-94 ms; zero lost, duplicated or oversold
 The test found and fixed one real bug: two instances starting at the same moment both tried to create the administrator and one crashed (now treated as "already created").
 Open item: the page shell is 43 KB compressed per page view (CSS and JavaScript inline), roughly 20 GB an hour at 2,000 shoppers if not served by Cloudflare; moving them to cacheable files is proposed, not done.
 
+
+## 20. After step 10: deployment
+
+`docs/DEPLOY.md` is the go-live guide: every environment variable (checked by `npm run test:docs`), exact Supabase, Resend, Render, Paystack and Cloudflare steps, the Paystack test-to-live switch, DNS, cutover night, go-live checklist and rollback. `npm run preflight` (`scripts/preflight.js`, tested by `npm run test:preflight`) checks a production configuration for the classic mistakes. `TRUST_PROXY` is now a hop count (1 = Render, 2 = Cloudflare + Render, 0 = none). The Render build and start commands (`npm ci --omit=dev`, `npm start`) were run from a clean checkout and work. The default photo bucket name now matches the docs (`shop-images`).
+

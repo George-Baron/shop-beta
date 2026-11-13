@@ -68,6 +68,14 @@ const fwd = (n) => ({ 'X-Forwarded-For': `10.${Math.floor(n / 65000) % 250}.${Ma
     for (const p of [a, b]) assert.strictEqual((await new Client(p.base).post('/api/auth/login', { email: ADMIN_EMAIL, password: ADMIN_PW }, fwd(7777))).status, 200); await stop(a); await stop(b);
   });
 
+  await test('TRUST_PROXY says how many proxies to believe when reading the visitor\'s IP address (Render alone = 1, Cloudflare + Render = 2, none = 0)', async () => {
+    for (const [tp, expect] of [['', '8.8.8.8'], ['1', '8.8.8.8'], ['2', '7.7.7.7'], ['0', '127.0.0.1']]) {
+      const s = await up(spawnServer(await newDb(), { TRUST_PROXY: tp, LOG_REQUESTS: 'all', ADMIN_EMAIL, ADMIN_PASSWORD: ADMIN_PW }));
+      await new Client(s.base).get('/api/nope', { 'X-Forwarded-For': '7.7.7.7, 8.8.8.8' }); await sleep(300);
+      const line = (s.log + '').split('\n').filter((l) => l.includes('"/api/nope"')).map((l) => JSON.parse(l))[0]; assert.ok(line, 'request line logged'); assert.ok(String(line.ip).includes(expect), `TRUST_PROXY='${tp}' expected ${expect}, got ${line.ip}`); await stop(s);
+    }
+  });
+
   // Main instance: administrator from the environment, no setup code, low IP ceilings for the rate-limit tests.
   const mainDb = await newDb();
   const main = await up(spawnServer(mainDb, { ADMIN_EMAIL, ADMIN_PASSWORD: ADMIN_PW, RATE_IP_CHECKOUT: '15', RATE_IP_LOGIN: '12' }));

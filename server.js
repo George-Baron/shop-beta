@@ -31,7 +31,9 @@ const { esc, BASE_URL, getSettings, parseImages, naira } = S;
 const app = require('./lib/async-router').protect(express());
 app.disable('x-powered-by');
 app.disable('x-powered-by');
-app.set('trust proxy', process.env.TRUST_PROXY === '0' ? false : 1);
+// How many proxies sit in front of the app. Render alone: 1 (default). Cloudflare in front of Render: 2. 0 = none (local). Wrong value = every visitor
+// looks like one IP address (too many) or a visitor can fake theirs (too few). docs/DEPLOY.md says how to check it on staging.
+app.set('trust proxy', /^\d+$/.test(process.env.TRUST_PROXY || '') ? Number(process.env.TRUST_PROXY) || false : 1);
 // gzip for pages and API answers (Cloudflare may compress again with brotli; that is fine). Photos are not served from here.
 app.use(compression({ level: 4, threshold: 1024 }));
 
