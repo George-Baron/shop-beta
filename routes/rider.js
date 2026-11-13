@@ -22,6 +22,7 @@ async function view(o) {
     id: o.id, ref: o.ref, status: o.status, payment_method: o.payment_method, collect: o.payment_method === 'pod' ? o.total : 0, // cash to collect at the door
     customer: { name: o.name, phone: o.phone, address: o.address, city: o.city, state: o.state, landmark: o.landmark, lat: o.lat, lng: o.lng, nav: o.lat == null ? '' : nav(o.lat, o.lng), nav_osm: o.lat == null ? '' : osm(o.lat, o.lng) },
     pickups: pickups.map((p) => ({ partner_id: Number(p.partner_id), name: p.name, address: p.address, phone: p.phone, km: p.dist_km == null ? null : Number(p.dist_km), picked_up_at: p.picked_up_at, nav: nav(p.lat, p.lng), nav_osm: osm(p.lat, p.lng) })),
+    pharmacy: o.is_pharmacy ? { recipient_name_required: true, temp_sensitive: !!o.temp_sensitive } : null,
     items, notes: o.notes, locked: !!o.handover_locked, attempts: o.handover_attempts,
     stages: { placed: o.created, accepted: o.accepted_at, picked_up: o.picked_up_at, on_way: o.on_way_at, delivered: o.delivered_at }, promised_at: o.promised_at, late: !!(o.promised_at && Number(o.promised_at) < now() && o.status !== 'delivered'),
   };
@@ -84,7 +85,7 @@ router.post('/orders/:id/location', A.limiter('rider-loc', 30, 60000), ah(async 
 }));
 router.post('/orders/:id/complete', A.limiter('rider-code', 40, 600000), ah(async (req, res) => {
   const b = req.body || {};
-  const r = await D.completeWithCode(int(req.params.id), req.user.id, b.code, { lat: Number(b.lat), lng: Number(b.lng) });
+  const r = await D.completeWithCode(int(req.params.id), req.user.id, b.code, { lat: Number(b.lat), lng: Number(b.lng) }, String(b.recipientName || '').slice(0, 80));
   if (!r.ok) return res.status(r.status || 400).json({ error: r.message, locked: !!r.locked });
   res.json({ ok: true });
 }));

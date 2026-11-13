@@ -5,6 +5,7 @@ const { get, all, run, tx, now } = require('../lib/db');
 const storage = require('../lib/storage');
 const cache = require('../lib/cache');
 const S = require('../lib/shop');
+const PC = require('../lib/pharmacy-core');
 const A = require('../lib/auth');
 const jobs = require('../lib/jobs');
 const queue = require('../lib/queue');
@@ -139,6 +140,7 @@ async function readProduct(b) {
   if (!name) fail(400, 'Please enter a product name.');
   const store = str(b.store, 40);
   if (!(await get('SELECT 1 x FROM stores WHERE slug=?', store))) fail(400, 'Please choose a department.');
+  if (PC.storeHidden(store)) fail(400, 'The pharmacy department is switched off. Medicines cannot be listed until it is enabled.');
   let category_id = b.category_id ? int(b.category_id) : null;
   if (category_id && !(await get('SELECT 1 x FROM categories WHERE id=? AND store=?', category_id, store))) category_id = null;
   const price = int(b.price, -1);
@@ -176,6 +178,7 @@ router.post('/products', ah(async (req, res) => {
     const r = await run('INSERT INTO products (slug,store,category_id,name,brand,description,price,compare_price,stock,sku,emoji,images,size_label,featured,bestseller,new_arrival,active,created) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       await uniqueSlug(p.name), p.store, p.category_id, p.name, p.brand, p.description, p.price, p.compare, p.variants.length ? 0 : p.stock, p.sku, p.emoji, JSON.stringify(p.images), p.size_label, p.featured, p.bestseller, p.new_arrival, p.active, now());
     const pid = Number(r.lastInsertRowid);
+    if (p.store === PC.PHARMACY_STORE) await run("UPDATE products SET pharm_status='pending' WHERE id=?", pid);
     await saveVariants(pid, p.variants);
     return pid;
   });
@@ -183,9 +186,13 @@ router.post('/products', ah(async (req, res) => {
 }));
 router.put('/products/:id', ah(async (req, res) => {
   const id = int(req.params.id);
-  if (!(await get('SELECT 1 x FROM products WHERE id=?', id))) fail(404, 'Product not found.');
+  const cur = await get('SELECT is_pharmacy FROM products WHERE id=?', id);
+  if (!cur) fail(404, 'Product not found.');
+  if (cur.is_pharmacy && !PC.enabled() && req.body && req.body.active) fail(400, 'The pharmacy department is switched off. Medicines cannot be listed until it is enabled.');
   const p = await readProduct(req.body || {});
   await tx(async () => {
+    // any edit to a pharmacy product sends it back to our superintendent pharmacist for re-approval
+    if (cur.is_pharmacy || p.store === PC.PHARMACY_STORE) await run("UPDATE products SET pharm_status='pending', pharm_approved_by='', pharm_approved_at=NULL WHERE id=? AND pharm_status='approved'", id);
     await run('UPDATE products SET store=?,category_id=?,name=?,brand=?,description=?,price=?,compare_price=?,stock=?,sku=?,emoji=?,images=?,size_label=?,featured=?,bestseller=?,new_arrival=?,active=? WHERE id=?',
       p.store, p.category_id, p.name, p.brand, p.description, p.price, p.compare, p.variants.length ? 0 : p.stock, p.sku, p.emoji, JSON.stringify(p.images), p.size_label, p.featured, p.bestseller, p.new_arrival, p.active, id);
     await saveVariants(id, p.variants);
@@ -390,20 +397,21 @@ router.put('/products/:id/partner', ah(async (req, res) => {
   if (pid && !(await get('SELECT 1 x FROM partners WHERE id=?', pid))) fail(400, 'Pickup point not found.');
   const r = await run('UPDATE products SET partner_id=? WHERE id=?', pid, int(req.params.id));
   if (!r.changes) fail(404, 'Product not found.');
+  await run("UPDATE products SET pharm_status='pending', pharm_approved_by='', pharm_approved_at=NULL WHERE id=? AND is_pharmacy=1 AND pharm_status='approved'", int(req.params.id));
   res.json({ ok: true });
 }));
-router.get('/riders', ah(async (req, res) => res.json({ riders: await all("SELECT id, name, email, phone, coverage, active FROM users WHERE role='rider' ORDER BY id") })));
+router.get('/riders', ah(async (req, res) => res.json({ riders: await all("SELECT id, name, email, phone, coverage, active, gdp FROM users WHERE role='rider' ORDER BY id") })));
 router.post('/riders', ah(async (req, res) => {
   const b = req.body || {}, name = str(b.name, 80), email = str(b.email, 120).toLowerCase(), phone = str(b.phone, 30);
   if (!name || !isEmail(email) || phone.replace(/\D/g, '').length < 10) fail(400, 'A rider needs a name, a valid email and a phone number.');
   { const bad = PW.check(b.password, { email, name, min: PW.STAFF_MIN }); if (bad) fail(400, bad); }
   if (await get('SELECT 1 x FROM users WHERE email=?', email)) fail(409, 'That email already has an account.');
-  const r = await run("INSERT INTO users (name,email,phone,password,role,coverage,created) VALUES (?,?,?,?, 'rider', ?, ?)", name, email, phone, await A.hashPassword(b.password), str(b.coverage, 300), now());
+  const r = await run("INSERT INTO users (name,email,phone,password,role,coverage,gdp,created) VALUES (?,?,?,?, 'rider', ?, ?, ?)", name, email, phone, await A.hashPassword(b.password), str(b.coverage, 300), b.gdp ? 1 : 0, now());
   res.json({ ok: true, id: r.lastInsertRowid });
 }));
 router.put('/riders/:id', ah(async (req, res) => {
   const b = req.body || {}, id = int(req.params.id);
-  const r = await run("UPDATE users SET coverage=?, active=?, phone=COALESCE(NULLIF(?, ''), phone) WHERE id=? AND role='rider'", str(b.coverage, 300), b.active === false || b.active === 0 ? 0 : 1, str(b.phone, 30), id);
+  const r = await run("UPDATE users SET gdp=COALESCE(?::int, gdp), coverage=?, active=?, phone=COALESCE(NULLIF(?, ''), phone) WHERE id=? AND role='rider'", 'gdp' in b ? (b.gdp ? 1 : 0) : null, str(b.coverage, 300), b.active === false || b.active === 0 ? 0 : 1, str(b.phone, 30), id);
   if (!r.changes) fail(404, 'Rider not found.');
   if (b.active === false || b.active === 0) await A.dropUserSessions(id);
   res.json({ ok: true });
@@ -418,6 +426,7 @@ router.put('/orders/:id/rider', ah(async (req, res) => {
   if (riderId) {
     const rd = await get("SELECT name FROM users WHERE id=? AND role='rider' AND active=1", riderId);
     if (!rd) fail(400, 'Choose an active rider.');
+    if (o.is_pharmacy) await require('../lib/pharmacy').checkRider(o, riderId);
     await run('UPDATE orders SET rider_id=?, accepted_at=NULL WHERE id=?', riderId, o.id);
     await D.issueCode(o.id);
     await S.addEvent(o.id, o.status, `Assigned to rider ${rd.name}`);

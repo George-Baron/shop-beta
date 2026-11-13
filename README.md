@@ -149,3 +149,8 @@ Emails, Paystack webhooks and the timed chores (expire unpaid orders, abandoned-
 ## Load testing (step 9)
 
 `npm run test:load` (quick) or `LOAD_FULL=1 npm run test:load` (staged to 800 shoppers). `npm run loadtest` points the same tool at a staging site. Results, fixes and caveats: [docs/LOAD_TEST.md](docs/LOAD_TEST.md).
+
+## Pharmacy department (phase 2, off by default)
+
+Everything is behind `PHARMACY_ENABLED` and stays invisible until it is set: no medicine can be listed, seen, searched, added to a cart or ordered, and every `/api/pharmacy` route answers 404. The demo medicines in the seed data are hidden too. Setting up (pharmacies, pharmacists, homepage details, checklist) works while it is off, in **Admin > Pharmacy**.
+Full guide, the compliance checklist for your lawyer and PCN, and what is NOT built: [docs/PHARMACY.md](docs/PHARMACY.md). Run `npm run test:pharmacy`.
