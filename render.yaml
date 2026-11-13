@@ -1,0 +1,43 @@
+# Render "Blueprint": New > Blueprint > pick this repo, and Render creates the service below and asks you for every value marked "sync: false".
+# Details and the reason for each value: DEPLOY.md.
+services:
+  - type: web
+    name: shop-beta
+    runtime: node
+    region: frankfurt            # put this in the SAME region as your Supabase project (see DEPLOY.md)
+    plan: starter                # change to a bigger plan under load; plans and prices: https://render.com/pricing
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.0
+      - key: NODE_ENV
+        value: production
+      - key: SEED_DEMO
+        value: "0"
+      - key: BASE_URL
+        sync: false              # https://www.yourshop.com  (no trailing slash)
+      - key: DATABASE_URL
+        sync: false              # Supabase "Transaction pooler" string, port 6543
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false              # start with sk_test_..., switch to sk_live_... at launch
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false              # Shop-Beta <orders@yourdomain.com>
+      - key: GEOAPIFY_API_KEY
+        sync: false
+      - key: HANDOVER_SECRET
+        generateValue: true      # Render makes a long random value. Do not change it later: delivery codes already issued would stop matching
+      - key: BACKUP_PASSPHRASE
+        sync: false              # long random phrase; also keep a copy OUTSIDE Render
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false              # 12+ characters. You can delete this setting after the first start

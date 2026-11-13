@@ -5,7 +5,7 @@
 // either the whole backup goes in or nothing does. See docs/RESTORE.md.
 const fs = require('fs');
 const { Client } = require('pg');
-const { migrate, close } = require('../lib/db');
+const { migrate, close, connectionOptions } = require('../lib/db');
 const backup = require('../lib/backup');
 
 (async () => {
@@ -15,8 +15,7 @@ const backup = require('../lib/backup');
   const content = backup.decode(fs.readFileSync(file));
   console.log(`Backup from ${new Date(content.created * 1000).toISOString()} with ${Object.keys(content.tables).length} tables.`);
   await migrate();
-  const url = process.env.DATABASE_URL, local = /@(localhost|127\.0\.0\.1)(:|\/|$)/.test(url);
-  const client = new Client({ connectionString: url, ssl: (process.env.DATABASE_SSL || (local ? 'off' : 'on')).toLowerCase() === 'off' ? false : { rejectUnauthorized: false } });
+  const client = new Client(connectionOptions(process.env.DATABASE_URL));
   await client.connect();
   try {
     const r = await backup.restore(content, client, { force });
