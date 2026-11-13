@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const express = require('express');
 const { get, all, run, tx, now } = require('../lib/db');
 const S_ = require('../lib/shop');
+const PC = require('../lib/pharmacy-core');
 const cache = require('../lib/cache');
 const queue = require('../lib/queue');
 const D = require('../lib/delivery');
@@ -27,15 +28,17 @@ router.get('/config', ah(async (req, res) => {
 }));
 async function buildConfig() {
   const S = await getSettings();
-  const stores = await all('SELECT * FROM stores WHERE active=1 ORDER BY sort, slug');
+  const stores = await all(`SELECT * FROM stores s WHERE active=1 AND ${PC.storeVisibleSql('s')} ORDER BY sort, slug`);
   const slugs = new Set(stores.map((s) => s.slug));
   const settings = { ...S }; delete settings.demo_seeded; delete settings.pod_enabled; delete settings.paystack_enabled;
+  if (!PC.enabled()) for (const k of Object.keys(settings)) if (k.startsWith('pharm_')) delete settings[k];
   const categories = (await all('SELECT id, store, slug, name, icon FROM categories ORDER BY sort, id')).filter((c) => slugs.has(c.store));
   const zones = (await all('SELECT state, fee, eta, pod FROM zones ORDER BY sort, state')).map((z) => ({ ...z, pod: z.pod && S.pod_enabled === '1' ? 1 : 0 }));
   return {
     settings, stores,
     categories,
     zones,
+    pharmacy: PC.enabled(),
     payments: { paystack: S.paystack_enabled === '1' && (S_.paystackLive() || S_.demoAllowed()), pod: S.pod_enabled === '1', demo: !S_.paystackLive() && S_.demoAllowed() },
   };
 }
@@ -48,9 +51,9 @@ router.get('/home/:slug', ah(async (req, res) => {
   res.json(data);
 }));
 async function buildHome(slug) {
-  const store = await get('SELECT * FROM stores WHERE slug=? AND active=1', slug);
+  const store = await get(`SELECT * FROM stores s WHERE slug=? AND active=1 AND ${PC.storeVisibleSql('s')}`, slug);
   if (!store) fail(404, 'Department not found.');
-  const list = async (cond, order, limit) => (await all(`${PRODUCT_SELECT} WHERE p.active=1 AND p.store=? ${cond} ORDER BY ${order} LIMIT ${limit}`, store.slug)).map(card);
+  const list = async (cond, order, limit) => (await all(`${PRODUCT_SELECT} WHERE p.active=1 AND ${PC.visibleSql('p')} AND p.store=? ${cond} ORDER BY ${order} LIMIT ${limit}`, store.slug)).map(card);
   const categories = await all('SELECT id, slug, name, icon FROM categories WHERE store=? ORDER BY sort, id', store.slug);
   const featured = await list('AND p.featured=1', 'p.id DESC', 10);
   const bestsellers = await list('AND p.bestseller=1', 'p.sold DESC, p.id DESC', 10);
@@ -68,7 +71,7 @@ router.get('/products', (req, res, next) => (req.query.q ? searchLimit(req, res,
   res.json(data);
 }));
 async function listProducts(q) {
-  const where = ['p.active=1'], args = [], facetWhere = ['p.active=1'], facetArgs = [];
+  const vis = PC.visibleSql('p'), where = ['p.active=1', vis], args = [], facetWhere = ['p.active=1', vis], facetArgs = [];
   const store = str(q.store, 40), category = str(q.category, 60);
   if (store) { where.push('p.store=?'); args.push(store); facetWhere.push('p.store=?'); facetArgs.push(store); }
   if (category) { where.push('c.slug=?'); args.push(category); facetWhere.push('c.slug=?'); facetArgs.push(category); }
@@ -109,7 +112,7 @@ async function listProducts(q) {
 router.post('/products/by-ids', ah(async (req, res) => {
   const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map((x) => int(x)).filter((x) => x > 0).slice(0, 24);
   if (!ids.length) return res.json({ products: [] });
-  const rows = await all(`${PRODUCT_SELECT} WHERE p.active=1 AND p.id IN (${ids.map(() => '?').join(',')})`, ...ids);
+  const rows = await all(`${PRODUCT_SELECT} WHERE p.active=1 AND ${PC.visibleSql('p')} AND p.id IN (${ids.map(() => '?').join(',')})`, ...ids);
   const byId = new Map(rows.map((r) => [r.id, r]));
   res.json({ products: ids.map((i) => byId.get(i)).filter(Boolean).map(card) });
 }));
@@ -127,12 +130,12 @@ router.get('/products/:slug', ah(async (req, res) => {
   res.json({ ...base, product: { ...base.product, stock, variants } });
 }));
 async function buildProduct(slug) {
-  const p = await get(`${PRODUCT_SELECT} WHERE p.active=1 AND p.slug=?`, slug);
+  const p = await get(`${PRODUCT_SELECT} WHERE p.active=1 AND ${PC.visibleSql('p')} AND p.slug=?`, slug);
   if (!p) fail(404, 'We could not find that product.');
   const variants = await all('SELECT id, size, color, stock FROM variants WHERE product_id=? ORDER BY id', p.id);
   const reviews = await all('SELECT name, rating, title, body, created FROM reviews WHERE product_id=? AND approved=1 ORDER BY id DESC LIMIT 50', p.id);
   const dist = [5, 4, 3, 2, 1].map((s) => ({ stars: s, n: reviews.filter((r) => r.rating === s).length }));
-  const related = (await all(`${PRODUCT_SELECT} WHERE p.active=1 AND p.store=? AND p.id<>? ORDER BY (p.category_id IS NOT DISTINCT FROM ?::bigint) DESC, p.sold DESC LIMIT 5`, p.store, p.id, p.category_id)).map(card);
+  const related = (await all(`${PRODUCT_SELECT} WHERE p.active=1 AND ${PC.visibleSql('p')} AND p.store=? AND p.id<>? ORDER BY (p.category_id IS NOT DISTINCT FROM ?::bigint) DESC, p.sold DESC LIMIT 5`, p.store, p.id, p.category_id)).map(card);
   return {
     product: { ...card(p), store: p.store, category: p.category || '', category_slug: p.category_slug || '', description: p.description, sku: p.sku, size_label: p.size_label, images: parseImages(p.images), variants, reviews, dist },
     related,
@@ -141,7 +144,7 @@ async function buildProduct(slug) {
 
 router.post('/products/:id/reviews', A.limiter('review', 8, 3600000), ah(async (req, res) => {
   const pid = int(req.params.id), b = req.body || {};
-  const p = await get('SELECT id, slug FROM products WHERE id=? AND active=1', pid);
+  const p = await get(`SELECT id, slug FROM products p WHERE id=? AND active=1 AND ${PC.visibleSql('p')}`, pid);
   if (!p) fail(404, 'We could not find that product.');
   const rating = int(b.rating), body = str(b.body, 1000), title = str(b.title, 80);
   if (rating < 1 || rating > 5) fail(400, 'Please choose a star rating.');
@@ -182,6 +185,8 @@ router.post('/cart/abandon', A.limiter('abandon', 40, 3600000), ah(async (req, r
 router.post('/checkout', A.limiter('checkout', 20, 3600000), ah(async (req, res) => {
   const key = req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey) || '';
   const order = await S_.createOrder(req.body || {}, req.user, key);
+  // Prescription orders are paid only after the pharmacist approves: nothing is charged now.
+  if (order.rx_required && order.rx_status !== 'verified') return res.json({ ref: order.ref, token: order.access_token, next: 'rx', replayed: !!order.replayed });
   if (order.replayed) { // the same checkout sent again: answer exactly as before, send no second email, start no second payment
     if (order.status === 'cancelled') fail(409, 'That order was cancelled. Please place a new order.');
     if (order.payment_method === 'pod' || order.payment_status === 'paid') return res.json({ ref: order.ref, token: order.access_token, next: 'pod', replayed: true });
@@ -373,12 +378,12 @@ router.delete('/addresses/:id', A.requireUser, ah(async (req, res) => { await ru
 router.get('/wishlist', A.requireUser, ah(async (req, res) => res.json({ ids: (await all('SELECT product_id FROM wishlist WHERE user_id=?', req.user.id)).map((r) => r.product_id) })));
 router.post('/wishlist-merge', A.requireUser, ah(async (req, res) => {
   const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map((x) => int(x)).filter((x) => x > 0).slice(0, 200);
-  await tx(async () => { for (const id of ids) if (await get('SELECT 1 x FROM products WHERE id=?', id)) await run('INSERT INTO wishlist (user_id,product_id) VALUES (?,?) ON CONFLICT DO NOTHING', req.user.id, id); });
+  await tx(async () => { for (const id of ids) if (await get(`SELECT 1 x FROM products p WHERE id=? AND ${PC.visibleSql('p')}`, id)) await run('INSERT INTO wishlist (user_id,product_id) VALUES (?,?) ON CONFLICT DO NOTHING', req.user.id, id); });
   res.json({ ok: true });
 }));
 router.post('/wishlist/:id', A.requireUser, ah(async (req, res) => {
   const id = int(req.params.id);
-  if (await get('SELECT 1 x FROM products WHERE id=?', id)) await run('INSERT INTO wishlist (user_id,product_id) VALUES (?,?) ON CONFLICT DO NOTHING', req.user.id, id);
+  if (await get(`SELECT 1 x FROM products p WHERE id=? AND ${PC.visibleSql('p')}`, id)) await run('INSERT INTO wishlist (user_id,product_id) VALUES (?,?) ON CONFLICT DO NOTHING', req.user.id, id);
   res.json({ ok: true });
 }));
 router.delete('/wishlist/:id', A.requireUser, ah(async (req, res) => { await run('DELETE FROM wishlist WHERE user_id=? AND product_id=?', req.user.id, int(req.params.id)); res.json({ ok: true }); }));

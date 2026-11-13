@@ -606,6 +606,7 @@ async function view(main, seg, u, cfg) {
   if (name === 'wishlist') return wishlist(main);
   if (name === 'track') return track(main);
   if (name === 'rider') return riderPage(main);
+  if (name === 'pharmacist') return pharmacistPage(main);
   return '';
 }
 
@@ -629,6 +630,7 @@ async function checkout(main, cfg) {
        <div id="mquote" class="note" style="margin-top:10px">Tap the map or use your location to place the pin.</div>
        <label class="f">Landmark (optional)<input id="mland" maxlength="150" placeholder="Opposite the blue gate, 2nd floor…"></label></div>
      <div class="card"><h3>3. Delivery option</h3><div id="dopts" class="mu">Choose your state to see delivery options.</div></div>
+     <div id="rxcard"></div>
      <div class="card"><h3>4. Payment</h3><div id="popts"></div></div></div>
     <aside class="card" style="position:sticky;top:130px"><h3>Order summary</h3><div id="osum" class="loading-page" style="min-height:120px"></div>
      <div style="display:flex;gap:8px;margin:12px 0"><input id="ocode" placeholder="Promo code" value="${e(cart.coupon)}"><button type="button" class="btn ghost sm" id="oapply">Apply</button></div>
@@ -704,7 +706,7 @@ async function checkout(main, cfg) {
       $$('input[name=pm]').forEach((i) => { if (i.value === 'pod') { const ok = zone && zone.pod && st.delivery !== 'pickup'; i.disabled = !ok; if (!ok && i.checked) { const o = $$('input[name=pm]').find((x) => x.value !== 'pod' && !x.disabled); if (o) { o.checked = true; st.payment = o.value; } } } });
       $('#addrfields').classList.toggle('hide', st.delivery === 'pickup');
       $('#place').disabled = !st.state || !methods.length;
-      mapSync();
+      mapSync(); rxSync(st, r.lines);
     } catch (er) { err(er.message); }
   }
   $('#cof').addEventListener('change', (ev) => {
@@ -724,12 +726,13 @@ async function checkout(main, cfg) {
     if (st.delivery !== 'pickup' && !g('ca')) return err('Please enter your street address.');
     if (needPin() && !mp.pin) return err('Please drop a pin on the map so we know where to deliver.');
     if (needPin() && !(mp.quote && mp.quote.ok)) return err(mp.quote ? mp.quote.message : 'Please wait while we check delivery to your pin.');
+    if (st.pharm && !st.rxReady) return err('Please finish the medicine checks above: verified phone, ID details and, for prescription-only items, a prescription.');
     const btn = $('#place'); btn.disabled = true; btn.textContent = 'Placing order…';
     // One key per attempt: if the connection drops and the shopper tries again, the server hands back the same order instead of making a second.
     if (!st.idem) st.idem = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2))).replace(/[^A-Za-z0-9_-]/g, '');
     ls.set('sb_checkout', { name: g('cn'), email: g('ce'), phone: g('cp'), state: st.state, city: g('cc'), address: g('ca') });
     try {
-      const r = await api('/api/checkout', { body: { items: cart.items, coupon: cart.coupon, contact: { name: g('cn'), email: g('ce'), phone: g('cp') }, address: { state: st.state, city: g('cc'), address: g('ca') }, delivery: st.delivery, payment: st.payment, notes: g('cnotes'), idempotencyKey: st.idem, location: needPin() && mp.pin ? { ...mp.pin, landmark: g('mland') } : undefined } });
+      const r = await api('/api/checkout', { body: { items: cart.items, coupon: cart.coupon, contact: { name: g('cn'), email: g('ce'), phone: g('cp') }, address: { state: st.state, city: g('cc'), address: g('ca') }, prescriptionIds: st.rx || [], delivery: st.delivery, payment: st.payment, notes: g('cnotes'), idempotencyKey: st.idem, location: needPin() && mp.pin ? { ...mp.pin, landmark: g('mland') } : undefined } });
       try { sessionStorage.setItem('sb_last', JSON.stringify({ ref: r.ref, email: g('ce'), token: r.token || '' })); } catch { /* private mode */ }
       try { if (window.gtag) window.gtag('event', 'begin_checkout', { value: st.data.total, currency: 'NGN' }); if (window.fbq) window.fbq('track', 'InitiateCheckout'); } catch { /* blocked */ }
       if (r.next === 'paystack') { location.href = r.url; return; }
@@ -759,7 +762,7 @@ async function orderPage(main, ref, u, cfg) {
   const backFromPay = u.searchParams.get('paid') || u.searchParams.get('reference') || u.searchParams.get('trxref');
   if (order.payment_status === 'paid' && backFromPay) { cart.clear(); cart.setCoupon(''); }
   const flow = flowFor(order), stepIdx = order.status === 'cancelled' ? -1 : flow.indexOf(order.status);
-  const awaiting = order.payment_method === 'paystack' && order.payment_status !== 'paid' && order.status === 'pending';
+  const awaiting = order.payment_method === 'paystack' && order.payment_status !== 'paid' && order.status === 'pending' && !order.pharmacy;
   main.innerHTML = `<div class="wrap page" style="max-width:860px">
    <div class="card" style="text-align:center;margin-bottom:16px"><div style="font-size:46px">${order.status === 'cancelled' ? '✖️' : awaiting ? '⏳' : '✅'}</div><h1 style="margin:6px 0">${order.status === 'cancelled' ? 'Order cancelled' : awaiting ? 'Waiting for payment' : u.searchParams.get('new') || backFromPay ? 'Thank you for your order!' : 'Order ' + e(order.ref)}</h1>
     <p class="mu">Order <b>${e(order.ref)}</b> · ${fmt(order.created)}${order.payment_method === 'pod' && order.status === 'pending' ? '<br>We will call you on ' + e(order.phone) + ' to confirm this order. Please keep your phone on and have ' + naira(order.total) + ' ready on delivery.' : ''}</p>
@@ -772,7 +775,9 @@ async function orderPage(main, ref, u, cfg) {
     <div style="display:grid;gap:16px"><div class="card"><h3>Delivery</h3><p style="margin:0">${e(order.name)}<br>${e(order.address)}${order.city ? ', ' + e(order.city) : ''}, ${e(order.state)}<br>${e(order.phone)}</p><p class="mu" style="margin-bottom:0">${e({ standard: 'Standard delivery', express: 'Express delivery', pickup: 'Store pickup' }[order.delivery] || '')} · ${order.payment_method === 'pod' ? 'Pay on delivery' : order.payment_status === 'paid' ? 'Paid online' : 'Online payment pending'}</p></div>
      <div class="card"><h3>Updates</h3>${order.events.slice().reverse().map((ev) => `<div style="font-size:13px;margin-bottom:8px"><b>${e(STATUS[ev.status] || ev.status)}</b> <span class="mu">· ${fmt(ev.created)}</span>${ev.note ? `<br><span class="mu">${e(ev.note)}</span>` : ''}</div>`).join('')}</div></div></div>
    <p style="text-align:center;margin-top:20px"><button class="btn ghost sm" id="print">🖨 Print receipt</button> ${order.status === 'pending' && order.payment_status !== 'paid' ? '<button class="btn ghost sm" id="cancelo">Cancel order</button>' : ''} <a class="btn sm" href="/" data-link>Continue shopping</a></p></div>`;
+  if (order.pharmacy) { main.querySelector('.wrap .card').insertAdjacentHTML('afterend', pharmOrderCard(order)); }
   const rerender = () => go('/order/' + ref + (email ? '?email=' + encodeURIComponent(email) + (token ? '&t=' + encodeURIComponent(token) : '') : (token ? '?t=' + encodeURIComponent(token) : '')), true);
+  if (order.pharmacy) pharmOrderWire(order, ref, rerender);
   // While the rider is on the way: show the map and refresh the position every 15 seconds.
   const tmEl = $('#trackmap');
   if (tmEl && order.delivery_info) {
@@ -828,7 +833,7 @@ async function riderPage(main) {
      <div style="margin-top:12px;display:grid;gap:8px">
       ${!accepted ? '<button class="btn block" data-act="accept">Accept delivery</button>' : ''}
       ${accepted && !road && !left.length ? '<button class="btn block" data-act="start">I am on the way</button>' : ''}
-      ${road ? `<div class="note"><b>At the door:</b> ask the customer for their 6-digit code.</div>${o.locked ? '<p class="err">Locked after too many wrong codes. Call the shop.</p>' : `<input class="codein" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="off" style="font-size:24px;text-align:center;letter-spacing:6px"><button class="btn block" data-act="complete">Complete delivery</button>`}` : ''}
+      ${road ? `<div class="note"><b>At the door:</b> ask the customer for their 6-digit code.${o.pharmacy ? ' This is a <b>medicines</b> order: also ask for their full name and enter it. Hand over only to the buyer.' : ''}</div>${o.pharmacy ? '<input class="namein" maxlength="80" placeholder="Buyer\'s full name (as they say it)" style="margin-top:8px">' : ''}${o.locked ? '<p class="err">Locked after too many wrong codes. Call the shop.</p>' : `<input class="codein" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="off" style="font-size:24px;text-align:center;letter-spacing:6px"><button class="btn block" data-act="complete">Complete delivery</button>`}` : ''}
      </div>
      <div class="mu" style="font-size:12px;margin-top:8px">Accepted ${tm(o.stages.accepted) || '—'} · Picked up ${tm(o.stages.picked_up) || '—'} · On the way ${tm(o.stages.on_way) || '—'}</div></div>`;
   };
@@ -841,7 +846,7 @@ async function riderPage(main) {
       const id = box.dataset.o, act = async (a, body) => { try { await call(id, a, body); await refresh(); } catch (er) { toast(er.message, 'bad'); if (er.status === 423) refresh(); } };
       $$('[data-pick]', box).forEach((b) => b.addEventListener('click', () => act('pickup', { partnerId: Number(b.dataset.pick) })));
       $$('[data-act]', box).forEach((b) => b.addEventListener('click', async () => {
-        if (b.dataset.act === 'complete') { const code = $('.codein', box).value.trim(); if (!/^\d{6}$/.test(code)) return toast('Enter the 6-digit code from the customer.', 'bad'); const p = await here(); return act('complete', { code, ...(p || {}) }); }
+        if (b.dataset.act === 'complete') { const code = $('.codein', box).value.trim(); if (!/^\d{6}$/.test(code)) return toast('Enter the 6-digit code from the customer.', 'bad'); const p = await here(); const nm = $('.namein', box); if (nm && nm.value.trim().length < 3) return toast('Ask for the buyer\'s full name and enter it.', 'bad'); return act('complete', { code, ...(nm ? { recipientName: nm.value.trim() } : {}), ...(p || {}) }); }
         act(b.dataset.act);
       }));
     });
@@ -854,7 +859,7 @@ async function riderPage(main) {
     const p = await here(); if (p) for (const o of road) call(o.id, 'location', p).catch(() => {});
   };
   const timer = setInterval(tick, 15000);
-  const poll = setInterval(() => { if (!main.isConnected) return clearInterval(poll); if (!document.querySelector('.codein:focus')) refresh().catch(() => {}); }, 45000);
+  const poll = setInterval(() => { if (!main.isConnected) return clearInterval(poll); if (!document.querySelector('.codein:focus, .namein:focus')) refresh().catch(() => {}); }, 45000);
   return 'Rider';
 }
 
@@ -929,6 +934,172 @@ async function wishlist(main) {
   return 'Wishlist';
 }
 
+/* ===== pharmacy.js (storefront; every call here answers 404 while the department is off, and none of it is shown then) ===== */
+const readFile = (f) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(new Error('Could not read that file.')); r.readAsDataURL(f); });
+const rxIsoToday = () => new Date().toISOString().slice(0, 10);
+
+// Checkout: phone check, ID and prescription for medicine orders. Fills #rxcard and keeps st.rx / st.rxReady up to date.
+async function rxSync(st, lines) {
+  const box = $('#rxcard'); if (!box) return;
+  st.pharm = !!(cfgPharm() && lines.some((l) => l.pharm)); st.rxNeeded = lines.some((l) => l.rx);
+  if (!st.pharm) { box.innerHTML = ''; st.rxReady = true; return; }
+  st.rxReady = false;
+  if (!store.user) { box.innerHTML = '<div class="card"><h3>Medicines</h3><p class="mu">Please <a href="/login?next=/checkout" data-link style="color:var(--accent);font-weight:700">sign in</a> to order medicines. We verify your phone number and ID first.</p></div>'; return; }
+  let me; try { me = await api('/api/pharmacy/me'); } catch (er) { box.innerHTML = `<div class="card"><p class="err">${e(er.message)}</p></div>`; return; }
+  const id = me.identity, now = Date.now() / 1000;
+  const usable = me.prescriptions.filter((r) => ['submitted', 'approved', 'partly_approved'].includes(r.status) && r.valid_until > now && r.fills_used + r.fills_reserved < r.max_fills);
+  st.rx = (st.rx || []).filter((x) => usable.some((r) => r.id === x));
+  const rxLines = lines.filter((l) => l.rx);
+  box.innerHTML = `<div class="card"><h3>Medicines: a few checks first</h3>
+   <p class="mu" style="margin-top:0">Medicines are sold by a licensed pharmacy. We confirm who is buying and, for prescription-only items, a pharmacist checks your prescription before anything is sent. You pay only after it is approved.</p>
+   <h4 style="margin:12px 0 4px">${id.phoneVerified ? '✅' : '1.'} Phone number${id.phoneVerified ? ' verified: ' + e(id.phone) : ''}</h4>
+   ${id.phoneVerified ? '' : `<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="rxph" type="tel" placeholder="0803 123 4567" style="flex:1;min-width:160px"><button type="button" class="btn ghost sm" id="rxsend">Send code</button></div>
+     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><input id="rxcode" inputmode="numeric" maxlength="6" placeholder="6-digit code" style="flex:1;min-width:160px"><button type="button" class="btn sm" id="rxconf">Confirm</button></div>`}
+   <h4 style="margin:12px 0 4px">${id.idSubmitted ? '✅' : '2.'} ID details${id.idSubmitted ? ': ' + e(id.idType.toUpperCase()) + ' ending ' + e(id.idLast4) : ''}</h4>
+   ${id.idSubmitted ? '' : id.phoneVerified ? `<div class="row c2"><label class="f">Full name on your ID<input id="rxname" value="${e(store.user.name)}" maxlength="80"></label><label class="f">ID type<select id="rxidt"><option value="nin">NIN</option><option value="voters">Voter's card</option><option value="drivers">Driver's licence</option><option value="passport">International passport</option></select></label></div><label class="f">ID number<input id="rxidn" maxlength="24" autocomplete="off"></label><button type="button" class="btn sm" id="rxidsave">Save ID details</button><p class="mu" style="font-size:12px">Stored encrypted. Only the last 4 characters are shown to staff.</p>` : '<p class="mu">Verify your phone first.</p>'}
+   ${st.rxNeeded ? `<h4 style="margin:12px 0 4px">${st.rx.length ? '✅' : '3.'} Prescription</h4>
+    ${usable.length ? usable.map((r) => `<label class="chk" style="padding:8px;border:1px solid var(--border);border-radius:10px;margin-bottom:6px"><input type="checkbox" data-rxsel="${r.id}" ${st.rx.includes(r.id) ? 'checked' : ''}> <span><b>${e(r.ref)}</b> · ${e(r.prescriber.name)} · written ${new Date(r.issued_on * 1000).toLocaleDateString('en-NG')}<br><span class="mu" style="font-size:12px">${r.lines.map((l) => e(l.qty_written + ' × ' + l.drug_text)).join(', ')}</span></span></label>`).join('') : '<p class="mu">No prescription on file yet. Add one below.</p>'}
+    <details ${usable.length ? '' : 'open'} style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">Upload a new prescription</summary>
+     <p class="mu" style="font-size:12px">It must show the prescriber's name, signature, registration number, a Nigerian address or contact, the patient's details, the date, and the medicines with quantities. Prescriptions older than 6 months cannot be used.</p>
+     <label class="f">Photo or PDF (max 4 MB)<input id="rxfile" type="file" accept="image/jpeg,image/png,application/pdf"></label>
+     <div class="row c2"><label class="f">Prescriber name<input id="rxpn" maxlength="100"></label><label class="f">Prescriber reg. number<input id="rxpr" maxlength="40"></label></div>
+     <div class="row c2"><label class="f">Prescriber phone or email<input id="rxpc" maxlength="120"></label><label class="f">Prescriber address (Nigeria)<input id="rxpa" maxlength="200"></label></div>
+     <div class="row c2"><label class="f">Patient full name<input id="rxpt" maxlength="100"></label><label class="f">Date on prescription<input id="rxdt" type="date" max="${rxIsoToday()}"></label></div>
+     <div class="row c2"><label class="f">Times it may be supplied<input id="rxmf" type="number" min="1" max="12" value="1"></label><label class="f">Days between refills (if more than once)<input id="rxri" type="number" min="0" max="365" value="0"></label></div>
+     <p class="mu" style="margin:6px 0">Write each medicine and the <b>quantity written on the prescription</b>:</p>
+     ${rxLines.map((l, i) => `<div class="row c2" data-rxl="${l.productId}"><label class="f">Medicine<input data-d value="${e(l.name)}" maxlength="160"></label><label class="f">Quantity written<input data-q type="number" min="1" max="999" value="${l.qty}"></label></div>`).join('')}
+     <button type="button" class="btn sm" id="rxup">Upload prescription</button></details>` : ''}
+  </div>`;
+  const redo = () => rxSync(st, st.lines || lines);
+  st.lines = lines;
+  const run = (fn) => async () => { try { await fn(); } catch (er) { toast(er.message, 'bad'); } };
+  const b = (s, fn) => { const x = $(s, box); if (x) x.addEventListener('click', run(fn)); };
+  b('#rxsend', async () => { const r = await api('/api/pharmacy/phone/start', { body: { phone: $('#rxph').value } }); toast(r.live ? 'Code sent by SMS' : 'Code created. SMS is not connected yet on this store.'); });
+  b('#rxconf', async () => { await api('/api/pharmacy/phone/confirm', { body: { code: $('#rxcode').value } }); await redo(); });
+  b('#rxidsave', async () => { await api('/api/pharmacy/identity', { body: { fullName: $('#rxname').value, idType: $('#rxidt').value, idNumber: $('#rxidn').value } }); await redo(); });
+  $$('[data-rxsel]', box).forEach((c) => c.addEventListener('change', () => { const v = Number(c.dataset.rxsel); st.rx = c.checked ? [...new Set([...(st.rx || []), v])] : st.rx.filter((x) => x !== v); st.rxReady = false; redo(); }));
+  b('#rxup', async () => {
+    const f = $('#rxfile').files[0]; if (!f) throw new Error('Choose the photo or PDF of the prescription.');
+    const lns = $$('[data-rxl]', box).map((r) => ({ productId: Number(r.dataset.rxl), drug: $('[data-d]', r).value, qty: Number($('[data-q]', r).value) }));
+    const body = { file: await readFile(f), prescriber: { name: $('#rxpn').value, regNo: $('#rxpr').value, phone: /@/.test($('#rxpc').value) ? '' : $('#rxpc').value, email: /@/.test($('#rxpc').value) ? $('#rxpc').value : '', address: $('#rxpa').value }, patient: { name: $('#rxpt').value }, issuedOn: $('#rxdt').value, maxFills: Number($('#rxmf').value), refillIntervalDays: Number($('#rxri').value), lines: lns };
+    const r = await api('/api/pharmacy/prescriptions', { body }); st.rx = [...(st.rx || []), r.id]; toast('Prescription uploaded'); await redo();
+  });
+  st.rxReady = id.phoneVerified && id.idSubmitted && (!st.rxNeeded || st.rx.length > 0);
+}
+const cfgPharm = () => !!(store.cfg && store.cfg.pharmacy);
+
+// Order page: status of the pharmacist's check, paying after approval, answering questions, reporting a problem.
+function pharmOrderCard(o) {
+  const p = o.pharmacy; if (!p) return '';
+  let msg = '';
+  if (o.status === 'cancelled') msg = 'This order was cancelled. Any reason from the pharmacist is in the updates below.';
+  else if (p.rx_required && p.rx_status === 'submitted') msg = '🩺 <b>Waiting for the pharmacist</b> to check your prescription. Nothing is charged or sent until it is approved. We will email you.';
+  else if (p.rx_required && p.rx_status === 'needs_info') msg = '❓ <b>The pharmacist needs more information</b> (see the updates below). Add a clearer or additional prescription:';
+  else if (p.held) msg = '🔎 This order is being reviewed by our pharmacy team. We will contact you.';
+  else if (p.needs_payment) msg = '✅ <b>Approved.</b> Please pay to confirm your order.';
+  else if (p.rx_required) msg = '✅ Your prescription was approved by the pharmacist.';
+  return `<div class="card" style="margin-bottom:16px" id="pharmcard"><h3 style="margin-top:0">💊 Pharmacy order</h3><p style="margin:0 0 8px">${msg}</p>
+   ${p.temp_sensitive ? '<p class="mu" style="font-size:13px">This order contains temperature-sensitive medicines and goes with a cold-chain rider.</p>' : ''}
+   ${p.needs_payment ? '<button class="btn" id="pharmpay">Pay now</button>' : ''}
+   ${p.rx_status === 'needs_info' && o.status !== 'cancelled' ? '<button class="btn ghost" id="pharmmore">Choose or upload another prescription</button>' : ''}
+   ${o.status === 'delivered' ? '<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">Report a problem with these medicines</summary><label class="f">What is wrong?<select id="retr"><option value="tampered">Packaging tampered with</option><option value="expired">Expired</option><option value="damaged">Damaged</option><option value="wrong_item">Not what I ordered</option></select></label><label class="f">Details<input id="retn" maxlength="500"></label><button class="btn sm" id="retgo">Send</button></details>' : ''}</div>`;
+}
+function pharmOrderWire(order, ref, rerender) {
+  const run = (fn) => async () => { try { await fn(); } catch (er) { toast(er.message, 'bad'); } };
+  const pay = $('#pharmpay'); if (pay) pay.addEventListener('click', run(async () => {
+    const r = await api('/api/pharmacy/orders/' + ref + '/pay', { body: {} });
+    if (r.next === 'paystack') { location.href = r.url; return; }
+    await api('/api/pay/demo/' + ref, { body: { outcome: 'ok' } }); toast('Payment received (demo)'); rerender();
+  }));
+  const more = $('#pharmmore'); if (more) more.addEventListener('click', run(async () => {
+    const me = await api('/api/pharmacy/me'); const opts = me.prescriptions.filter((r) => ['submitted', 'approved', 'partly_approved'].includes(r.status));
+    const pick = prompt('Type the reference of the prescription to send (for example ' + (opts[0] ? opts[0].ref : 'RX-…') + '). To upload a new one, cancel this and use a new order.', opts[0] ? opts[0].ref : '');
+    const rx = opts.find((r) => r.ref === (pick || '').trim().toUpperCase()); if (!rx) return;
+    await api('/api/pharmacy/orders/' + ref + '/prescription', { body: { prescriptionId: rx.id } }); toast('Sent to the pharmacist'); rerender();
+  }));
+  const rg = $('#retgo'); if (rg) rg.addEventListener('click', run(async () => { await api('/api/pharmacy/returns', { body: { ref, reason: $('#retr').value, note: $('#retn').value } }); toast('Reported. The pharmacy will contact you.'); }));
+}
+
+// Pharmacist page (/pharmacist): partner pharmacists check prescriptions; our superintendent also approves listings and reviews flags.
+async function pharmacistPage(main) {
+  const draw = (inner) => { main.innerHTML = `<div class="wrap page" style="max-width:900px"><h1 style="font-size:26px">💊 Pharmacist</h1>${inner}</div>`; };
+  if (!store.user || store.user.role !== 'pharmacist') {
+    draw('<div class="card"><p class="mu">Sign in with the pharmacist account the store gave you.</p><form id="pl">' + field('pe', 'Email', { type: 'email', req: 1 }) + field('pp', 'Password', { type: 'password', req: 1 }) + '<p class="err hide" id="perr"></p><button class="btn">Sign in</button></form></div>');
+    $('#pl').addEventListener('submit', async (ev) => { ev.preventDefault(); try { const r = await api('/api/auth/login', { body: { email: $('#pe').value.trim(), password: $('#pp').value } }); if (r.user.role !== 'pharmacist') { await api('/api/auth/logout', { body: {} }); throw new Error('This account is not a pharmacist account.'); } location.reload(); } catch (er) { const x = $('#perr'); x.textContent = er.message; x.classList.remove('hide'); } });
+    return 'Pharmacist';
+  }
+  const S = (p, o) => api('/api/pharmacy/staff' + p, o);
+  let tab = 'queue';
+  const run = (fn) => async (ev) => { try { await fn(ev); } catch (er) { toast(er.message, 'bad'); } };
+  const shell = (inner) => draw(`<p class="mu">${e(store.user.name)} · PCN ${e(store.user.reg_no || '—')} · <button class="btn ghost sm" id="plo">Sign out</button></p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${[['queue', 'Prescriptions'], ['products', 'Medicine listings'], ['flags', 'Flags'], ['returns', 'Returns']].map(([k, t]) => `<button class="btn ${tab === k ? '' : 'ghost'} sm" data-tab="${k}">${t}</button>`).join('')}</div>${inner}`);
+  const wireShell = () => { $('#plo').addEventListener('click', async () => { await api('/api/auth/logout', { body: {} }); location.reload(); }); $$('[data-tab]', main).forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; show(); })); };
+  const show = run(async () => {
+    if (tab === 'queue') {
+      const q = await S('/queue');
+      shell(q.orders.length ? q.orders.map((o) => `<div class="card" style="margin-bottom:10px;display:flex;justify-content:space-between;gap:8px;align-items:center"><div><b>${e(o.ref)}</b> ${o.rx_status === 'needs_info' ? '<span class="mu">(waiting for customer)</span>' : ''} ${o.pharm_hold ? '⚠️ flagged' : ''}<br><span class="mu" style="font-size:13px">${e(o.pharmacy_name || '')} · ${o.items} item(s) · ${naira(o.total)} · ${fmt(o.created)}</span></div><button class="btn sm" data-open="${o.id}">Review</button></div>`).join('') : '<div class="card"><p class="mu">Nothing is waiting for you.</p></div>');
+      wireShell(); $$('[data-open]', main).forEach((b) => b.addEventListener('click', run(() => review(b.dataset.open)))); return;
+    }
+    if (tab === 'products') {
+      const r = await S('/products').catch((er) => ({ err: er.message }));
+      shell(r.err ? `<div class="card"><p class="mu">${e(r.err)}</p></div>` : r.products.map((p) => `<div class="card" style="margin-bottom:10px"><b>${e(p.name)}</b> · ${naira(p.price)} · <span class="mu">${e(p.pharm_status)}</span><br><span class="mu" style="font-size:13px">${e(p.partner || 'no pharmacy')} · NAFDAC ${e(p.nafdac_no || '—')} · batch ${e(p.batch_no || '—')} · expires ${e(p.expiry_date || '—')} · ${e(p.storage_temp || 'no storage temp')}${p.rx_required ? ' · prescription-only' : ''}${p.temp_sensitive ? ' · cold chain' : ''}</span>
+        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" data-pa="${p.id}">Approve listing</button><button class="btn ghost sm" data-pr="${p.id}">Reject</button><button class="btn ghost sm" data-pd="${p.id}">Edit details</button></div></div>`).join('') || '<div class="card"><p class="mu">No medicines yet.</p></div>');
+      wireShell();
+      $$('[data-pa]', main).forEach((b) => b.addEventListener('click', run(async () => { await S(`/products/${b.dataset.pa}/decision`, { body: { decision: 'approve' } }); toast('Approved'); show(); })));
+      $$('[data-pr]', main).forEach((b) => b.addEventListener('click', run(async () => { const note = prompt('Reason for rejecting this listing:'); if (!note) return; await S(`/products/${b.dataset.pr}/decision`, { body: { decision: 'reject', note } }); show(); })));
+      $$('[data-pd]', main).forEach((b) => b.addEventListener('click', run(async () => {
+        const p = r.products.find((x) => x.id == b.dataset.pd);
+        const v = (k, q, d) => prompt(q, d == null ? '' : d);
+        const nafdac = v('n', 'NAFDAC number (leave empty for devices)', p.nafdac_no); if (nafdac === null) return;
+        const batch = v('b', 'Batch number', p.batch_no); if (batch === null) return;
+        const exp = v('x', 'Expiry date (YYYY-MM-DD)', p.expiry_date); if (exp === null) return;
+        const temp = v('t', 'Storage temperature (e.g. Below 25°C, 2–8°C)', p.storage_temp); if (temp === null) return;
+        const rxr = confirm('Is this a PRESCRIPTION-ONLY medicine? (OK = yes)'), cold = confirm('Is it temperature-sensitive and needs a cold-chain rider? (OK = yes)');
+        const mq = v('m', 'Largest quantity per order before it is flagged (0 = store default)', p.max_qty);
+        await S(`/products/${p.id}/details`, { method: 'PUT', body: { is_medicine: true, rx_required: rxr, nafdac_no: nafdac, batch_no: batch, expiry_date: exp, storage_temp: temp, temp_sensitive: cold, max_qty: Number(mq) || 0 } });
+        toast('Saved. The superintendent pharmacist must approve it again.'); show();
+      })));
+      return;
+    }
+    if (tab === 'flags') {
+      const r = await S('/flags').catch((er) => ({ err: er.message }));
+      shell(r.err ? `<div class="card"><p class="mu">${e(r.err)}</p></div>` : r.flags.map((f) => `<div class="card" style="margin-bottom:10px"><b>${e(f.ref)}</b> · ${e(f.kind.replace(/_/g, ' '))}<br><span class="mu" style="font-size:13px">${e(f.detail)}</span><div style="margin-top:8px;display:flex;gap:6px"><button class="btn sm" data-fc="${f.id}">Clear (looks fine)</button><button class="btn ghost sm" data-fx="${f.id}">Confirm and cancel the order</button></div></div>`).join('') || '<div class="card"><p class="mu">No open flags.</p></div>');
+      wireShell();
+      const fl = (sel, status) => $$(sel, main).forEach((b) => b.addEventListener('click', run(async () => { const note = prompt('Write a short note for the record:'); if (!note) return; await S('/flags/' + (b.dataset.fc || b.dataset.fx), { body: { status, note } }); show(); })));
+      fl('[data-fc]', 'cleared'); fl('[data-fx]', 'confirmed'); return;
+    }
+    const r = await S('/returns');
+    shell(r.returns.map((x) => `<div class="card" style="margin-bottom:10px"><b>${e(x.ref)}</b> · ${e(x.reason)} · <span class="mu">${e(x.status)}</span><br><span class="mu" style="font-size:13px">${e(x.note)} ${x.resolution ? '→ ' + e(x.resolution) : ''}</span>${x.status === 'requested' ? `<div style="margin-top:8px;display:flex;gap:6px"><button class="btn sm" data-ra="${x.id}">Approve</button><button class="btn ghost sm" data-rj="${x.id}">Reject</button></div>` : ''}</div>`).join('') || '<div class="card"><p class="mu">No reports.</p></div>');
+    wireShell();
+    const rs = (sel, status) => $$(sel, main).forEach((b) => b.addEventListener('click', run(async () => { const resolution = prompt('What was decided? (refund, replacement, or why refused)'); if (!resolution) return; await S('/returns/' + (b.dataset.ra || b.dataset.rj), { method: 'PUT', body: { status, resolution } }); show(); })));
+    rs('[data-ra]', 'approved'); rs('[data-rj]', 'rejected');
+  });
+  async function review(id) {
+    const d = await S('/orders/' + id), o = d.order;
+    shell(`<button class="btn ghost sm" id="rvb">← Back to the queue</button>
+     <div class="card" style="margin:12px 0"><h3 style="margin-top:0">Order ${e(o.ref)} · ${naira(o.total)}</h3>
+      <p style="margin:0">Buyer: <b>${e(d.buyer ? d.buyer.fullName : o.name)}</b> · ID ${e(d.buyer ? d.buyer.idType.toUpperCase() + ' ending ' + d.buyer.idLast4 : 'not on file')} · phone ${d.buyer && d.buyer.phoneVerified ? 'verified' : '<b>not verified</b>'}</p>
+      ${d.flags.filter((f) => f.status === 'open').map((f) => `<p class="err" style="margin:6px 0">⚠️ ${e(f.kind.replace(/_/g, ' '))}: ${e(f.detail)}</p>`).join('')}</div>
+     ${d.prescriptions.map((r) => `<div class="card" style="margin-bottom:12px"><h3 style="margin-top:0">Prescription ${e(r.ref)} <a class="btn ghost sm" href="/api/pharmacy/staff/prescriptions/${r.id}/file" target="_blank" rel="noopener">Open the photo / PDF</a></h3>
+       <p style="margin:0;font-size:14px"><b>Prescriber:</b> ${e(r.prescriber.name)} · ${e(r.prescriber.council)} reg. ${e(r.prescriber.regNo)}<br>${e(r.prescriber.contact)} · ${e(r.prescriber.address)}<br><b>Patient:</b> ${e(r.patient.name || '')} ${e(r.patient.age || '')}<br>Written ${new Date(r.issued_on * 1000).toLocaleDateString('en-NG')} · valid until ${new Date(r.valid_until * 1000).toLocaleDateString('en-NG')} · duration ${r.duration_days || '—'} days · supplies ${r.fills_used + r.fills_reserved}/${r.max_fills}${r.refill_interval_days ? ' (every ' + r.refill_interval_days + ' days)' : ''}</p>
+       <ul style="margin:8px 0 0">${r.lines.map((l) => `<li>${l.qty_written} × ${e(l.drug_text)}</li>`).join('')}</ul></div>`).join('')}
+     <div class="card"><h3 style="margin-top:0">Items ordered</h3>
+      ${o.items.map((i) => { const need = d.items_need_prescription.includes(i.id); return `<div class="row c2" data-it="${i.id}" data-need="${need ? 1 : 0}" data-max="${i.qty}" style="align-items:end"><div><b>${e(i.name)}</b><br><span class="mu" style="font-size:13px">Ordered ${i.qty}${need ? '' : ' · no prescription needed'}</span></div><div style="display:flex;gap:6px">${need ? `<select data-line style="flex:1"><option value="">Match to a line…</option>${d.prescriptions.flatMap((r) => r.lines.map((l) => `<option value="${l.id}" ${i.rx_line_id == l.id ? 'selected' : ''}>${e(r.ref)}: ${l.qty_written} × ${e(l.drug_text)}</option>`)).join('')}</select>` : ''}<input data-qty type="number" min="0" max="${i.qty}" value="${i.qty}" style="width:80px"></div></div>`; }).join('')}
+      <label class="f">How you checked the prescriber on the council register (required)<textarea id="rvreg" rows="2" maxlength="400" placeholder="e.g. Searched MDCN register on 12 Nov: Dr … reg. no … is active"></textarea></label>
+      <label class="chk"><input type="checkbox" id="rvid"> I checked the buyer's ID details against the prescription</label>
+      <label class="f">Note to customer (needed to reject, ask for more, or reduce quantities)<input id="rvnote" maxlength="500"></label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn" data-dec="approve">Approve</button><button class="btn ghost" data-dec="partial">Partly approve</button><button class="btn ghost" data-dec="need_info">Ask for more information</button><button class="btn ghost" data-dec="reject" style="color:var(--bad)">Reject</button></div></div>`);
+    wireShell(); $('#rvb').addEventListener('click', () => { tab = 'queue'; show(); });
+    $$('[data-dec]', main).forEach((b) => b.addEventListener('click', run(async () => {
+      const items = $$('[data-it]', main).map((r) => ({ orderItemId: Number(r.dataset.it), lineId: $('[data-line]', r) ? Number($('[data-line]', r).value) || null : null, qty: Number($('[data-qty]', r).value) }));
+      await S(`/orders/${id}/decision`, { body: { decision: b.dataset.dec, reason: $('#rvnote').value, registerCheck: $('#rvreg').value, identityChecked: $('#rvid').checked, items } });
+      toast('Saved'); tab = 'queue'; show();
+    })));
+  }
+  await show();
+  return 'Pharmacist';
+}
+
 /* ===== app.js ===== */
 const app = {};
 const ctx = app;
@@ -954,7 +1125,7 @@ async function route() {
     else if (seg[0] === 'shop' || (seg[0] === 'd' && seg[2] === 'shop')) title = await shopView(main, u, cfg);
     else if (seg[0] === 'product' && seg[1]) title = await productView(main, seg[1], cfg);
     else if (seg[0] === 'page' && seg[1]) title = staticPage(main, seg[1], cfg);
-    else if (['checkout', 'order', 'account', 'login', 'register', 'wishlist', 'track', 'forgot', 'rider'].includes(seg[0])) { title = await view(main, seg, u, cfg); }
+    else if (['checkout', 'order', 'account', 'login', 'register', 'wishlist', 'track', 'forgot', 'rider', 'pharmacist'].includes(seg[0])) { title = await view(main, seg, u, cfg); }
     else main.innerHTML = `<div class="wrap empty"><div class="em">🧭</div><h2>Page not found</h2><p><a class="btn" href="/" data-link>Back to the store</a></p></div>`;
     document.title = (title ? title + ' · ' : '') + cfg.settings.store_name;
     syncHeader(); $('#main').focus({ preventScroll: true });
@@ -992,6 +1163,7 @@ function shell() {
       <div><h4>Company</h4><a href="/page/about" data-link>About</a><a href="/page/privacy" data-link>Privacy</a><a href="/page/terms" data-link>Terms</a>
         ${s.instagram ? `<a href="${e(s.instagram)}" target="_blank" rel="noopener">Instagram</a>` : ''}${s.facebook ? `<a href="${e(s.facebook)}" target="_blank" rel="noopener">Facebook</a>` : ''}</div>
     </div>
+    ${cfg.pharmacy && (s.pharm_aggregator_licence || s.pharm_pcn_logo || s.pharm_statement) ? `<div class="legal" style="display:block;text-align:left">${s.pharm_pcn_logo ? `<img src="${e(s.pharm_pcn_logo)}" alt="Pharmacists Council of Nigeria" style="height:44px;vertical-align:middle;margin-right:10px">` : ''}${s.pharm_aggregator_licence ? `<b>Pharmacy aggregator licence no. ${e(s.pharm_aggregator_licence)}</b><br>` : ''}${s.pharm_statement ? e(s.pharm_statement) : ''}</div>` : ''}
     <div class="legal"><span>© ${new Date().getFullYear()} ${e(s.store_name)}. All rights reserved.</span><span>${e(s.tax_note || '')}</span></div></div></footer>
   ${s.whatsapp ? `<a class="wa" href="https://wa.me/${e(s.whatsapp)}?text=${encodeURIComponent('Hello ' + s.store_name + ', I need help with…')}" target="_blank" rel="noopener" aria-label="Chat on WhatsApp">💬</a>` : ''}`;
   $('#nav2').innerHTML = '';
@@ -1101,7 +1273,7 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings']];
+const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['pharmacy', '💊', 'Pharmacy']];
 async function shell(page, body, unread) {
   root.innerHTML = `<div class="adm"><aside class="side"><div class="side-top"><div><b>🛠 Shop-Beta</b><div class="who">${e(me.email)}</div></div><div><a class="btn ghost sm" href="/" target="_blank" rel="noopener">View store</a> <button class="btn ghost sm" id="lo">Sign out</button></div></div>
   <nav>${NAV.map(([k, ic, t]) => `<a data-nav="${k}" class="${page === k ? 'on' : ''}">${ic} ${t}${k === 'messages' && unread ? ` <span class="dot">${unread}</span>` : ''}</a>`).join('')}</nav></aside><main class="main" id="mn">${body}</main></div>`;
@@ -1385,6 +1557,52 @@ views.settings = async () => {
     const zones = d.zones.map((z) => ({ ...z })); $$('[data-z]', $('#mn')).forEach((i) => { zones[i.dataset.z][i.dataset.k] = i.type === 'checkbox' ? (i.checked ? 1 : 0) : i.value; });
     await api('/api/admin/settings', { method: 'PUT', body: { settings, zones } }); toast('Settings saved');
   });
+};
+
+/* ---------------- pharmacy (admin) ---------------- */
+views.pharmacy = async () => {
+  const [rd, st, ph, pm, fl, rt, au] = await Promise.all([api('/api/admin/pharmacy/readiness'), api('/api/admin/pharmacy/settings'), api('/api/admin/pharmacy/pharmacies'), api('/api/admin/pharmacy/pharmacists'), api('/api/admin/pharmacy/flags'), api('/api/admin/pharmacy/returns'), api('/api/admin/pharmacy/audit?limit=40')]);
+  const S = st.settings, now = Date.now() / 1000;
+  mn(hd('💊 Pharmacy department') + `
+   <div class="panel" style="border-left:4px solid ${rd.enabled ? 'var(--ok)' : 'var(--bad)'}"><b>${rd.enabled ? 'The pharmacy department is ON.' : 'The pharmacy department is OFF.'}</b>
+    <p class="mu2">${rd.enabled ? 'Medicines that are approved and in date can be seen and ordered.' : 'No medicine can be listed, seen or ordered. Everything below can be prepared first. To switch it on, set <b>PHARMACY_ENABLED=1</b> on the server. Do this only after your lawyer has reviewed the rules, you have seen the real licences, and the checklist below is complete.'}</p></div>
+   <div class="panel"><h3>Readiness checklist</h3><p class="mu2">This is a to-do list, not a legal opinion. Items marked (tick) are confirmed by you. Ask a Nigerian lawyer and the PCN to check the process and the compliance checklist (docs/PHARMACY.md).</p>
+    ${rd.items.map((i) => `<div style="padding:5px 0;display:flex;gap:8px;align-items:center">${i.manual ? `<input type="checkbox" style="width:auto;flex:none" data-manual="${i.key === 'lawyer' ? 'pharm_legal_review' : 'pharm_licences_checked'}" ${i.ok ? 'checked' : ''}>` : (i.ok ? '✅' : i.optional ? '➖' : '⬜')} <span>${e(i.label)}</span></div>`).join('')}
+    ${rd.expiring.length ? `<p class="err">Licences ending soon: ${rd.expiring.map((x) => e(x.pharmacy_name) + ' (' + dt(x.licence_expires) + ')').join(', ')}. Medicines from a pharmacy are hidden automatically when its licence ends.</p>` : ''}</div>
+   <div class="panel"><h3>Homepage details</h3><p class="mu2">Shown in the footer only while the department is on.</p>
+    <label class="f">PCN logo (image link or upload path)<input id="ph_logo" value="${e(S.pharm_pcn_logo)}"></label>
+    <label class="f">Aggregator licence number<input id="ph_agg" value="${e(S.pharm_aggregator_licence)}"></label>
+    <label class="f">Prescription-only statement<input id="ph_stm" maxlength="400" value="${e(S.pharm_statement)}" placeholder="Prescription-only medicines are supplied only against a valid prescription, checked by a licensed pharmacist."></label>
+    <div class="row c2"><label class="f">Flag orders with more than this many of one item<input id="ph_lq" type="number" value="${e(S.pharm_large_qty || 10)}"></label><label class="f">Cancel unverified prescription orders after (hours)<input id="ph_uh" type="number" value="${e(S.pharm_unverified_hours || 48)}"></label></div>
+    <label class="f">Days after delivery a problem can be reported<input id="ph_rd" type="number" value="${e(S.pharm_return_days || 7)}"></label><button class="btn" id="ph_save">Save</button></div>
+   <div class="panel"><h3>Partner pharmacies</h3><p class="mu2">One record per pickup point. A pharmacy goes live only when its papers are complete, you approve it, and its licence year has not ended (licences run 1 January to 31 December). Changing licence details sends it back for approval.</p>
+    ${ph.pharmacies.length ? `<div class="tw"><table class="t"><tr><th>Pharmacy</th><th>Pickup point</th><th>Licences</th><th>Superintendent</th><th>Year</th><th>Agreement</th><th>Status</th><th></th></tr>${ph.pharmacies.map((p) => `<tr><td>${e(p.pharmacy_name)}<br><span class="mu2">${p.products} product(s)</span></td><td>${e(p.partner_name)}</td><td>${e(p.premises_licence_no || '—')}<br>${e(p.epharmacy_licence_no || '—')}</td><td>${e(p.superintendent_name || '—')}<br>${e(p.superintendent_reg_no || '')}</td><td>${p.licence_year || '—'}${p.licence_expires && p.licence_expires < now ? ' <b class="err">ended</b>' : ''}</td><td>${p.agreement_file ? `<a href="/api/admin/pharmacy/pharmacies/${p.id}/agreement" target="_blank" rel="noopener">View</a>` : 'none'}<br><input type="file" data-ag="${p.id}" accept="application/pdf,image/jpeg,image/png" style="max-width:150px"></td><td>${pill(p.status)}</td><td style="white-space:nowrap"><button class="btn ghost sm" data-pe="${p.id}">Edit</button> ${p.status === 'approved' ? `<button class="btn ghost sm" data-ps="${p.id}">Suspend</button>` : `<button class="btn sm" data-pa="${p.id}">Approve</button>`}</td></tr>`).join('')}</table></div>` : '<p class="mu2">None yet.</p>'}
+    <h4>Add a pharmacy</h4><div class="row c2"><label class="f">Pickup point<select id="pn_partner">${ph.partners.map((x) => `<option value="${x.id}">${e(x.name)}</option>`).join('')}</select></label><label class="f">Pharmacy name<input id="pn_name"></label></div>
+    <div class="row c2"><label class="f">Premises licence no.<input id="pn_pl"></label><label class="f">E-pharmacy licence no.<input id="pn_el"></label></div><div class="row c2"><label class="f">Superintendent pharmacist<input id="pn_sn"></label><label class="f">Their PCN reg. no.<input id="pn_sr"></label></div>
+    <label class="f">Licence year (for example ${new Date().getFullYear()})<input id="pn_yr" type="number" value="${new Date().getFullYear()}"></label><button class="btn" id="pn_add">Add pharmacy</button></div>
+   <div class="panel"><h3>Pharmacist accounts</h3><p class="mu2">Pharmacists sign in at <b>/pharmacist</b>. Leave the pharmacy empty for <b>our own</b> superintendent pharmacist, who approves medicine listings and reviews flags. Administrators cannot open prescriptions.</p>
+    ${pm.pharmacists.length ? `<div class="tw"><table class="t"><tr><th>Name</th><th>Email</th><th>PCN reg.</th><th>Pharmacy</th><th>Active</th></tr>${pm.pharmacists.map((p) => `<tr><td>${e(p.name)}</td><td>${e(p.email)}</td><td>${e(p.reg_no)}</td><td>${e(p.pharmacy_name || 'Ours (superintendent)')}</td><td><input type="checkbox" style="width:auto" data-pact="${p.id}" ${p.active ? 'checked' : ''}></td></tr>`).join('')}</table></div>` : ''}
+    <h4>Add a pharmacist</h4><div class="row c2"><label class="f">Name<input id="pp_n"></label><label class="f">Email<input id="pp_e" type="email"></label></div><div class="row c2"><label class="f">PCN registration no.<input id="pp_r"></label><label class="f">Pharmacy<select id="pp_p"><option value="">Ours (superintendent)</option>${ph.pharmacies.map((x) => `<option value="${x.id}">${e(x.pharmacy_name)}</option>`).join('')}</select></label></div>
+    <label class="f">Password (12+ characters)<input id="pp_pw" type="password" autocomplete="new-password"></label><button class="btn" id="pp_add">Add pharmacist</button></div>
+   <div class="panel"><h3>Suspicious-order flags (${fl.flags.length} open)</h3>${fl.flags.map((f) => `<div style="padding:6px 0;border-bottom:1px solid var(--border)"><b>${e(f.ref)}</b> · ${e(f.kind.replace(/_/g, ' '))} · ${e(f.detail)} <button class="btn ghost sm" data-fc="${f.id}">Clear</button> <button class="btn ghost sm" data-fx="${f.id}">Confirm &amp; cancel order</button></div>`).join('') || '<p class="mu2">None.</p>'}</div>
+   <div class="panel"><h3>Reported problems with medicines</h3>${rt.returns.map((x) => `<div style="padding:6px 0;border-bottom:1px solid var(--border)"><b>${e(x.ref)}</b> · ${e(x.reason)} · ${pill(x.status)} ${e(x.note)} ${x.resolution ? '→ ' + e(x.resolution) : ''} ${x.status === 'requested' ? `<button class="btn sm" data-ra="${x.id}">Approve</button> <button class="btn ghost sm" data-rj="${x.id}">Reject</button>` : ''}</div>`).join('') || '<p class="mu2">None.</p>'}<p class="mu2">Returned medicines are never put back on sale automatically.</p></div>
+   <div class="panel"><h3>Record of who looked at what</h3><div class="tw"><table class="t"><tr><th>When</th><th>Who</th><th>Action</th><th>Record</th></tr>${au.audit.map((a) => `<tr><td>${dt(a.created)}</td><td>${e(a.user_name)} <span class="mu2">${e(a.role)}</span></td><td>${e(a.action)}</td><td>${e(a.entity)} ${e(a.entity_id)}</td></tr>`).join('')}</table></div></div>
+   <div class="panel"><h3>NEPP</h3><p class="mu2">The connection to the national e-prescription platform is a placeholder only. We have not been given the official technical documentation, so nothing is connected and nothing is invented. Send the documentation to build it.</p></div>`);
+  const P = (u, o) => api('/api/admin/pharmacy' + u, o);
+  const go_ = (fn) => async (...a) => { try { await fn(...a); } catch (er) { toast(er.message, 'bad'); } };
+  on('#ph_save', 'click', async () => { await P('/settings', { method: 'PUT', body: { pharm_pcn_logo: $('#ph_logo', $('#mn')).value, pharm_aggregator_licence: $('#ph_agg', $('#mn')).value, pharm_statement: $('#ph_stm', $('#mn')).value, pharm_large_qty: $('#ph_lq', $('#mn')).value, pharm_unverified_hours: $('#ph_uh', $('#mn')).value, pharm_return_days: $('#ph_rd', $('#mn')).value } }); toast('Saved'); route(); });
+  onAll('[data-manual]', 'change', async (el) => { await P('/settings', { method: 'PUT', body: { [el.dataset.manual]: el.checked } }); route(); });
+  on('#pn_add', 'click', async () => { const v = (i) => $('#' + i, $('#mn')).value; await P('/pharmacies', { body: { partner_id: v('pn_partner'), pharmacy_name: v('pn_name'), premises_licence_no: v('pn_pl'), epharmacy_licence_no: v('pn_el'), superintendent_name: v('pn_sn'), superintendent_reg_no: v('pn_sr'), licence_year: v('pn_yr') } }); toast('Added'); route(); });
+  onAll('[data-pe]', 'click', async (el) => { const p = ph.pharmacies.find((x) => x.id == el.dataset.pe); const a = (q, d) => prompt(q, d || ''); const n = a('Pharmacy name', p.pharmacy_name); if (n === null) return; const pl = a('Premises licence no.', p.premises_licence_no); if (pl === null) return; const ep = a('E-pharmacy licence no.', p.epharmacy_licence_no); if (ep === null) return; const sn = a('Superintendent pharmacist', p.superintendent_name); if (sn === null) return; const sr = a('Superintendent PCN reg. no.', p.superintendent_reg_no); if (sr === null) return; const yr = a('Licence year', p.licence_year || new Date().getFullYear()); if (yr === null) return; await P('/pharmacies/' + p.id, { method: 'PUT', body: { pharmacy_name: n, premises_licence_no: pl, epharmacy_licence_no: ep, superintendent_name: sn, superintendent_reg_no: sr, licence_year: yr } }); toast('Saved. If it was approved, it needs approving again.'); route(); });
+  onAll('[data-pa]', 'click', async (el) => { await P(`/pharmacies/${el.dataset.pa}/approve`, { body: {} }); toast('Approved'); route(); });
+  onAll('[data-ps]', 'click', async (el) => { const note = prompt('Reason for suspending:'); if (!note) return; await P(`/pharmacies/${el.dataset.ps}/suspend`, { body: { note } }); route(); });
+  onAll('[data-ag]', 'change', async (el) => { const f = el.files[0]; if (!f) return; if (f.size > 8e6) return toast('That file is over 8 MB', 'bad'); const data = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); }); await P(`/pharmacies/${el.dataset.ag}/agreement`, { method: 'PUT', body: { data, name: f.name } }); toast('Agreement uploaded'); route(); });
+  on('#pp_add', 'click', async () => { const v = (i) => $('#' + i, $('#mn')).value; await P('/pharmacists', { body: { name: v('pp_n'), email: v('pp_e'), reg_no: v('pp_r'), pharmacy_id: v('pp_p') || null, password: v('pp_pw') } }); toast('Added'); route(); });
+  onAll('[data-pact]', 'change', async (el) => { const p = pm.pharmacists.find((x) => x.id == el.dataset.pact); await P('/pharmacists/' + p.id, { method: 'PUT', body: { ...p, active: el.checked } }); toast('Saved'); });
+  const flag = (sel, status) => onAll(sel, 'click', async (el) => { const note = prompt('Write a short note for the record:'); if (!note) return; await P('/flags/' + (el.dataset.fc || el.dataset.fx), { body: { status, note } }); route(); });
+  flag('[data-fc]', 'cleared'); flag('[data-fx]', 'confirmed');
+  const ret = (sel, status) => onAll(sel, 'click', async (el) => { const resolution = prompt('What was decided? (refund, replacement, or why refused)'); if (!resolution) return; await P('/returns/' + (el.dataset.ra || el.dataset.rj), { method: 'PUT', body: { status, resolution } }); route(); });
+  ret('[data-ra]', 'approved'); ret('[data-rj]', 'rejected');
 };
 
 /* ---------------- boot ---------------- */

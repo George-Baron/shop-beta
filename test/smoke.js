@@ -47,10 +47,10 @@ async function test(name, fn) {
   let cfg, fashion, variantProduct, plain;
 
   console.log('\nStorefront');
-  await test('config has six departments, 37 delivery zones, demo payments', async () => {
+  await test('config has five departments (pharmacy is hidden while switched off), 37 delivery zones, demo payments', async () => {
     const r = await guest.get('/api/config'); cfg = r.json;
-    assert.strictEqual(cfg.stores.length, 6); assert.strictEqual(cfg.zones.length, 37);
-    assert.strictEqual(cfg.payments.demo, true); assert.ok(cfg.categories.length >= 30);
+    assert.strictEqual(cfg.stores.length, 5); assert.ok(!cfg.stores.some((s) => s.slug === 'pharmacy')); assert.strictEqual(cfg.zones.length, 37);
+    assert.strictEqual(cfg.payments.demo, true); assert.ok(cfg.categories.length >= 25);
   });
   await test('every department homepage returns its sections', async () => {
     for (const s of cfg.stores) { const d = (await guest.get('/api/home/' + s.slug)).json; assert.ok(d.featured.length >= 5, s.slug + ' featured'); assert.ok(d.bestsellers.length >= 3 && d.categories.length >= 5 && d.deals.length >= 1, s.slug); }
