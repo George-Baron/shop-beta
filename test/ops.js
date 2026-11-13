@@ -46,6 +46,36 @@ const logsOf = (p) => p.log.split('\n').filter((l) => l.startsWith('{')).map((l)
   const ac = await login(PA);
   const prod = (await call(PA, 'GET', '/api/products?instock=1')).j.products[0];
 
+  await test('database connection options: Supabase transaction pooler gets no session settings, others get a server time limit, certificates can be supplied', async () => {
+    const { connectionOptions: co } = require('../lib/db');
+    const pooled = co('postgres://postgres.abc:pw@aws-0-eu-west-1.pooler.supabase.com:6543/postgres', {});
+    assert.ok(!('statement_timeout' in pooled) && !('application_name' in pooled) && pooled.query_timeout >= 15000); assert.deepStrictEqual(pooled.ssl, { rejectUnauthorized: true });
+    const direct = co('postgres://postgres:pw@db.abc.supabase.co:5432/postgres', { DB_STATEMENT_TIMEOUT_MS: '9000' }); assert.strictEqual(direct.statement_timeout, 9000);
+    assert.strictEqual(co('postgres://postgres@127.0.0.1:5432/x', {}).ssl, false);
+    assert.strictEqual(co('postgres://u:p@host.example:6543/postgres', { DATABASE_SSL: 'no-verify' }).ssl.rejectUnauthorized, false);
+    const pem = '-----BEGIN CERTIFICATE-----\nABC\n-----END CERTIFICATE-----'; assert.strictEqual(co('postgres://u:p@h:5432/d', { DATABASE_CA: pem }).ssl.ca, pem);
+    assert.strictEqual(co('postgres://u:p@h:5432/d', { DATABASE_CA: Buffer.from(pem).toString('base64') }).ssl.ca, pem);
+  });
+  await test('migrations: several instances starting at the same moment on an empty database all come up and migrate exactly once', async () => {
+    await pg('CREATE DATABASE sb_mig_' + tag);
+    const ps = [0, 1, 2, 3].map((i) => start(BASE + 10 + i, 'x', { DATABASE_URL: urlOf('sb_mig_' + tag) }));
+    for (let i = 0; i < 4; i++) await up(BASE + 10 + i, ps[i]);
+    const n = Number((await pg('SELECT COUNT(*) n FROM schema_migrations', 'sb_mig_' + tag))[0].n); const files = fs.readdirSync(path.join(__dirname, '..', 'migrations')).filter((f) => f.endsWith('.sql')).length; assert.strictEqual(n, files);
+    assert.strictEqual(Number((await pg("SELECT COUNT(*) n FROM pg_locks WHERE locktype='advisory'", 'sb_mig_' + tag))[0].n), 0, 'no advisory lock left behind');
+    for (const p of ps) p.kill(); await sleep(300); await pg('DROP DATABASE IF EXISTS sb_mig_' + tag + ' WITH (FORCE)');
+  });
+  await test('preflight: a good production setup passes, a careless one is stopped with plain reasons', async () => {
+    const { checkEnv, checkLive, summary } = require('../lib/preflight');
+    const good = { NODE_ENV: 'production', BASE_URL: 'https://www.shop.example', DATABASE_URL: 'postgres://u:p@aws-0-eu.pooler.supabase.com:6543/postgres', SUPABASE_URL: 'https://x.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'k', PAYSTACK_SECRET_KEY: 'sk_live_abc', RESEND_API_KEY: 're_x', MAIL_FROM: 'Shop <orders@shop.example>', HANDOVER_SECRET: 'x'.repeat(40), GEOAPIFY_API_KEY: 'g', BACKUP_PASSPHRASE: 'y'.repeat(30), ADMIN_EMAIL: 'o@shop.example', ADMIN_PASSWORD: 'Long-Strong-Pass-1', SEED_DEMO: '0' };
+    assert.deepStrictEqual(summary(checkEnv(good)), { fail: 0, warn: 0, pass: summary(checkEnv(good)).pass });
+    const bad = summary(checkEnv({ NODE_ENV: 'development', BASE_URL: 'http://localhost:3000', DATABASE_URL: 'postgres://postgres@127.0.0.1:5432/x', ALLOW_DEMO_PAYMENTS: '1', RATE_LIMIT_MULTIPLIER: '1000', TRUST_PROXY: '0', PAYSTACK_SECRET_KEY: 'pk_live_public' }));
+    assert.ok(bad.fail >= 8, 'fails: ' + bad.fail);
+    const names = (e) => checkEnv(e).filter((r) => r.level === 'FAIL').map((r) => r.name);
+    assert.ok(names({ ...good, PAYSTACK_API_URL: 'http://evil.example' }).includes('Test-only settings'));
+    assert.ok(names({ ...good, PAYSTACK_SECRET_KEY: '' }).includes('Paystack')); assert.ok(checkEnv({ ...good, PAYSTACK_SECRET_KEY: 'sk_test_1' }).some((r) => r.level === 'WARN' && r.name === 'Paystack'));
+    const live = await checkLive({}, require('../lib/db')); assert.ok(live.some((r) => r.name === 'Database' && r.level === 'PASS')); assert.ok(live.some((r) => r.name === 'Migrations' && r.level === 'PASS'));
+    const down = await checkLive({}, { health: async () => { throw new Error('boom'); }, get: async () => ({}) }); assert.strictEqual(down[0].level, 'FAIL');
+  });
   await test('health answers quickly with only ok:true, and is not written to the log', async () => {
     const r = await call(PA, 'GET', '/health'); assert.strictEqual(r.s, 200); assert.deepStrictEqual(r.j, { ok: true });
     await sleep(300); assert.ok(!logsOf(a).some((l) => l.path === '/health'));

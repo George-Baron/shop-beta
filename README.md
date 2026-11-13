@@ -41,6 +41,9 @@ Order confirmations, status updates, password resets and abandoned-cart reminder
 
 ## Putting it online
 
+**Full go-live guide: [DEPLOY.md](DEPLOY.md)** (Supabase, Resend, Paystack, Geoapify, Render, Cloudflare, rehearsal, launch check, troubleshooting). `render.yaml` is a ready Render blueprint, and `npm run preflight` checks that your settings are safe for launch.
+
+
 The shop is one Node program, a **PostgreSQL database** (Supabase in production) and a folder of uploaded photos (`data/uploads`, until step 3 moves them to object storage). The database holds orders, so it must never live on a disk that is wiped on restart: use Supabase (or any managed Postgres) and set `DATABASE_URL`.
 
 Run it behind HTTPS (hosts do this for you). Turn on Supabase backups and keep your own copies too.
