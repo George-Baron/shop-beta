@@ -1,0 +1,102 @@
+{
+  "when": "2026-11-13T03:09:45.222Z",
+  "machine": "2 CPUs, 8 GB, shared by everything",
+  "profile": "mixed",
+  "vus": 2000,
+  "checkoutsPerMin": 100,
+  "ramp": "45s",
+  "hold": "180s",
+  "chaos": null,
+  "http": {
+    "requests": 187013,
+    "perSecond": 736,
+    "p50": 7.775293,
+    "p90": 47.674102600000076,
+    "p95": 72.4305292,
+    "p99": 177.1301188800005,
+    "max": 2820.793261
+  },
+  "ordersAccepted": 284,
+  "soldOutRefusals": 17,
+  "p95ByRequest": {
+    "api product": 74.5526668,
+    "api products list": 77.13724689999998,
+    "api webhook": 129.59383350000002,
+    "page /": 71.93601029999999,
+    "page /product": 76.17409829999998,
+    "api home": 63.528362199999975,
+    "api search": 74.30725819999988,
+    "api config": 67.23472919999996,
+    "api checkout": 783.8604325999999
+  },
+  "wholeComputerBusyPercent": {
+    "average": 78,
+    "peak": 93
+  },
+  "appCpuMsPerRequest": 1.06,
+  "appCpuSecondsTotal": 197,
+  "peakMemoryMbPerInstance": 209,
+  "peakDbConnections": 17,
+  "integrity": [
+    {
+      "name": "orders the shop accepted are all in the database (none lost)",
+      "ok": true,
+      "detail": "284 accepted, 0 missing"
+    },
+    {
+      "name": "no extra or duplicated orders (database orders = distinct accepted checkouts)",
+      "ok": true,
+      "detail": "284 in database, 284 distinct tries accepted, 284 distinct order numbers"
+    },
+    {
+      "name": "no idempotency key produced two orders",
+      "ok": true,
+      "detail": "0 replay mismatches"
+    },
+    {
+      "name": "every order has items",
+      "ok": true
+    },
+    {
+      "name": "no product or variant has negative stock",
+      "ok": true,
+      "detail": "products 0, variants 0"
+    },
+    {
+      "name": "stock adds up: starting stock minus units sold = stock now, for every product touched",
+      "ok": true,
+      "detail": "21 products checked"
+    },
+    {
+      "name": "scarce product (only 10 units): never oversold",
+      "ok": true,
+      "detail": "sold 10, left 0, accepted orders 10, order lines 10"
+    },
+    {
+      "name": "every online order whose webhook arrived is marked paid exactly once",
+      "ok": true,
+      "detail": "79 online orders, 0 not paid"
+    },
+    {
+      "name": "no order was marked paid twice",
+      "ok": true,
+      "detail": "0 duplicates"
+    },
+    {
+      "name": "every order has its confirmation email saved (none lost)",
+      "ok": true,
+      "detail": "0 without"
+    },
+    {
+      "name": "background queue drained with no failed jobs",
+      "ok": true,
+      "detail": "waiting 0, failed 0"
+    }
+  ],
+  "integrityOk": true,
+  "serverErrorLines": 0,
+  "refusedByServer": {
+    "POST /api/checkout -> 400": 17
+  },
+  "k6ThresholdsPassed": true
+}

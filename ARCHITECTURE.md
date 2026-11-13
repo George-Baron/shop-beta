@@ -303,3 +303,11 @@ Admin account only from environment variables (or a setup code), no defaults; sc
 
 Tests: `npm run test:ops` (24 checks). Migration 009 adds `error_log` and `backups`.
 
+
+## 19. After step 9: load test
+
+`load/run-staging.js` runs the whole shop on one computer (2 instances behind a balancer, 20,000 products, fake Paystack, k6) and `load/verify.js` checks the database for lost, duplicated or oversold orders afterwards. Results and the exact steps for a real Render staging run are in `docs/LOAD-TEST.md`; raw numbers in `docs/load-results/`.
+Summary: 2,000 browsing shoppers p95 42-94 ms; zero lost, duplicated or oversold orders in every run; checkout alone p95 150 ms at 3x the target rate; but checkout p95 under the full mixed load on the (80% busy) 2-CPU sandbox was 343-1,070 ms, so the 800 ms checkout target is **not yet proven**: it needs the Render staging run. App CPU cost about 1.06 ms per request (about 0.8 core at the target load).
+The test found and fixed one real bug: two instances starting at the same moment both tried to create the administrator and one crashed (now treated as "already created").
+Open item: the page shell is 43 KB compressed per page view (CSS and JavaScript inline), roughly 20 GB an hour at 2,000 shoppers if not served by Cloudflare; moving them to cacheable files is proposed, not done.
+

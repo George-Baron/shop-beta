@@ -28,6 +28,8 @@ const { seed } = require('../lib/seed');
   await run(`INSERT INTO variants (product_id,size,color,stock) SELECT p.id, v.s, '', 100000 FROM products p CROSS JOIN (VALUES ('S'),('M'),('L')) v(s)
     WHERE p.slug LIKE 'load-%' AND substring(p.slug from 6)::int % 4 = 0`);
   await run("UPDATE products SET stock = 300000 WHERE slug LIKE 'load-%' AND substring(slug from 6)::int % 4 = 0");
+  // A scarce item for the overselling test: only 10 units, and the load script keeps trying to buy it.
+  if (!process.argv.includes('--no-scarce')) await run("INSERT INTO products (slug,store,category_id,name,brand,description,price,stock,sku,emoji,created) SELECT 'load-scarce', store, category_id, 'Scarce load-test item', 'X', 'Only 10 units', 1500, 10, 'LT-SCARCE', '🔥', 1700000000 FROM products ORDER BY id LIMIT 1 ON CONFLICT (slug) DO NOTHING");
   await run('ANALYZE');
   console.log(`Seeded ${N} products. Total products now: ${(await get('SELECT COUNT(*) n FROM products')).n}`);
   await end();

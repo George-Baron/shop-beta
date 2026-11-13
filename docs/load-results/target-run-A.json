@@ -1,0 +1,94 @@
+{
+  "when": "2026-11-13T02:48:41.111Z",
+  "machine": "2 CPUs, 8 GB, shared by everything",
+  "profile": "mixed",
+  "vus": 2000,
+  "checkoutsPerMin": 100,
+  "ramp": "45s",
+  "hold": "180s",
+  "chaos": null,
+  "http": {
+    "requests": 188171,
+    "perSecond": 739,
+    "p50": 5.288663,
+    "p90": 27.252884,
+    "p95": 42.241966000000005,
+    "p99": 88.9271908999999,
+    "max": 1525.32722
+  },
+  "ordersAccepted": 300,
+  "p95ByRequest": {
+    "api webhook": 63.750423749999996,
+    "api config": 38.38988904999999,
+    "api home": 36.90787779999999,
+    "page /": 44.08608074999998,
+    "page /product": 43.03784289999998,
+    "api product": 43.44641489999996,
+    "api search": 42.997187749999995,
+    "api products list": 43.913381049999984,
+    "api checkout": 343.30902479999963
+  },
+  "peakCpuPercentPerInstance": 40.1,
+  "peakMemoryMbPerInstance": 232,
+  "peakDbConnections": 17,
+  "integrity": [
+    {
+      "name": "orders the shop accepted are all in the database (none lost)",
+      "ok": true,
+      "detail": "300 accepted, 0 missing"
+    },
+    {
+      "name": "no extra or duplicated orders (database orders = distinct accepted checkouts)",
+      "ok": true,
+      "detail": "300 in database, 300 distinct tries accepted, 300 distinct order numbers"
+    },
+    {
+      "name": "no idempotency key produced two orders",
+      "ok": true,
+      "detail": "0 replay mismatches"
+    },
+    {
+      "name": "every order has items",
+      "ok": true
+    },
+    {
+      "name": "no product or variant has negative stock",
+      "ok": true,
+      "detail": "products 0, variants 0"
+    },
+    {
+      "name": "stock adds up: starting stock minus units sold = stock now, for every product touched",
+      "ok": true,
+      "detail": "21 products checked"
+    },
+    {
+      "name": "scarce product (only 50 units): never oversold",
+      "ok": true,
+      "detail": "sold 27, left 23, accepted orders 27, order lines 27"
+    },
+    {
+      "name": "every online order whose webhook arrived is marked paid exactly once",
+      "ok": true,
+      "detail": "77 online orders, 0 not paid"
+    },
+    {
+      "name": "no order was marked paid twice",
+      "ok": true,
+      "detail": "0 duplicates"
+    },
+    {
+      "name": "every order has its confirmation email saved (none lost)",
+      "ok": true,
+      "detail": "0 without"
+    },
+    {
+      "name": "background queue drained with no failed jobs",
+      "ok": true,
+      "detail": "waiting 0, failed 0"
+    }
+  ],
+  "integrityOk": true,
+  "serverErrorLines": 0,
+  "refusedByServer": {},
+  "k6ThresholdsPassed": true
+}

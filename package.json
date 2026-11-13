@@ -25,7 +25,8 @@
     "worker": "node --disable-warning=ExperimentalWarning scripts/worker.js",
     "test:security": "node --disable-warning=ExperimentalWarning test/security.js",
     "restore": "node scripts/restore-backup.js",
-    "test:ops": "node --disable-warning=ExperimentalWarning test/ops.js"
+    "test:ops": "node --disable-warning=ExperimentalWarning test/ops.js",
+    "load:local": "node load/run-staging.js"
   },
   "dependencies": {
     "compression": "^1.8.1",

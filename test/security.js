@@ -62,6 +62,12 @@ const fwd = (n) => ({ 'X-Forwarded-For': `10.${Math.floor(n / 65000) % 250}.${Ma
     }
   });
 
+  await test('two instances starting at the same moment on an empty database: both start, exactly one administrator (found by the load test)', async () => {
+    const db = await newDb(), env = { ADMIN_EMAIL, ADMIN_PASSWORD: ADMIN_PW }, a = spawnServer(db, env), b = spawnServer(db, env);
+    await Promise.all([up(a), up(b)]); assert.strictEqual((await sql("SELECT COUNT(*)::int n FROM users WHERE role='admin'", db)).rows[0].n, 1);
+    for (const p of [a, b]) assert.strictEqual((await new Client(p.base).post('/api/auth/login', { email: ADMIN_EMAIL, password: ADMIN_PW }, fwd(7777))).status, 200); await stop(a); await stop(b);
+  });
+
   // Main instance: administrator from the environment, no setup code, low IP ceilings for the rate-limit tests.
   const mainDb = await newDb();
   const main = await up(spawnServer(mainDb, { ADMIN_EMAIL, ADMIN_PASSWORD: ADMIN_PW, RATE_IP_CHECKOUT: '15', RATE_IP_LOGIN: '12' }));
