@@ -177,6 +177,51 @@ const appBody = (o = {}) => ({ business_name: 'Ada Provisions Ltd', contact_name
     assert.deepStrictEqual(rs.map((x) => x.s).sort(), [200, 409]); assert.strictEqual(await stockOf(P2.id), 4);
   });
 
+  console.log('\nMoney safety (review fixes)');
+  const stub = (ref, amount, currency = 'NGN', status = 'success') => execFileSync(process.execPath, ['-e', `const S = require('./lib/shop'); S.paystackVerify = async () => ({ status: ${JSON.stringify(status)}, reference: ${JSON.stringify(ref)}, currency: ${JSON.stringify(currency)}, amount: ${amount} }); require('./lib/wholesale').settle(${JSON.stringify(ref)}).then((q) => { console.log('S=' + q.status); process.exit(0); }).catch((e) => { console.error(e); process.exit(1); })`], { cwd: path.join(__dirname, '..'), env: { ...process.env, DATABASE_URL: urlOf(DB) } }).toString();
+  const accepted = async (qty = 3) => {
+    const C = (m, u, b) => call(m, '/api/wholesale' + u, b, buyer);
+    await q('UPDATE products SET stock=50 WHERE id=$1', [P2.id]);
+    const r = (await C('POST', '/quotes', { items: [{ productId: P2.id, qty }], ship_address: '5 Trade Fair Road', ship_state: 'Lagos' })).j.ref;
+    await W('POST', `/quotes/${r}/send`, { logistics_fee: 1000, shipment_plan: 'Collect', service_pct: 0 }); await C('POST', `/quotes/${r}/accept`, {});
+    const total = (await C('GET', '/quotes/' + r)).j.quote.total; return { r, total, C };
+  };
+  await test('a Paystack confirmation with the wrong amount, currency or status never marks a quote paid; the right one does', async () => {
+    const { r, total, C } = await accepted();
+    assert.match(stub(r, (total - 1) * 100), /S=accepted/, 'short payment');
+    assert.match(stub(r, (total + 1) * 100), /S=accepted/, 'over payment');
+    assert.match(stub(r, total * 100, 'USD'), /S=accepted/, 'wrong currency');
+    assert.match(stub(r, total * 100, 'NGN', 'failed'), /S=accepted/, 'not successful');
+    const ev = (await W('GET', '/quotes/' + r)).j.quote.events; assert.ok(ev.some((e) => /Payment check failed/.test(e.note)), 'mismatch is logged for a person');
+    assert.match(stub(r, total * 100), /S=paid/); assert.match(stub(r, total * 100), /S=paid/, 'twice is safe');
+    assert.strictEqual((await C('GET', '/quotes/' + r)).j.quote.status, 'paid');
+  });
+  await test('declining and accepting at the same moment never leaves stock held for a declined quote', async () => {
+    const C = (m, u, b) => call(m, '/api/wholesale' + u, b, buyer);
+    for (let i = 0; i < 6; i++) {
+      await q('UPDATE products SET stock=50 WHERE id=$1', [P2.id]);
+      const r = (await C('POST', '/quotes', { items: [{ productId: P2.id, qty: 3 }], ship_address: '5 Trade Fair Road', ship_state: 'Lagos' })).j.ref;
+      await W('POST', `/quotes/${r}/send`, { logistics_fee: 0, shipment_plan: 'Collect', service_pct: 0 });
+      await Promise.all([C('POST', `/quotes/${r}/accept`, {}), C('POST', `/quotes/${r}/decline`, {})]);
+      const st = (await C('GET', '/quotes/' + r)).j.quote.status, stock = await stockOf(P2.id);
+      assert.ok(['declined', 'accepted'].includes(st), st);
+      assert.strictEqual(stock, st === 'declined' ? 50 : 47, `status ${st} but stock ${stock}`);
+    }
+  });
+  await test('starting payment twice at once makes one payment page', async () => {
+    const { r, C } = await accepted(); await q("UPDATE wholesale_quotes SET pay_url='https://pay.example/one', payment_method='paystack' WHERE ref=$1", [r]);
+    const rs = await Promise.all([C('POST', `/quotes/${r}/pay`, {}), C('POST', `/quotes/${r}/pay`, {})]);
+    assert.ok(rs.every((x) => x.s === 200 || x.j.demo), JSON.stringify(rs.map((x) => x.s)));
+  });
+  await test('absurd admin numbers get a clear message, not a server error', async () => {
+    const C = (m, u, b) => call(m, '/api/wholesale' + u, b, buyer);
+    await q('UPDATE products SET stock=50 WHERE id=$1', [P2.id]);
+    const r = (await C('POST', '/quotes', { items: [{ productId: P2.id, qty: 3 }], ship_address: '5 Trade Fair Road', ship_state: 'Lagos' })).j.ref;
+    const items = (await W('GET', '/quotes/' + r)).j.quote.items.map((i) => ({ id: i.id, qty: i.qty, unit_price: i.unit_price }));
+    for (const bad of [{ items: items.map((i) => ({ ...i, unit_price: 9e15 })), logistics_fee: 0 }, { items: items.map((i) => ({ ...i, unit_price: 99000000, qty: 50 })), logistics_fee: 0 }, { items, logistics_fee: 9e15 }])
+      assert.strictEqual((await W('POST', `/quotes/${r}/send`, { ...bad, shipment_plan: 'x', service_pct: 0 })).s, 400);
+  });
+
   console.log('\nPartner stores as buyers');
   await test('a partner store can apply as a wholesale buyer too, but still buys only from our stock', async () => {
     assert.strictEqual((await call('POST', '/api/partners/apply', { name: 'Corner Shop', contactName: 'Tola', email: 'tola.shop@example.com', phone: '08031230000', address: '1 Road', state: 'Lagos', city: 'Yaba', regNo: 'RC1', password: PW, departments: ['supermarket'] })).s, 200);
