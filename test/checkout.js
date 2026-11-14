@@ -151,6 +151,25 @@ const key = () => crypto.randomUUID();
     await until(async () => (await q('SELECT payment_status FROM orders WHERE ref=$1', [r.j.ref]))[0].payment_status === 'paid');
   });
 
+  await test('refunds: only paid orders; stock returns if the goods never left; a refunded order is final', async () => {
+    const e1 = 'refund1@example.com', r = await call('POST', '/api/checkout', body(P_D, e1, 'paystack', 2)); assert.strictEqual(r.s, 200, r.t);
+    const o = (await q('SELECT id FROM orders WHERE ref=$1', [r.j.ref]))[0];
+    assert.strictEqual((await call('PUT', '/api/admin/orders/' + o.id, { status: 'refunded' }, cookie)).s, 400, 'unpaid cannot be refunded');
+    await q("UPDATE orders SET status='paid', payment_status='paid' WHERE id=$1", [o.id]);
+    const s0 = await stock(P_D);
+    assert.strictEqual((await call('PUT', '/api/admin/orders/' + o.id, { status: 'refunded', note: 'Refunded in Paystack' }, cookie)).s, 200);
+    const row = (await q('SELECT status, payment_status FROM orders WHERE id=$1', [o.id]))[0]; assert.strictEqual(row.status, 'refunded'); assert.strictEqual(row.payment_status, 'refunded');
+    assert.strictEqual(await stock(P_D), s0 + 2, 'stock returned');
+    assert.strictEqual((await call('PUT', '/api/admin/orders/' + o.id, { status: 'refunded' }, cookie)).s, 400, 'not twice');
+    assert.strictEqual((await call('PUT', '/api/admin/orders/' + o.id, { status: 'paid' }, cookie)).s, 400, 'final');
+    // cancelled after payment: staff are told to refund, then can mark it refunded without returning stock twice
+    const r2 = await call('POST', '/api/checkout', body(P_D, 'refund2@example.com', 'paystack', 1)); const o2 = (await q('SELECT id FROM orders WHERE ref=$1', [r2.j.ref]))[0];
+    await q("UPDATE orders SET status='paid', payment_status='paid' WHERE id=$1", [o2.id]);
+    assert.strictEqual((await call('PUT', '/api/admin/orders/' + o2.id, { status: 'cancelled' }, cookie)).s, 200);
+    const s1 = await stock(P_D);
+    assert.strictEqual((await call('PUT', '/api/admin/orders/' + o2.id, { status: 'refunded' }, cookie)).s, 200); assert.strictEqual(await stock(P_D), s1, 'no double return');
+  });
+
   app.kill(); fake.close();
   await sleep(300);
   fs.rmSync(DATA, { recursive: true, force: true });

@@ -191,6 +191,7 @@ body.is-admin .pill.pending{background:#fef3c7;color:#92400e;border-color:#fde68
 body.is-admin .pill.paid,body.is-admin .pill.processing{background:#dbeafe;color:#1e40af;border-color:#bfdbfe}
 body.is-admin .pill.shipped{background:#e0e7ff;color:#3730a3;border-color:#c7d2fe}
 body.is-admin .pill.delivered{background:#dcfce7;color:#166534;border-color:#bbf7d0}
+body.is-admin .pill.refunded{background:#ede9fe;color:#5b21b6;border-color:#ddd6fe}
 body.is-admin .pill.cancelled{background:#fee2e2;color:#991b1b;border-color:#fecaca}
 body.is-admin .pill.low{background:#fee2e2;color:#991b1b}
 body.is-admin .rbar{display:flex;align-items:flex-end;gap:5px;height:120px;margin-top:8px}
@@ -761,14 +762,14 @@ async function orderPage(main, ref, u, cfg) {
   }
   const backFromPay = u.searchParams.get('paid') || u.searchParams.get('reference') || u.searchParams.get('trxref');
   if (order.payment_status === 'paid' && backFromPay) { cart.clear(); cart.setCoupon(''); }
-  const flow = flowFor(order), stepIdx = order.status === 'cancelled' ? -1 : flow.indexOf(order.status);
+  const flow = flowFor(order), stepIdx = ['cancelled', 'refunded'].includes(order.status) ? -1 : flow.indexOf(order.status);
   const awaiting = order.payment_method === 'paystack' && order.payment_status !== 'paid' && order.status === 'pending' && !order.pharmacy;
   main.innerHTML = `<div class="wrap page" style="max-width:860px">
-   <div class="card" style="text-align:center;margin-bottom:16px"><div style="font-size:46px">${order.status === 'cancelled' ? '✖️' : awaiting ? '⏳' : '✅'}</div><h1 style="margin:6px 0">${order.status === 'cancelled' ? 'Order cancelled' : awaiting ? 'Waiting for payment' : u.searchParams.get('new') || backFromPay ? 'Thank you for your order!' : 'Order ' + e(order.ref)}</h1>
+   <div class="card" style="text-align:center;margin-bottom:16px"><div style="font-size:46px">${['cancelled', 'refunded'].includes(order.status) ? '✖️' : awaiting ? '⏳' : '✅'}</div><h1 style="margin:6px 0">${['cancelled', 'refunded'].includes(order.status) ? 'Order cancelled' : awaiting ? 'Waiting for payment' : u.searchParams.get('new') || backFromPay ? 'Thank you for your order!' : 'Order ' + e(order.ref)}</h1>
     <p class="mu">Order <b>${e(order.ref)}</b> · ${fmt(order.created)}${order.payment_method === 'pod' && order.status === 'pending' ? '<br>We will call you on ' + e(order.phone) + ' to confirm this order. Please keep your phone on and have ' + naira(order.total) + ' ready on delivery.' : ''}</p>
     ${awaiting ? `<div class="note" style="text-align:left;max-width:520px;margin:12px auto"><b>Complete your payment</b><br>${cfg.payments.demo ? 'Demo mode: no real money is charged.' : 'Your payment is not confirmed yet.'}<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${cfg.payments.demo ? '<button class="btn sm" id="demopay">Pay ' + naira(order.total) + ' (demo)</button><button class="btn ghost sm" id="demofail">Simulate failed payment</button>' : '<button class="btn sm" id="recheck">I have paid, check again</button>'}</div></div>` : ''}</div>
    ${order.masked ? '<div class="card" style="margin-bottom:16px;font-size:14px">For your privacy, your phone number and address are hidden here. Open the link in your order email, or sign in, to see everything, including your delivery code.</div>' : ''}
-   ${order.status !== 'cancelled' ? `<div class="card" style="margin-bottom:16px"><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;text-align:center;font-size:12px">${flow.map((s, i) => `<div><div style="height:6px;border-radius:3px;background:${i <= stepIdx ? 'var(--accent)' : 'var(--border)'};margin-bottom:6px"></div><span class="${i <= stepIdx ? '' : 'mu'}" style="font-weight:${i === stepIdx ? 800 : 500}">${STATUS[s]}</span></div>`).join('')}</div></div>` : ''}
+   ${!['cancelled', 'refunded'].includes(order.status) ? `<div class="card" style="margin-bottom:16px"><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;text-align:center;font-size:12px">${flow.map((s, i) => `<div><div style="height:6px;border-radius:3px;background:${i <= stepIdx ? 'var(--accent)' : 'var(--border)'};margin-bottom:6px"></div><span class="${i <= stepIdx ? '' : 'mu'}" style="font-weight:${i === stepIdx ? 800 : 500}">${STATUS[s]}</span></div>`).join('')}</div></div>` : ''}
    ${deliveryCard(order)}
    <div class="row c2" style="align-items:start"><div class="card"><h3>Items</h3>${order.items.map((i) => `<div class="line" style="grid-template-columns:48px 1fr auto"><div class="lt" style="width:48px;height:48px">${tile({ id: i.product_id, emoji: i.emoji, image: i.image, name: i.name })}</div><div style="font-size:14px"><b>${e(i.name)}</b><br><span class="mu">${e(i.variant_label)} × ${i.qty}</span></div><b>${naira(i.price * i.qty)}</b></div>`).join('')}
      <div class="sum"><span>Subtotal</span><span>${naira(order.subtotal)}</span></div>${order.discount ? `<div class="sum"><span>Discount ${e(order.coupon || '')}</span><span>−${naira(order.discount)}</span></div>` : ''}<div class="sum"><span>Delivery</span><span>${order.delivery_fee ? naira(order.delivery_fee) : 'Free'}</span></div><div class="sum total"><span>Total</span><span>${naira(order.total)}</span></div></div>
@@ -800,7 +801,7 @@ async function orderPage(main, ref, u, cfg) {
 }
 
 function deliveryCard(order) {
-  const d = order.delivery_info; if (!d || order.status === 'cancelled') return '';
+  const d = order.delivery_info; if (!d || ['cancelled', 'refunded'].includes(order.status)) return '';
   const late = d.promised_at && !d.delivered_at && Date.now() / 1000 > d.promised_at;
   const stages = [['Order placed', order.created], ['Rider accepted', d.accepted_at], ['Picked up', d.picked_up_at], ['On the way', d.on_way_at], ['Delivered', d.delivered_at]];
   return `<div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">Delivery</h3>
@@ -1230,7 +1231,7 @@ let me = null;
 let cfgStores = [];
 const dt = (s) => (s ? new Date(s * 1000).toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
 const dshort = (s) => new Date(s * 1000).toLocaleDateString('en-NG', { day: 'numeric', month: 'short' });
-const STATUSES = ['pending', 'paid', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
+const STATUSES = ['pending', 'paid', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded'];
 const pill = (s) => `<span class="pill ${e(s)}">${e(s)}</span>`;
 const storeName = (slug) => (cfgStores.find((s) => s.slug === slug) || {}).name || slug;
 const thumb = (p) => { let im = ''; try { im = JSON.parse(p.images || '[]')[0] || ''; } catch { /* none */ } return `<div class="thumb">${im ? `<img src="${e(im)}" alt="" loading="lazy">` : e(p.emoji || '📦')}</div>`; };
@@ -1345,7 +1346,7 @@ async function orderModal(id) {
   <div class="tw"><table class="t" style="margin-top:12px"><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>${o.items.map((i) => `<tr><td>${e(i.name)}<div class="mu2">${e(i.variant_label || '')}</div></td><td>${i.qty}</td><td>${naira(i.price)}</td><td>${naira(i.price * i.qty)}</td></tr>`).join('')}
   <tr><td colspan="3" class="mu2">Subtotal</td><td>${naira(o.subtotal)}</td></tr>${o.discount ? `<tr><td colspan="3" class="mu2">Discount ${e(o.coupon || '')}</td><td>−${naira(o.discount)}</td></tr>` : ''}<tr><td colspan="3" class="mu2">Delivery</td><td>${naira(o.delivery_fee)}</td></tr><tr><td colspan="3"><b>Total</b></td><td><b>${naira(o.total)}</b></td></tr></table></div>
   <h3 style="margin-top:14px">History</h3><ul class="tl">${o.events.map((x) => `<li><b>${e(x.status)}</b> · <span class="mu2">${dt(x.created)}</span>${x.note ? '<br>' + e(x.note) : ''}</li>`).join('')}</ul>
-  ${o.status === 'cancelled' ? '<p class="mu">This order is cancelled and cannot be changed.</p>' : `<div class="nop"><div class="fgrid"><label class="f">Update status<select id="ost">${STATUSES.map((s) => `<option ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label class="f">Note (optional, shown in history)<input id="onote" maxlength="300"></label></div></div>`}
+  ${o.status === 'refunded' ? '<p class="mu">This order is refunded and cannot be changed.</p>' : o.status === 'cancelled' && o.payment_status !== 'paid' ? '<p class="mu">This order is cancelled and cannot be changed.</p>' : `<div class="nop"><div class="fgrid"><label class="f">Update status<select id="ost">${STATUSES.map((s) => `<option ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label class="f">Note (optional, shown in history)<input id="onote" maxlength="300"></label></div></div>`}
   ${deliveryAdmin(o, riders)}
   <div class="acts"><button class="btn ghost sm" id="oprint">🖨 Print packing slip</button><button class="btn ghost" id="oclose">Close</button>${o.status === 'cancelled' ? '' : '<button class="btn" id="osave">Save status</button>'}</div>`, true);
   const asg = $('#orider'); if (asg) asg.addEventListener('change', guard(async () => { await api(`/api/admin/orders/${id}/rider`, { method: 'PUT', body: { riderId: asg.value || null } }); toast('Rider updated'); orderModal(id); }));

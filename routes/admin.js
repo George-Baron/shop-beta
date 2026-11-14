@@ -28,7 +28,7 @@ router.use((req, res, next) => {
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const STATUSES = S.STATUSES;
 // "Sales" = orders that are not cancelled and are either paid online or pay-on-delivery.
-const SALE = "o.status <> 'cancelled' AND (o.payment_method = 'pod' OR o.payment_status = 'paid')";
+const SALE = "o.status NOT IN ('cancelled','refunded') AND (o.payment_method = 'pod' OR o.payment_status = 'paid')";
 
 /* ---------- first-run admin account ---------- */
 // In production the first admin must be created with ADMIN_EMAIL + ADMIN_PASSWORD, or with the SETUP_CODE you put in the environment.
@@ -102,6 +102,7 @@ router.put('/orders/:id', ah(async (req, res) => {
   const problem = S.checkTransition(o, status, await getSettings());
   if (problem) fail(400, problem);
   if (status === 'cancelled') await S.cancelOrder(o, note || 'Cancelled by the store');
+  else if (status === 'refunded') await S.refundOrder(o, note);
   else if (status === o.status) { if (note) await S.addEvent(o.id, status, note); }
   else {
     await tx(async () => {
@@ -387,7 +388,7 @@ router.put('/partners/:id', ah(async (req, res) => {
   res.json({ ok: true });
 }));
 router.delete('/partners/:id', ah(async (req, res) => {
-  if (await get("SELECT 1 x FROM order_pickups op JOIN orders o ON o.id=op.order_id WHERE op.partner_id=? AND o.status NOT IN ('delivered','cancelled') LIMIT 1", int(req.params.id))) fail(409, 'This pickup point has orders in progress. Switch it off instead.');
+  if (await get("SELECT 1 x FROM order_pickups op JOIN orders o ON o.id=op.order_id WHERE op.partner_id=? AND o.status NOT IN ('delivered','cancelled','refunded') LIMIT 1", int(req.params.id))) fail(409, 'This pickup point has orders in progress. Switch it off instead.');
   await run('UPDATE partners SET active=0 WHERE id=?', int(req.params.id)); // kept for order history; just switched off
   res.json({ ok: true });
 }));
@@ -420,7 +421,7 @@ router.put('/riders/:id', ah(async (req, res) => {
 router.put('/orders/:id/rider', ah(async (req, res) => {
   const o = await S.loadOrder('id=?', int(req.params.id));
   if (!o) fail(404, 'Order not found.');
-  if (['delivered', 'cancelled', 'pending'].includes(o.status)) fail(400, o.status === 'pending' ? 'Wait until the order is paid or confirmed before assigning a rider.' : `This order is ${o.status}.`);
+  if (['delivered', 'cancelled', 'refunded', 'pending'].includes(o.status)) fail(400, o.status === 'pending' ? 'Wait until the order is paid or confirmed before assigning a rider.' : `This order is ${o.status}.`);
   if (o.delivery === 'pickup') fail(400, 'Store pickup orders do not need a rider.');
   const riderId = req.body.riderId ? int(req.body.riderId) : null;
   if (riderId) {
