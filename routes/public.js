@@ -9,12 +9,13 @@ const queue = require('../lib/queue');
 const D = require('../lib/delivery');
 const geo = require('../lib/geo');
 const A = require('../lib/auth');
+const V = require('../lib/vendors');
 const { fail, str, int, isEmail, parseImages, card, RATING_JOIN, getSettings, esc } = S_;
 
 const router = express.Router();
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const PRODUCT_SELECT = `SELECT p.*, c.name AS category, c.slug AS category_slug, COALESCE(rv.r,0) AS rating, COALESCE(rv.n,0) AS rating_n
-  FROM products p LEFT JOIN categories c ON c.id = p.category_id ${RATING_JOIN}`;
+const PRODUCT_SELECT = `SELECT p.*, c.name AS category, c.slug AS category_slug, COALESCE(rv.r,0) AS rating, COALESCE(rv.n,0) AS rating_n, vd.name AS vendor_name, vd.slug AS vendor_slug
+  FROM products p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN vendors vd ON vd.id = p.vendor_id ${RATING_JOIN}`;
 const PER_PAGE = 20;
 // Catalogue answers are the same for every visitor, so browsers and Cloudflare may keep them briefly. Never use this on anything that depends on who is asking.
 const publicCache = (res) => res.set('Cache-Control', 'public, max-age=10, s-maxage=30, stale-while-revalidate=60');
@@ -79,10 +80,12 @@ async function listProducts(q) {
   // Category names are matched in JavaScript against a small cached list, so the SQL only tests plain product columns and can use the search indexes
   // (matching c.name inside the OR forced a scan of the whole catalogue: about 100 times slower).
   const catNames = words.length ? await cache.cached('catnames', 30000, () => all('SELECT id, LOWER(name) AS name FROM categories')) : [];
+  const vendorNames = words.length ? await cache.cached('vendornames', 30000, () => all("SELECT id, LOWER(name) AS name FROM vendors WHERE status='approved'")) : [];
   for (const w of words) {
     const l = '%' + likeEsc(w) + '%';
     const catIds = catNames.filter((c) => c.name.includes(w)).map((c) => Number(c.id)).filter(Number.isInteger);
-    where.push(`(LOWER(p.name) LIKE ? ESCAPE '\\' OR LOWER(p.brand) LIKE ? ESCAPE '\\' OR LOWER(p.sku) LIKE ? ESCAPE '\\' OR LOWER(p.description) LIKE ? ESCAPE '\\'${catIds.length ? ` OR p.category_id IN (${catIds.join(',')})` : ''})`);
+    const venIds = vendorNames.filter((v) => v.name.includes(w)).map((v) => Number(v.id)).filter(Number.isInteger); // searching a store's name finds its products
+    where.push(`(LOWER(p.name) LIKE ? ESCAPE '\\' OR LOWER(p.brand) LIKE ? ESCAPE '\\' OR LOWER(p.sku) LIKE ? ESCAPE '\\' OR LOWER(p.description) LIKE ? ESCAPE '\\'${catIds.length ? ` OR p.category_id IN (${catIds.join(',')})` : ''}${venIds.length ? ` OR p.vendor_id IN (${venIds.join(',')})` : ''})`);
     args.push(l, l, l, l);
   }
   const min = int(q.min, -1), max = int(q.max, -1);
@@ -99,15 +102,39 @@ async function listProducts(q) {
     popular: 'p.sold DESC, p.id DESC', newest: 'p.created DESC, p.id DESC', price_asc: 'p.price ASC', price_desc: 'p.price DESC',
     rating: 'COALESCE(rv.r,0) DESC, COALESCE(rv.n,0) DESC', name: 'LOWER(p.name) ASC',
   }[q.sort] || 'p.featured DESC, p.id DESC';
-  const from = `FROM products p LEFT JOIN categories c ON c.id = p.category_id ${RATING_JOIN} WHERE ${where.join(' AND ')}`;
+  // Which stores the matching products come from (before the store filter is applied), so the customer can pick a store.
+  const fromBase = `FROM products p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN vendors vd ON vd.id = p.vendor_id ${RATING_JOIN}`;
+  const storeFacet = (words.length || store || category) && !q.nostores
+    ? (await all(`SELECT COALESCE(vd.slug,'') AS slug, COALESCE(vd.name,'') AS name, COUNT(*) AS n ${fromBase} WHERE ${where.join(' AND ')} GROUP BY 1,2 ORDER BY n DESC, 2 LIMIT 12`, ...args)).map((r) => ({ slug: r.slug, name: r.name || 'Shop-Beta', n: Number(r.n) })) : [];
+  const vslug = str(q.vendor, 80);
+  if (vslug === 'ours') where.push('p.vendor_id IS NULL'); else if (vslug) { where.push('vd.slug=?'); args.push(vslug); }
+  const from = `${fromBase} WHERE ${where.join(' AND ')}`;
   const total = (await get(`SELECT COUNT(*) n ${from}`, ...args)).n;
   const pages = Math.max(1, Math.ceil(total / PER_PAGE)), page = Math.min(pages, Math.max(1, int(q.page, 1)));
-  const products = (await all(`SELECT p.*, c.name AS category, COALESCE(rv.r,0) AS rating, COALESCE(rv.n,0) AS rating_n ${from} ORDER BY ${order} LIMIT ${PER_PAGE} OFFSET ${(page - 1) * PER_PAGE}`, ...args)).map(card);
+  const products = (await all(`SELECT p.*, c.name AS category, COALESCE(rv.r,0) AS rating, COALESCE(rv.n,0) AS rating_n, vd.name AS vendor_name, vd.slug AS vendor_slug ${from} ORDER BY ${order} LIMIT ${PER_PAGE} OFFSET ${(page - 1) * PER_PAGE}`, ...args)).map(card);
   // The size/colour lists depend only on department and category (never on the search words), so they are kept for a minute instead of re-reading every variant on each search.
   const fr = await cache.cached(`facets:${store}:${category}`, 60000, () => all(`SELECT DISTINCT v.size, v.color FROM variants v JOIN products p ON p.id=v.product_id LEFT JOIN categories c ON c.id=p.category_id WHERE ${facetWhere.join(' AND ')}`, ...facetArgs));
   const nat = (a, b) => a.localeCompare(b, undefined, { numeric: true });
-  return { products, total, page, pages, facets: { sizes: [...new Set(fr.map((x) => x.size).filter(Boolean))].sort(nat), colors: [...new Set(fr.map((x) => x.color).filter(Boolean))].sort(nat) } };
+  const matchedStores = words.length && int(q.page, 1) === 1 && !vslug ? (await V.listPublic({ q: str(q.q, 80) })).slice(0, 6).map((v) => ({ slug: v.slug, name: v.name, emoji: v.emoji, logo: v.logo, city: v.city, state: v.state, products: v.products })) : [];
+  return { products, total, page, pages, stores: storeFacet, matchedStores, facets: { sizes: [...new Set(fr.map((x) => x.size).filter(Boolean))].sort(nat), colors: [...new Set(fr.map((x) => x.color).filter(Boolean))].sort(nat) } };
 }
+
+/* ================= partner stores ================= */
+router.get('/vendors', ah(async (req, res) => {
+  const key = queryKey('vendors:', req.query);
+  const run_ = () => V.listPublic({ store: str(req.query.store, 40), q: str(req.query.q, 80) });
+  const stores = key ? await cache.cached(key, 30000, run_) : await run_();
+  publicCache(res); res.json({ stores });
+}));
+router.get('/vendors/:slug', ah(async (req, res) => {
+  const slug = str(req.params.slug, 80);
+  const data = await cache.cached('vendor:' + slug, 30000, () => V.pagePublic(slug));
+  publicCache(res); res.json(data);
+}));
+router.post('/partners/apply', A.limiter('partner-apply', 4, 3600000, 'Too many applications from this connection. Please try again later.'), ah(async (req, res) => {
+  await V.apply(req.body || {});
+  res.json({ ok: true });
+}));
 
 router.post('/products/by-ids', ah(async (req, res) => {
   const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map((x) => int(x)).filter((x) => x > 0).slice(0, 24);

@@ -101,6 +101,14 @@ section.blk{padding:30px 0}.sec-head{display:flex;align-items:baseline;justify-c
 .promo2{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:700px){.promo2{grid-template-columns:1fr}}
 .promo{border-radius:var(--radius);padding:24px;background:linear-gradient(120deg,var(--accent-soft),var(--surface-2));border:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;min-height:140px;overflow:hidden}.promo h3{margin:0 0 4px}.promo p{margin:0 0 12px;color:var(--muted);font-size:14px}.promo .pe{font-size:64px}
 .banner{border-radius:var(--radius);background:linear-gradient(110deg,var(--accent),var(--accent-2));color:var(--accent-ink);padding:28px;display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}.banner h3{margin:0 0 4px;font-size:22px}.banner p{margin:0;opacity:.9}.banner .btn{background:#fff;color:#111;border-color:#fff}
+/* partner stores */
+.sold{font-size:12px;color:var(--muted);display:block}.sold:hover{color:var(--accent)}
+.sgroup{margin:6px 0 2px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.scards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+.scard{display:flex;gap:12px;align-items:center;border:1px solid var(--border);border-radius:14px;padding:12px;background:var(--surface)}.scard:hover{border-color:var(--accent)}
+.slogo{width:54px;height:54px;border-radius:12px;background:var(--surface-2);display:grid;place-items:center;font-size:26px;overflow:hidden;flex:none}.slogo img{width:100%;height:100%;object-fit:cover}
+.sban{height:150px;border-radius:16px;background:linear-gradient(135deg,var(--accent),var(--surface-2));background-size:cover;background-position:center;margin-bottom:-34px}
+.shead{display:flex;gap:16px;align-items:flex-end;padding:0 18px}.shead .slogo{width:84px;height:84px;font-size:40px;border:3px solid var(--surface)}
 /* footer */
 footer.foot{background:var(--surface-2);border-top:1px solid var(--border);margin-top:40px;padding:36px 0 90px}
 .foot-grid{display:grid;grid-template-columns:1.4fr repeat(3,1fr);gap:24px}@media(max-width:760px){.foot-grid{grid-template-columns:1fr 1fr}}
@@ -349,11 +357,20 @@ function productCard(p) {
     <button class="wish ${wish.has(p.id) ? 'on' : ''}" data-wish="${p.id}" aria-label="Save to wishlist" aria-pressed="${wish.has(p.id)}">${wish.has(p.id) ? '♥' : '♡'}</button>
     <div class="pbody">
       <a class="pname" href="/product/${e(p.slug)}" data-link>${e(p.name)}</a>
+      ${p.vendor ? `<a class="sold" href="/store/${e(p.vendor.slug)}" data-link>🏪 ${e(p.vendor.name)}</a>` : ''}
       ${p.rating_n ? stars(p.rating, p.rating_n) : '<span class="stars none">No reviews yet</span>'}
       <div class="pprice"><b>${naira(p.price)}</b>${p.compare_price > p.price ? `<s>${naira(p.compare_price)}</s>` : ''}</div>
       <button class="btn sm add" data-quick="${p.id}" ${p.stock <= 0 ? 'disabled' : ''}>${p.stock <= 0 ? 'Sold out' : 'Add to cart'}</button>
     </div></article>`;
 }
+
+// Cart and order lines grouped by who sells them ('' = Shop-Beta itself), in a stable order.
+function byStore(lines, nameOf = (l) => l.vendorName || l.store || '') {
+  const m = new Map();
+  for (const l of lines) { const k = nameOf(l); if (!m.has(k)) m.set(k, []); m.get(k).push(l); }
+  return [...m.entries()].sort((a, b) => (a[0] === '') - (b[0] === '') || a[0].localeCompare(b[0])).map(([name, ls2]) => ({ name, lines: ls2 }));
+}
+const groupHead = (name, groups) => (groups.length > 1 || name ? `<div class="sgroup">🏪 Sold by ${e(name || 'Shop-Beta')}</div>` : '');
 
 function setStoreTheme(slug) {
   const r = document.documentElement;
@@ -405,10 +422,10 @@ function paint() {
   d.innerHTML = `<header><h3>Your cart (${cart.count()})</h3><button class="ibtn" id="cclose" aria-label="Close cart">✕</button></header>
   <div class="body">${!r.lines.length ? '<div class="empty"><div class="em">🛒</div><p>Your cart is empty.</p></div>' : `
     ${free ? `<div style="font-size:13px">${rem > 0 ? `Add <b>${naira(rem)}</b> more for free delivery` : '🎉 You qualify for free delivery'}</div><div class="free-bar"><i style="width:${Math.min(100, ((r.subtotal - (r.discount || 0)) / free) * 100)}%"></i></div>` : ''}
-    ${r.lines.map((l) => `<div class="line"><a class="lt" href="/product/${e(l.slug)}" data-link>${tile({ id: l.productId, emoji: l.emoji, image: l.image, name: l.name })}</a>
+    ${(() => { const gs = byStore(r.lines); return gs.map((g) => groupHead(g.name, gs) + g.lines.map((l) => `<div class="line"><a class="lt" href="/product/${e(l.slug)}" data-link>${tile({ id: l.productId, emoji: l.emoji, image: l.image, name: l.name })}</a>
       <div><a href="/product/${e(l.slug)}" data-link style="font-weight:600;font-size:14px">${e(l.name)}</a><div class="mu" style="font-size:12px">${e(l.variantLabel)}</div>
       <div class="qty" style="margin-top:6px"><button data-qty="${l.productId},${l.variantId || ''},-1" aria-label="Decrease">−</button><span>${l.qty}</span><button data-qty="${l.productId},${l.variantId || ''},1" aria-label="Increase" ${l.qty >= l.available ? 'disabled' : ''}>+</button></div></div>
-      <div style="text-align:right"><b>${naira(l.price * l.qty)}</b><br><button class="rm" data-rm="${l.productId},${l.variantId || ''}">Remove</button></div></div>`).join('')}`}</div>
+      <div style="text-align:right"><b>${naira(l.price * l.qty)}</b><br><button class="rm" data-rm="${l.productId},${l.variantId || ''}">Remove</button></div></div>`).join('')).join(''); })()}`}</div>
   ${r.lines.length ? `<footer>
     <div style="display:flex;gap:8px;margin-bottom:10px"><input id="ccode" placeholder="Promo code" value="${e(cart.coupon)}" aria-label="Promo code"><button class="btn ghost sm" id="capply">Apply</button></div>
     ${r.coupon ? `<div class="sum" style="color:var(--ok)"><span>Code ${e(r.coupon)} <button class="rm" id="cclear" style="color:var(--muted)">(remove)</button></span><span>−${naira(r.discount)}</span></div>` : ''}
@@ -421,7 +438,7 @@ function paint() {
 async function shopView(main, u, cfg) {
   const q = Object.fromEntries(u.searchParams.entries());
   const seg = u.pathname.split('/').filter(Boolean); if (seg[0] === 'd' && seg[1]) q.store = seg[1];
-  const params = new URLSearchParams(); for (const k of ['store', 'category', 'q', 'min', 'max', 'size', 'color', 'rating', 'sort', 'page', 'flag', 'instock']) if (q[k]) params.set(k, q[k]);
+  const params = new URLSearchParams(); for (const k of ['store', 'category', 'q', 'min', 'max', 'size', 'color', 'rating', 'sort', 'page', 'flag', 'instock', 'vendor']) if (q[k]) params.set(k, q[k]);
   const d = await api('/api/products?' + params.toString());
   const stObj = cfg.stores.find((s) => s.slug === q.store); const cats = cfg.categories.filter((c) => !q.store || c.store === q.store);
   const url = (over) => { const p = new URLSearchParams(params); for (const [k, v] of Object.entries(over)) { if (v === '' || v == null) p.delete(k); else p.set(k, v); } if (!('page' in over)) p.delete('page'); return '/shop?' + p.toString(); };
@@ -433,6 +450,7 @@ async function shopView(main, u, cfg) {
      <select id="sort" aria-label="Sort by">${[['', 'Featured'], ['popular', 'Most popular'], ['newest', 'Newest'], ['price_asc', 'Price: low to high'], ['price_desc', 'Price: high to low'], ['rating', 'Top rated'], ['name', 'Name A–Z']].map(([v, l]) => `<option value="${v}" ${q.sort === v || (!q.sort && !v) ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
    <div class="shop"><aside class="filters" id="filters">
      <h4>Department</h4><div class="chips"><a class="chip ${!q.store ? 'on' : ''}" href="${url({ store: '', category: '' })}" data-link>All</a>${cfg.stores.map((s) => `<a class="chip ${q.store === s.slug ? 'on' : ''}" href="${url({ store: s.slug, category: '' })}" data-link>${e(s.tab_label)}</a>`).join('')}</div>
+     ${(d.stores || []).some((x) => x.slug) || q.vendor ? `<h4>Store</h4><div class="chips">${q.vendor ? `<a class="chip" href="${url({ vendor: '' })}" data-link>All stores ✕</a>` : ''}${(d.stores || []).map((x) => `<a class="chip ${q.vendor === (x.slug || 'ours') ? 'on' : ''}" href="${url({ vendor: q.vendor === (x.slug || 'ours') ? '' : (x.slug || 'ours') })}" data-link>${e(x.name)} (${x.n})</a>`).join('')}</div>` : ''}
      ${cats.length ? `<h4>Category</h4><div class="chips">${cats.map((c) => `<a class="chip ${q.category === c.slug ? 'on' : ''}" href="${url({ category: q.category === c.slug ? '' : c.slug })}" data-link>${e(c.name)}</a>`).join('')}</div>` : ''}
      <h4>Price (₦)</h4><div class="row c2"><input id="pmin" type="number" min="0" placeholder="Min" value="${e(q.min || '')}" aria-label="Minimum price"><input id="pmax" type="number" min="0" placeholder="Max" value="${e(q.max || '')}" aria-label="Maximum price"></div><button class="btn sm ghost" id="papply" style="margin-top:8px">Apply</button>
      ${d.facets.sizes.length ? `<h4>Size</h4><div class="chips">${d.facets.sizes.map((s) => `<a class="chip ${q.size === s ? 'on' : ''}" href="${url({ size: q.size === s ? '' : s })}" data-link>${e(s)}</a>`).join('')}</div>` : ''}
@@ -440,7 +458,7 @@ async function shopView(main, u, cfg) {
      <h4>Rating</h4><div class="chips">${[4, 3].map((r) => `<a class="chip ${q.rating == r ? 'on' : ''}" href="${url({ rating: q.rating == r ? '' : r })}" data-link>${r}★ &amp; up</a>`).join('')}</div>
      <h4>Availability</h4><label class="chk"><input type="checkbox" id="instock" ${q.instock ? 'checked' : ''}> In stock only</label>
      <p style="margin-top:14px"><a href="/shop${q.store ? '?store=' + e(q.store) : ''}" data-link class="mu" style="font-size:13px">Clear all filters</a></p></aside>
-   <div>${d.products.length ? `<div class="grid">${d.products.map(productCard).join('')}</div>` : `<div class="empty"><div class="em">🔎</div><h3>No products found</h3><p>Try removing a filter or searching for something else.</p></div>`}
+   <div>${(d.matchedStores || []).length ? `<div style="margin-bottom:16px"><h3 style="margin:0 0 8px;font-size:16px">Stores matching “${e(q.q)}”</h3><div class="scards">${d.matchedStores.map(storeCard).join('')}</div></div>` : ''}${d.products.length ? `<div class="grid">${d.products.map(productCard).join('')}</div>` : `<div class="empty"><div class="em">🔎</div><h3>No products found</h3><p>Try removing a filter or searching for something else.</p></div>`}
    ${d.pages > 1 ? `<nav class="pager" aria-label="Pages">${Array.from({ length: d.pages }, (_, i) => `<a class="btn sm ${d.page === i + 1 ? '' : 'ghost'}" href="${url({ page: i + 1 })}" data-link>${i + 1}</a>`).join('')}</nav>` : ''}</div></div></div>`;
   $('#sort').addEventListener('change', (ev) => go(url({ sort: ev.target.value })));
   $('#papply').addEventListener('click', () => go(url({ min: $('#pmin').value, max: $('#pmax').value })));
@@ -466,6 +484,7 @@ async function productView(main, slug, cfg) {
    <nav class="crumbs"><a href="/" data-link>Home</a> › <a href="/d/${e(p.store)}" data-link>${e(st ? st.name : p.store)}</a> › ${p.category ? `<a href="/shop?store=${e(p.store)}&category=${e(p.category_slug)}" data-link>${e(p.category)}</a> › ` : ''}${e(p.name)}</nav>
    <div class="pd"><div class="gal"><div class="main" id="gmain">${imgs.length ? `<img src="${e(imgs[0])}" alt="${e(p.name)}">` : tile(p)}</div>${imgs.length > 1 ? `<div class="thumbs">${imgs.map((s, i) => `<button class="${i ? '' : 'on'}" data-img="${e(s)}" aria-label="Image ${i + 1}"><img src="${e(s)}" alt=""></button>`).join('')}</div>` : ''}</div>
    <div><div class="mu" style="font-size:13px;font-weight:700">${e(p.brand)}</div><h1>${e(p.name)}</h1>
+     <div style="font-size:14px;margin:-4px 0 8px">Sold by ${p.vendor ? `<a href="/store/${e(p.vendor.slug)}" data-link style="color:var(--accent);font-weight:700">🏪 ${e(p.vendor.name)}</a>` : '<b>Shop-Beta</b>'}</div>
      <div>${p.rating_n ? stars(p.rating, p.rating_n + ' reviews') : '<span class="mu">No reviews yet</span>'}</div>
      <div class="price">${naira(p.price)}${p.compare_price > p.price ? `<s>${naira(p.compare_price)}</s><span class="save">Save ${p.off}%</span>` : ''}</div>
      ${sizes.length ? `<div class="opt-label">${e(p.size_label || 'Size')}</div><div class="chips" id="osize">${sizes.map((s) => `<button class="chip ${sel.size === s ? 'on' : ''}" data-size="${e(s)}">${e(s)}</button>`).join('')}</div>` : ''}
@@ -608,6 +627,7 @@ async function view(main, seg, u, cfg) {
   if (name === 'track') return track(main);
   if (name === 'rider') return riderPage(main);
   if (name === 'pharmacist') return pharmacistPage(main);
+  if (name === 'partner') return partnerPortal(main);
   return '';
 }
 
@@ -699,7 +719,7 @@ async function checkout(main, cfg) {
       if (r.issues.length) err(r.issues[0].message);
       if (!r.lines.length) { go('/checkout', true); return; }
       const d = r.delivery;
-      $('#osum').className = ''; $('#osum').innerHTML = r.lines.map((l) => `<div class="line" style="grid-template-columns:48px 1fr auto"><div class="lt" style="width:48px;height:48px">${tile({ id: l.productId, emoji: l.emoji, image: l.image, name: l.name })}</div><div style="font-size:13px"><b>${e(l.name)}</b><br><span class="mu">${e(l.variantLabel)} × ${l.qty}</span></div><b style="font-size:13px">${naira(l.price * l.qty)}</b></div>`).join('')
+      $('#osum').className = ''; $('#osum').innerHTML = (() => { const gs = byStore(r.lines); return gs.map((g) => groupHead(g.name, gs) + g.lines.map((l) => `<div class="line" style="grid-template-columns:48px 1fr auto"><div class="lt" style="width:48px;height:48px">${tile({ id: l.productId, emoji: l.emoji, image: l.image, name: l.name })}</div><div style="font-size:13px"><b>${e(l.name)}</b><br><span class="mu">${e(l.variantLabel)} × ${l.qty}</span></div><b style="font-size:13px">${naira(l.price * l.qty)}</b></div>`).join('')).join(''); })()
         + `<div class="sum"><span>Subtotal</span><span>${naira(r.subtotal)}</span></div>${r.discount ? `<div class="sum" style="color:var(--ok)"><span>Discount (${e(r.coupon)})</span><span>−${naira(r.discount)}</span></div>` : ''}<div class="sum"><span>Delivery</span><span>${d.options ? (d.fee ? naira(d.fee) : 'Free') : '—'}</span></div><div class="sum total"><span>Total</span><span>${naira(r.total)}</span></div>`;
       if (d.options) $('#dopts').innerHTML = Object.entries(d.options).map(([k, o]) => `<label class="chk" style="padding:10px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px"><input type="radio" name="dm" value="${k}" ${d.selected === k ? 'checked' : ''}><span style="flex:1"><b>${e(o.label)}</b> · ${o.fee ? naira(o.fee) : 'Free'}<br><small class="mu">${e(o.eta)}</small></span></label>`).join('') + (d.free ? '<p class="note">🎉 You qualify for free standard delivery.</p>' : d.threshold ? `<p class="mu" style="font-size:13px">Spend ${naira(d.threshold)} to get free standard delivery.</p>` : '');
       st.delivery = d.selected || st.delivery;
@@ -771,7 +791,7 @@ async function orderPage(main, ref, u, cfg) {
    ${order.masked ? '<div class="card" style="margin-bottom:16px;font-size:14px">For your privacy, your phone number and address are hidden here. Open the link in your order email, or sign in, to see everything, including your delivery code.</div>' : ''}
    ${!['cancelled', 'refunded'].includes(order.status) ? `<div class="card" style="margin-bottom:16px"><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;text-align:center;font-size:12px">${flow.map((s, i) => `<div><div style="height:6px;border-radius:3px;background:${i <= stepIdx ? 'var(--accent)' : 'var(--border)'};margin-bottom:6px"></div><span class="${i <= stepIdx ? '' : 'mu'}" style="font-weight:${i === stepIdx ? 800 : 500}">${STATUS[s]}</span></div>`).join('')}</div></div>` : ''}
    ${deliveryCard(order)}
-   <div class="row c2" style="align-items:start"><div class="card"><h3>Items</h3>${order.items.map((i) => `<div class="line" style="grid-template-columns:48px 1fr auto"><div class="lt" style="width:48px;height:48px">${tile({ id: i.product_id, emoji: i.emoji, image: i.image, name: i.name })}</div><div style="font-size:14px"><b>${e(i.name)}</b><br><span class="mu">${e(i.variant_label)} × ${i.qty}</span></div><b>${naira(i.price * i.qty)}</b></div>`).join('')}
+   <div class="row c2" style="align-items:start"><div class="card"><h3>Items</h3>${(() => { const gs = byStore(order.items, (i) => i.store || ''); return gs.map((g) => groupHead(g.name, gs) + g.lines.map((i) => `<div class="line" style="grid-template-columns:48px 1fr auto"><div class="lt" style="width:48px;height:48px">${tile({ id: i.product_id, emoji: i.emoji, image: i.image, name: i.name })}</div><div style="font-size:14px"><b>${e(i.name)}</b><br><span class="mu">${e(i.variant_label)} × ${i.qty}</span></div><b>${naira(i.price * i.qty)}</b></div>`).join('')).join(''); })()}
      <div class="sum"><span>Subtotal</span><span>${naira(order.subtotal)}</span></div>${order.discount ? `<div class="sum"><span>Discount ${e(order.coupon || '')}</span><span>−${naira(order.discount)}</span></div>` : ''}<div class="sum"><span>Delivery</span><span>${order.delivery_fee ? naira(order.delivery_fee) : 'Free'}</span></div><div class="sum total"><span>Total</span><span>${naira(order.total)}</span></div></div>
     <div style="display:grid;gap:16px"><div class="card"><h3>Delivery</h3><p style="margin:0">${e(order.name)}<br>${e(order.address)}${order.city ? ', ' + e(order.city) : ''}, ${e(order.state)}<br>${e(order.phone)}</p><p class="mu" style="margin-bottom:0">${e({ standard: 'Standard delivery', express: 'Express delivery', pickup: 'Store pickup' }[order.delivery] || '')} · ${order.payment_method === 'pod' ? 'Pay on delivery' : order.payment_status === 'paid' ? 'Paid online' : 'Online payment pending'}</p></div>
      <div class="card"><h3>Updates</h3>${order.events.slice().reverse().map((ev) => `<div style="font-size:13px;margin-bottom:8px"><b>${e(STATUS[ev.status] || ev.status)}</b> <span class="mu">· ${fmt(ev.created)}</span>${ev.note ? `<br><span class="mu">${e(ev.note)}</span>` : ''}</div>`).join('')}</div></div></div>
@@ -1125,8 +1145,11 @@ async function route() {
     else if (seg[0] === 'd' && seg.length === 2) title = await home(main, seg[1], cfg);
     else if (seg[0] === 'shop' || (seg[0] === 'd' && seg[2] === 'shop')) title = await shopView(main, u, cfg);
     else if (seg[0] === 'product' && seg[1]) title = await productView(main, seg[1], cfg);
+    else if (seg[0] === 'stores' && seg.length === 1) title = await storesView(main, u, cfg);
+    else if (seg[0] === 'store' && seg[1]) title = await storeView(main, seg[1], u, cfg);
+    else if (seg[0] === 'sell' && seg.length === 1) title = await sellView(main, cfg);
     else if (seg[0] === 'page' && seg[1]) title = staticPage(main, seg[1], cfg);
-    else if (['checkout', 'order', 'account', 'login', 'register', 'wishlist', 'track', 'forgot', 'rider', 'pharmacist'].includes(seg[0])) { title = await view(main, seg, u, cfg); }
+    else if (['checkout', 'order', 'account', 'login', 'register', 'wishlist', 'track', 'forgot', 'rider', 'pharmacist', 'partner'].includes(seg[0])) { title = await view(main, seg, u, cfg); }
     else main.innerHTML = `<div class="wrap empty"><div class="em">🧭</div><h2>Page not found</h2><p><a class="btn" href="/" data-link>Back to the store</a></p></div>`;
     document.title = (title ? title + ' · ' : '') + cfg.settings.store_name;
     syncHeader(); $('#main').focus({ preventScroll: true });
@@ -1136,6 +1159,157 @@ async function route() {
   trackPage();
 }
 function trackPage() { try { if (window.gtag) window.gtag('event', 'page_view', { page_path: location.pathname }); if (window.fbq) window.fbq('track', 'PageView'); } catch { /* analytics blocked */ } }
+
+
+/* ===== partner stores: directory, store page, sign-up, portal ===== */
+const storeCard = (v) => `<a class="scard" href="/store/${e(v.slug)}" data-link><span class="slogo">${v.logo ? `<img src="${e(v.logo)}" alt="" loading="lazy">` : e(v.emoji || '🏪')}</span><span><b>${e(v.name)}</b><br><span class="mu" style="font-size:12px">${e([v.city, v.state].filter(Boolean).join(', '))}${v.products != null ? ' · ' + v.products + ' product' + (v.products === 1 ? '' : 's') : ''}</span></span></a>`;
+
+async function storesView(main, u, cfg) {
+  const q = Object.fromEntries(u.searchParams.entries()); const params = new URLSearchParams(); for (const k of ['store', 'q']) if (q[k]) params.set(k, q[k]);
+  const d = await api('/api/vendors?' + params.toString());
+  const url = (o) => { const p2 = new URLSearchParams(params); for (const [k, v] of Object.entries(o)) { if (v) p2.set(k, v); else p2.delete(k); } return '/stores' + (p2.toString() ? '?' + p2.toString() : ''); };
+  main.innerHTML = `<div class="wrap page"><nav class="crumbs"><a href="/" data-link>Home</a> › Partner stores</nav>
+    <h1 style="font-size:28px;margin:0 0 4px">Partner stores</h1><p class="mu" style="margin-top:0">Shop from the store that suits you. Every store is checked by us before it goes live, and one cart can hold items from several stores.</p>
+    <form id="stq" style="display:flex;gap:8px;margin:12px 0;flex-wrap:wrap"><input id="stqi" placeholder="Search store names" value="${e(q.q || '')}" style="flex:1;min-width:200px"><button class="btn">Search</button></form>
+    <div class="chips" style="margin-bottom:16px"><a class="chip ${!q.store ? 'on' : ''}" href="${url({ store: '' })}" data-link>All departments</a>${cfg.stores.map((s2) => `<a class="chip ${q.store === s2.slug ? 'on' : ''}" href="${url({ store: s2.slug })}" data-link>${e(s2.icon)} ${e(s2.name)}</a>`).join('')}</div>
+    ${d.stores.length ? `<div class="scards">${d.stores.map(storeCard).join('')}</div>` : '<div class="empty"><div class="em">🏪</div><h3>No partner stores here yet</h3><p>Check back soon, or <a href="/sell" data-link style="color:var(--accent);font-weight:700">open your own store with us</a>.</p></div>'}</div>`;
+  $('#stq').addEventListener('submit', (ev) => { ev.preventDefault(); go(url({ q: $('#stqi').value.trim() })); });
+  return 'Partner stores';
+}
+
+async function storeView(main, slug, u, cfg) {
+  const d = await api('/api/vendors/' + encodeURIComponent(slug)); const v = d.vendor;
+  const q = Object.fromEntries(u.searchParams.entries()); const params = new URLSearchParams({ vendor: v.slug }); for (const k of ['store', 'category', 'sort', 'page', 'q']) if (q[k]) params.set(k, q[k]);
+  const pr = await api('/api/products?' + params.toString() + '&nostores=1');
+  const url = (o) => { const p2 = new URLSearchParams(); for (const k of ['store', 'category', 'sort', 'q']) if (q[k]) p2.set(k, q[k]); for (const [k, x] of Object.entries(o)) { if (x) p2.set(k, x); else p2.delete(k); } return '/store/' + e(v.slug) + (p2.toString() ? '?' + p2.toString() : ''); };
+  main.innerHTML = `<div class="wrap"><nav class="crumbs"><a href="/" data-link>Home</a> › <a href="/stores" data-link>Partner stores</a> › ${e(v.name)}</nav>
+    <div class="sban" ${v.banner ? `style="background-image:url('${e(v.banner)}')"` : ''}></div>
+    <div class="shead"><span class="slogo">${v.logo ? `<img src="${e(v.logo)}" alt="">` : e(v.emoji || '🏪')}</span><div style="padding-bottom:4px"><h1 style="margin:0;font-size:26px">${e(v.name)}</h1><div class="mu">${e(v.tagline || '')}</div></div></div>
+    <div class="card" style="margin:16px 0"><p style="margin:0 0 6px">${e(v.about || '')}</p><div class="mu" style="font-size:13px">${e([v.city, v.state].filter(Boolean).join(', '))}${v.opening_hours ? ' · Open: ' + e(v.opening_hours) : ''}</div></div>
+    ${d.departments.length > 1 ? `<div class="chips" style="margin-bottom:8px"><a class="chip ${!q.store ? 'on' : ''}" href="${url({ store: '', category: '' })}" data-link>All</a>${d.departments.map((x) => `<a class="chip ${q.store === x.slug ? 'on' : ''}" href="${url({ store: x.slug, category: '' })}" data-link>${e(x.icon)} ${e(x.name)}</a>`).join('')}</div>` : ''}
+    ${d.categories.filter((c) => !q.store || c.store === q.store).length ? `<div class="chips" style="margin-bottom:12px">${d.categories.filter((c) => !q.store || c.store === q.store).map((c) => `<a class="chip ${q.category === c.slug ? 'on' : ''}" href="${url({ category: q.category === c.slug ? '' : c.slug })}" data-link>${e(c.name)}</a>`).join('')}</div>` : ''}
+    <div class="shop-top"><span class="mu">${pr.total} product${pr.total === 1 ? '' : 's'}</span><select id="sort" aria-label="Sort by">${[['', 'Featured'], ['popular', 'Most popular'], ['newest', 'Newest'], ['price_asc', 'Price: low to high'], ['price_desc', 'Price: high to low']].map(([x, l]) => `<option value="${x}" ${q.sort === x || (!q.sort && !x) ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    ${pr.products.length ? `<div class="grid">${pr.products.map(productCard).join('')}</div>` : '<div class="empty"><div class="em">🛍</div><h3>Nothing here yet</h3><p>This store is adding products.</p></div>'}
+    ${pr.pages > 1 ? `<nav class="pager" aria-label="Pages">${Array.from({ length: pr.pages }, (_, i) => `<a class="btn sm ${pr.page === i + 1 ? '' : 'ghost'}" href="${url({ page: i + 1 })}" data-link>${i + 1}</a>`).join('')}</nav>` : ''}</div>`;
+  $('#sort').addEventListener('change', (ev) => go(url({ sort: ev.target.value })));
+  return v.name;
+}
+
+async function sellView(main, cfg) {
+  const depts = cfg.stores.filter((x) => x.slug !== 'pharmacy');
+  main.innerHTML = `<div class="wrap page" style="max-width:760px"><nav class="crumbs"><a href="/" data-link>Home</a> › Sell with us</nav><h1 style="font-size:28px;margin:0 0 6px">Open a partner store</h1>
+   <p class="mu" style="margin-top:0">Give us your store details and we will evaluate your application, usually over a few weeks, and check your business registration. While you are being evaluated you can already sign in at <a href="/partner" data-link style="color:var(--accent);font-weight:700">/partner</a> and prepare your products. Customers see your store only after we approve it. Each product is reviewed by us too. We keep a commission on each sale and pay you what is due.</p>
+   <form id="sf" class="card" novalidate><div class="row c2">${field('sn', 'Store name', { req: 1, max: 80 })}${field('sc', 'Contact person', { req: 1, max: 80, auto: 'name' })}</div>
+    <div class="row c2">${field('se', 'Email (your sign-in)', { req: 1, type: 'email', auto: 'email' })}${field('sp', 'Phone', { req: 1, type: 'tel', auto: 'tel' })}</div>
+    ${field('sa', 'Store address', { req: 1, max: 200 })}<div class="row c2"><label class="f">State<select id="ss" required><option value="">Choose…</option>${cfg.zones.map((z) => `<option>${e(z.state)}</option>`).join('')}</select></label>${field('sci', 'City / area', { max: 60 })}</div>
+    ${field('sr', 'Business registration number (CAC)', { req: 1, max: 40 })}
+    <label class="f">Tell customers about your store<textarea id="sab" rows="3" maxlength="1500"></textarea></label>
+    <h4 style="margin:12px 0 4px">Departments you will sell in (up to 3)</h4><div class="chips" id="sd">${depts.map((x) => `<label class="chip" style="cursor:pointer"><input type="checkbox" value="${e(x.slug)}" style="width:auto;margin-right:6px">${e(x.icon)} ${e(x.name)}</label>`).join('')}</div>
+    <p class="mu" style="font-size:12px">Medicines are listed by our own pharmacy team, not by partner stores.</p>
+    ${field('spw', 'Password (at least 12 characters)', { req: 1, type: 'password', auto: 'new-password' })}
+    <p class="err hide" id="serr" role="alert"></p><button class="btn lg">Send my application</button></form></div>`;
+  $('#sd').addEventListener('change', (ev) => { const on = $$('#sd input:checked').length; if (on > 3) { ev.target.checked = false; toast('You can choose up to 3 departments', 'bad'); } });
+  $('#sf').addEventListener('submit', async (ev) => {
+    ev.preventDefault(); const er = $('#serr'); er.classList.add('hide');
+    try {
+      await api('/api/partners/apply', { body: { name: $('#sn').value, contactName: $('#sc').value, email: $('#se').value, phone: $('#sp').value, address: $('#sa').value, state: $('#ss').value, city: $('#sci').value, regNo: $('#sr').value, about: $('#sab').value, password: $('#spw').value, departments: $$('#sd input:checked').map((i) => i.value) } });
+      main.innerHTML = `<div class="wrap page" style="max-width:640px"><div class="card"><h2>Thank you</h2><p>We have your application. We will check your details and contact you. You can already <a href="/login?next=/partner" data-link style="color:var(--accent);font-weight:700">sign in</a> with your email to prepare your store page and products.</p></div></div>`;
+    } catch (x) { er.textContent = x.message; er.classList.remove('hide'); }
+  });
+  return 'Open a partner store';
+}
+
+async function partnerPortal(main) {
+  const draw = (inner) => { main.innerHTML = `<div class="wrap page" style="max-width:960px"><h1 style="font-size:26px">🏪 Partner store</h1>${inner}</div>`; };
+  if (!store.user || store.user.role !== 'vendor') {
+    draw('<div class="card"><p class="mu">Sign in with the email and password you used to apply. Not a partner yet? <a href="/sell" data-link style="color:var(--accent);font-weight:700">Open a store with us</a>.</p><form id="pl">' + field('pe', 'Email', { type: 'email', req: 1 }) + field('pp', 'Password', { type: 'password', req: 1 }) + '<p class="err hide" id="perr"></p><button class="btn">Sign in</button></form></div>');
+    $('#pl').addEventListener('submit', async (ev) => { ev.preventDefault(); try { const r = await api('/api/auth/login', { body: { email: $('#pe').value.trim(), password: $('#pp').value } }); if (r.user.role !== 'vendor') { await api('/api/auth/logout', { body: {} }); throw new Error('This account is not a partner store.'); } location.reload(); } catch (x) { $('#perr').textContent = x.message; $('#perr').classList.remove('hide'); } });
+    return 'Partner store';
+  }
+  const P = (p, o) => api('/api/partner' + p, o);
+  let tab = 'products', editing = null;
+  const run = (fn) => async (ev) => { try { await fn(ev); } catch (x) { toast(x.message, 'bad'); } };
+  const upload = (file) => new Promise((ok, no) => { if (!file) return no(new Error('No file')); const r = new FileReader(); r.onload = async () => { try { ok((await P('/upload', { body: { data: r.result } })).url); } catch (x) { no(x); } }; r.readAsDataURL(file); });
+  const LIST = { pending: ['Waiting for our review', 'mu'], approved: ['Live', 'ok'], rejected: ['Needs changes', 'err'] };
+  const show = run(async () => {
+    const me = (await P('/me')).store;
+    const banner = me.status === 'pending' ? `<div class="note">Your application is being evaluated. Customers cannot see your store yet. You can prepare your store page and products meanwhile. ${e(me.status_note)}</div>`
+      : me.status === 'approved' ? '' : `<div class="note" style="border-color:var(--bad,#c33)">Your store is <b>${e(me.status)}</b>. ${e(me.status_note)} Please contact us.</div>`;
+    const tabs = [['products', 'Products'], ['orders', 'Orders'], ['earnings', 'Earnings'], ['store', 'Store page']];
+    const wrap = (inner) => draw(`<p class="mu">${e(me.name)} · ${e(me.status)} · <button class="btn ghost sm" id="plo">Sign out</button> ${me.status === 'approved' ? `<a class="btn ghost sm" href="/store/${e(me.slug)}" data-link>View my page</a>` : ''}</p>${banner}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">${tabs.map(([k, t]) => `<button class="btn ${tab === k ? '' : 'ghost'} sm" data-tab="${k}">${t}</button>`).join('')}</div>${inner}`);
+    const wire = () => { $('#plo').addEventListener('click', async () => { await api('/api/auth/logout', { body: {} }); location.reload(); }); $$('[data-tab]', main).forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; editing = null; show(); })); };
+    if (tab === 'products' && editing !== null) {
+      const cat = await P('/catalogue');
+      const x = editing ? (await P('/products/' + editing)).product : { name: '', store: cat.departments[0] ? cat.departments[0].store : '', category_id: '', brand: '', description: '', price: '', compare_price: 0, stock: 0, sku: '', images: [], variants: [], active: 1 };
+      let images = [...x.images];
+      const paint = () => {
+        wrap(`<div class="card"><h3>${editing ? 'Edit product' : 'New product'}</h3>${x.listing === 'rejected' ? `<p class="err">We asked for changes: ${e(x.listing_note)}</p>` : ''}${editing ? '<p class="mu" style="font-size:13px">Changing the name, description, photos or category sends the product back to us for review. Price and stock changes go live at once.</p>' : ''}
+          <div class="row c2">${field('pn', 'Name', { req: 1, val: x.name, max: 140 })}${field('pb', 'Brand', { val: x.brand, max: 60 })}</div>
+          <div class="row c2"><label class="f">Department<select id="pd">${cat.departments.map((d) => `<option value="${e(d.store)}" ${d.store === x.store ? 'selected' : ''}>${e(d.name)}</option>`).join('')}</select></label><label class="f">Category<select id="pcat"></select></label></div>
+          <div class="row c2">${field('pp', 'Price (₦)', { req: 1, type: 'number', val: x.price })}${field('pcp', 'Old price (₦, optional)', { type: 'number', val: x.compare_price || '' })}</div>
+          <div class="row c2">${field('ps', 'Stock', { type: 'number', val: x.stock })}${field('psku', 'SKU (optional)', { val: x.sku, max: 40 })}</div>
+          <label class="f">Description<textarea id="pdesc" rows="4" maxlength="4000">${e(x.description)}</textarea></label>
+          <h4 style="margin:10px 0 4px">Photos (up to 8)</h4><div style="display:flex;gap:8px;flex-wrap:wrap">${images.map((u2, i) => `<span style="position:relative"><img src="${e(u2)}" style="width:72px;height:72px;object-fit:cover;border-radius:10px"><button type="button" class="rm" data-rmi="${i}" style="position:absolute;top:-6px;right:-6px">✕</button></span>`).join('')}<label class="btn ghost sm" style="cursor:pointer">+ Add photo<input type="file" id="pimg" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none"></label></div>
+          <label class="chk" style="margin-top:10px"><input type="checkbox" id="pact" ${x.active ? 'checked' : ''}> Show this product in my store</label>
+          <p class="mu" style="font-size:12px">Sizes and colours: ask us to set them up for now.</p>
+          <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="psave">Save</button><button class="btn ghost" id="pcancel">Cancel</button></div></div>`);
+        const fillCats = () => { const d = $('#pd').value; $('#pcat').innerHTML = '<option value="">None</option>' + cat.categories.filter((c) => c.store === d).map((c) => `<option value="${c.id}" ${String(c.id) === String(x.category_id) ? 'selected' : ''}>${e(c.name)}</option>`).join(''); };
+        fillCats(); $('#pd').addEventListener('change', () => { x.category_id = ''; fillCats(); });
+        $$('[data-rmi]', main).forEach((b) => b.addEventListener('click', () => { images.splice(Number(b.dataset.rmi), 1); keep(); paint(); }));
+        const keep = () => { Object.assign(x, { name: $('#pn').value, brand: $('#pb').value, price: $('#pp').value, compare_price: $('#pcp').value, stock: $('#ps').value, sku: $('#psku').value, description: $('#pdesc').value, store: $('#pd').value, category_id: $('#pcat').value, active: $('#pact').checked ? 1 : 0 }); };
+        $('#pimg').addEventListener('change', run(async (ev) => { keep(); if (images.length >= 8) throw new Error('Up to 8 photos'); images.push(await upload(ev.target.files[0])); paint(); }));
+        $('#pcancel').addEventListener('click', () => { editing = null; show(); });
+        $('#psave').addEventListener('click', run(async () => { keep(); const body = { ...x, images, variants: x.variants || [], category_id: x.category_id || null }; const r = editing ? await P('/products/' + editing, { method: 'PUT', body }) : await P('/products', { body }); toast(r.resubmitted ? 'Saved. Sent to us for review.' : 'Saved'); editing = null; show(); }));
+        wire();
+      };
+      paint(); return;
+    }
+    if (tab === 'products') {
+      const r = await P('/products');
+      wrap(`<div style="margin-bottom:10px"><button class="btn" id="pnew">+ Add product</button></div>${r.products.length ? r.products.map((p) => { const L = LIST[p.listing] || ['', '']; return `<div class="card" style="margin-bottom:8px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap"><div><b>${e(p.name)}</b> · ${naira(p.price)}<br><span class="mu" style="font-size:12px">${e(p.category || '')} · ${L[0]}${p.listing === 'rejected' ? ': ' + e(p.listing_note) : ''}${p.active ? '' : ' · hidden'}</span></div>
+        <div style="display:flex;gap:6px;align-items:center">Stock <input type="number" min="0" value="${p.stock}" data-stk="${p.id}" style="width:80px"><button class="btn ghost sm" data-edit="${p.id}">Edit</button><button class="btn ghost sm" data-del="${p.id}">Remove</button></div></div>`; }).join('') : '<div class="card"><p class="mu">No products yet. Add your first one. We review each product before customers see it.</p></div>'}`);
+      wire(); $('#pnew').addEventListener('click', () => { editing = 0; show(); });
+      $$('[data-edit]', main).forEach((b) => b.addEventListener('click', () => { editing = b.dataset.edit; show(); }));
+      $$('[data-stk]', main).forEach((i) => i.addEventListener('change', run(async () => { await P(`/products/${i.dataset.stk}/stock`, { method: 'PUT', body: { stock: i.value } }); toast('Stock saved'); })));
+      $$('[data-del]', main).forEach((b) => b.addEventListener('click', run(async () => { if (!confirm('Remove this product?')) return; await P('/products/' + b.dataset.del, { method: 'DELETE' }); show(); })));
+      return;
+    }
+    if (tab === 'orders') {
+      const r = await P('/orders');
+      wrap(r.orders.length ? r.orders.map((o) => `<div class="card" style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;gap:8px"><b>${e(o.ref)}</b><span class="mu">${e(o.status)} · ${fmt(o.created)}</span></div>${o.items.map((i) => `<div style="font-size:14px">${i.qty} × ${e(i.name)}${i.variant ? ' (' + e(i.variant) + ')' : ''} · ${naira(i.price * i.qty)}</div>`).join('')}<div class="mu" style="font-size:13px;margin-top:4px">Sales ${naira(o.gross)} · our commission ${naira(o.commission)} · yours ${naira(o.net)}</div></div>`).join('') + '<p class="mu" style="font-size:12px">Our rider collects the order from you. Customer details stay with us.</p>' : '<div class="card"><p class="mu">No orders yet.</p></div>');
+      wire(); return;
+    }
+    if (tab === 'earnings') {
+      const r = await P('/earnings');
+      wrap(`<div class="row c2"><div class="card"><div class="mu">Owed to you now</div><h2 style="margin:4px 0">${naira(r.balance)}</h2><div class="mu" style="font-size:12px">Delivered sales ${naira(r.gross)} − our commission ${naira(r.commission)} − paid out ${naira(r.paid)}</div></div><div class="card"><div class="mu">On the way (not delivered yet)</div><h2 style="margin:4px 0">${naira(r.in_progress)}</h2><div class="mu" style="font-size:12px">Counted once the customer receives the order.</div></div></div>
+        <div class="card" style="margin-top:12px"><h3>Payments we made to you</h3>${r.payouts.length ? r.payouts.map((p) => `<div style="display:flex;justify-content:space-between;padding:4px 0"><span>${fmt(p.created)} · ${e(p.method)} ${e(p.reference)}</span><b>${naira(p.amount)}</b></div>`).join('') : '<p class="mu">None yet.</p>'}</div>`);
+      wire(); return;
+    }
+    // store page
+    wrap(`<div class="card"><h3>Your store page</h3><form id="stf">
+      <div class="row c2">${field('mn', 'Store name', { req: 1, val: me.name, max: 80 })}${field('mt', 'Tagline', { val: me.tagline, max: 120 })}</div>
+      <label class="f">About your store<textarea id="mab" rows="3" maxlength="1500">${e(me.about)}</textarea></label>
+      <div class="row c2">${field('mph', 'Phone', { val: me.phone, max: 30 })}${field('mh', 'Opening hours', { val: me.opening_hours, max: 120, ph: 'Mon–Sat 8am–8pm' })}</div>
+      ${field('mad', 'Address', { val: me.address, max: 200 })}<div class="row c2">${field('mst', 'State', { val: me.state, max: 60 })}${field('mci', 'City / area', { val: me.city, max: 60 })}</div>
+      <div class="row c2"><div><h4 style="margin:6px 0">Logo</h4>${me.logo ? `<img src="${e(me.logo)}" style="width:64px;height:64px;object-fit:cover;border-radius:12px"><br>` : ''}<input type="file" id="mlogo" accept="image/*"></div><div><h4 style="margin:6px 0">Banner</h4>${me.banner ? `<img src="${e(me.banner)}" style="width:140px;height:60px;object-fit:cover;border-radius:10px"><br>` : ''}<input type="file" id="mban" accept="image/*"></div></div>
+      <h4 style="margin:12px 0 4px">Departments (up to 3)</h4><div class="chips" id="mdep"></div>
+      <p class="mu" style="font-size:12px">To remove a department, first switch off or move its products. Changing the address sends our team a note to re-check your map position.</p>
+      <button class="btn" style="margin-top:10px">Save</button></form></div>`);
+    const cat = await P('/catalogue'); const have = new Set(me.departments.map((d) => d.store));
+    $('#mdep').innerHTML = cat.all_departments.map((d) => `<label class="chip" style="cursor:pointer"><input type="checkbox" value="${e(d.slug)}" ${have.has(d.slug) ? 'checked' : ''} style="width:auto;margin-right:6px">${e(d.icon)} ${e(d.name)}</label>`).join('');
+    $('#mdep').addEventListener('change', (ev) => { if ($$('#mdep input:checked').length > 3) { ev.target.checked = false; toast('Up to 3 departments', 'bad'); } });
+    let logo = me.logo, ban = me.banner;
+    $('#mlogo').addEventListener('change', run(async (ev) => { logo = await upload(ev.target.files[0]); toast('Logo ready. Press Save.'); }));
+    $('#mban').addEventListener('change', run(async (ev) => { ban = await upload(ev.target.files[0]); toast('Banner ready. Press Save.'); }));
+    $('#stf').addEventListener('submit', run(async (ev) => { ev.preventDefault();
+      await P('/me', { method: 'PUT', body: { name: $('#mn').value, tagline: $('#mt').value, about: $('#mab').value, phone: $('#mph').value, opening_hours: $('#mh').value, address: $('#mad').value, state: $('#mst').value, city: $('#mci').value, logo, banner: ban } });
+      await P('/departments', { method: 'PUT', body: { departments: $$('#mdep input:checked').map((i) => i.value) } }); toast('Saved'); show(); }));
+    wire();
+  });
+  await show();
+  return 'Partner store';
+}
 
 /* ---------- shell ---------- */
 function shell() {
@@ -1161,7 +1335,7 @@ function shell() {
         <form class="news" id="nform"><input type="email" required placeholder="Your email" aria-label="Email for newsletter"><button class="btn sm">Subscribe</button></form></div>
       <div><h4>Shop</h4>${cfg.stores.map((st) => `<a href="/d/${e(st.slug)}" data-link>${e(st.name)}</a>`).join('')}</div>
       <div><h4>Help</h4><a href="/page/faq" data-link>FAQ</a><a href="/page/shipping" data-link>Shipping &amp; Returns</a><a href="/track" data-link>Track an order</a><a href="/page/contact" data-link>Contact us</a></div>
-      <div><h4>Company</h4><a href="/page/about" data-link>About</a><a href="/page/privacy" data-link>Privacy</a><a href="/page/terms" data-link>Terms</a>
+      <div><h4>Company</h4><a href="/page/about" data-link>About</a><a href="/stores" data-link>Partner stores</a><a href="/sell" data-link>Sell with us</a><a href="/page/privacy" data-link>Privacy</a><a href="/page/terms" data-link>Terms</a>
         ${s.instagram ? `<a href="${e(s.instagram)}" target="_blank" rel="noopener">Instagram</a>` : ''}${s.facebook ? `<a href="${e(s.facebook)}" target="_blank" rel="noopener">Facebook</a>` : ''}</div>
     </div>
     ${cfg.pharmacy && (s.pharm_aggregator_licence || s.pharm_pcn_logo || s.pharm_statement) ? `<div class="legal" style="display:block;text-align:left">${s.pharm_pcn_logo ? `<img src="${e(s.pharm_pcn_logo)}" alt="Pharmacists Council of Nigeria" style="height:44px;vertical-align:middle;margin-right:10px">` : ''}${s.pharm_aggregator_licence ? `<b>Pharmacy aggregator licence no. ${e(s.pharm_aggregator_licence)}</b><br>` : ''}${s.pharm_statement ? e(s.pharm_statement) : ''}</div>` : ''}
@@ -1274,7 +1448,7 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['pharmacy', '💊', 'Pharmacy']];
+const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['pharmacy', '💊', 'Pharmacy']];
 async function shell(page, body, unread) {
   root.innerHTML = `<div class="adm"><aside class="side"><div class="side-top"><div><b>🛠 Shop-Beta</b><div class="who">${e(me.email)}</div></div><div><a class="btn ghost sm" href="/" target="_blank" rel="noopener">View store</a> <button class="btn ghost sm" id="lo">Sign out</button></div></div>
   <nav>${NAV.map(([k, ic, t]) => `<a data-nav="${k}" class="${page === k ? 'on' : ''}">${ic} ${t}${k === 'messages' && unread ? ` <span class="dot">${unread}</span>` : ''}</a>`).join('')}</nav></aside><main class="main" id="mn">${body}</main></div>`;
@@ -1343,7 +1517,7 @@ async function orderModal(id) {
   const riders = o.delivery !== 'pickup' ? (await api('/api/admin/riders')).riders.filter((r) => r.active) : [];
   const paid = o.payment_status === 'paid';
   openModal(`<h2>Order ${e(o.ref)} ${pill(o.status)}</h2><div class="kv"><b>Customer</b><span>${e(o.name)} · ${e(o.phone)}<br>${e(o.email)}</span><b>Deliver to</b><span>${e(o.address)}${o.city ? ', ' + e(o.city) : ''}, ${e(o.state)}<br><span class="mu2">${e(o.delivery)}${o.notes ? ' · Note: ' + e(o.notes) : ''}</span></span><b>Payment</b><span>${o.payment_method === 'pod' ? 'Pay on delivery' : 'Paystack'} · ${paid ? 'Paid' : 'Not yet paid'}${o.paystack_ref ? '<br><span class="mu2">Ref ' + e(o.paystack_ref) + '</span>' : ''}</span><b>Placed</b><span>${dt(o.created)}</span></div>
-  <div class="tw"><table class="t" style="margin-top:12px"><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>${o.items.map((i) => `<tr><td>${e(i.name)}<div class="mu2">${e(i.variant_label || '')}</div></td><td>${i.qty}</td><td>${naira(i.price)}</td><td>${naira(i.price * i.qty)}</td></tr>`).join('')}
+  <div class="tw"><table class="t" style="margin-top:12px"><tr><th>Item</th><th>Sold by</th><th>Qty</th><th>Price</th><th>Total</th><th>Our commission</th></tr>${o.items.map((i) => `<tr><td>${e(i.name)}<div class="mu2">${e(i.variant_label || '')}</div></td><td>${e(i.vendor_name || 'Shop-Beta')}</td><td>${i.qty}</td><td>${naira(i.price)}</td><td>${naira(i.price * i.qty)}</td><td>${i.vendor_id ? naira(i.commission) + ' <span class="mu2">(' + Number(i.commission_pct) + '%)</span>' : '—'}</td></tr>`).join('')}
   <tr><td colspan="3" class="mu2">Subtotal</td><td>${naira(o.subtotal)}</td></tr>${o.discount ? `<tr><td colspan="3" class="mu2">Discount ${e(o.coupon || '')}</td><td>−${naira(o.discount)}</td></tr>` : ''}<tr><td colspan="3" class="mu2">Delivery</td><td>${naira(o.delivery_fee)}</td></tr><tr><td colspan="3"><b>Total</b></td><td><b>${naira(o.total)}</b></td></tr></table></div>
   <h3 style="margin-top:14px">History</h3><ul class="tl">${o.events.map((x) => `<li><b>${e(x.status)}</b> · <span class="mu2">${dt(x.created)}</span>${x.note ? '<br>' + e(x.note) : ''}</li>`).join('')}</ul>
   ${o.status === 'refunded' ? '<p class="mu">This order is refunded and cannot be changed.</p>' : o.status === 'cancelled' && o.payment_status !== 'paid' ? '<p class="mu">This order is cancelled and cannot be changed.</p>' : `<div class="nop"><div class="fgrid"><label class="f">Update status<select id="ost">${STATUSES.map((s) => `<option ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label class="f">Note (optional, shown in history)<input id="onote" maxlength="300"></label></div></div>`}
@@ -1568,6 +1742,57 @@ views.settings = async () => {
 };
 
 /* ---------------- pharmacy (admin) ---------------- */
+
+/* ---------------- partner stores ---------------- */
+const vstate = { tab: 'stores', status: '' };
+views.vendors = async () => {
+  const [list, rev, pay] = await Promise.all([api('/api/admin/vendors?' + new URLSearchParams(vstate.status ? { status: vstate.status } : {})), api('/api/admin/vendors/review/products'), api('/api/admin/vendors/payables')]);
+  const days = (t) => Math.max(0, Math.floor((Date.now() / 1000 - t) / 86400));
+  const pill = (st) => `<span class="pill ${st === 'approved' ? 'ok' : st === 'pending' ? '' : 'bad'}">${e(st === 'pending' ? 'evaluating' : st)}</span>`;
+  const tabs = [['stores', 'Stores'], ['review', `Product review${rev.products.length ? ' (' + rev.products.length + ')' : ''}`], ['pay', 'Payables']];
+  let body = '';
+  if (vstate.tab === 'stores') body = `<div class="tbar"><select id="vst"><option value="">All</option>${['pending', 'approved', 'suspended', 'rejected'].map((x) => `<option value="${x}" ${vstate.status === x ? 'selected' : ''}>${x === 'pending' ? 'evaluating' : x}</option>`).join('')}</select></div>
+    <div class="panel"><div class="tw"><table class="t"><tr><th>Store</th><th>Status</th><th>Departments</th><th>Products</th><th>Applied</th><th>We owe</th></tr>${list.vendors.map((v) => `<tr class="click" data-v="${v.id}"><td><b>${e(v.name)}</b><div class="mu2">${e(v.contact_name)} · ${e(v.phone)}</div></td><td>${pill(v.status)}</td><td>${v.departments.map((d) => e(d.name)).join(', ')}</td><td>${v.products}${v.to_review ? ` <span class="dot">${v.to_review} to review</span>` : ''}</td><td>${days(v.created)} days ago</td><td>${naira(Math.max(0, v.balance))}</td></tr>`).join('') || '<tr><td colspan="6" class="mu">No partner stores yet. Share your /sell page so stores can apply.</td></tr>'}</table></div></div>
+    <p class="mu2">New stores start as <b>evaluating</b>: customers cannot see them. Check their registration number and details over a few weeks, then open the store and press Approve.</p>`;
+  if (vstate.tab === 'review') body = rev.products.length ? rev.products.map((p) => `<div class="panel"><div style="display:flex;gap:12px;flex-wrap:wrap"><div style="display:flex;gap:6px">${p.images.slice(0, 3).map((u2) => `<img src="${e(u2)}" style="width:80px;height:80px;object-fit:cover;border-radius:10px">`).join('') || `<span style="font-size:36px">${e(p.emoji)}</span>`}</div><div style="flex:1;min-width:200px"><b>${e(p.name)}</b> · ${naira(p.price)} · stock ${p.stock}<div class="mu2">${e(p.vendor_name)}${p.vendor_status !== 'approved' ? ' (' + (p.vendor_status === 'pending' ? 'evaluating' : e(p.vendor_status)) + ')' : ''} · ${e(p.store)}${p.category ? ' › ' + e(p.category) : ''}</div><p style="margin:6px 0">${e(p.description)}</p>${p.listing_note ? `<div class="mu2">Last note: ${e(p.listing_note)}</div>` : ''}</div>
+      <div><button class="btn sm" data-pa="${p.id}">Approve</button> <button class="btn ghost sm" data-pr="${p.id}">Ask for changes</button></div></div></div>`).join('') : '<div class="panel"><p class="mu">Nothing waiting for review.</p></div>';
+  if (vstate.tab === 'pay') body = `<div class="panel"><h3>What we owe partner stores</h3><p class="mu2">A store is owed the price of delivered orders minus our commission. Refunded or cancelled orders do not count. Pay by bank transfer, then record it here. Total owed now: <b>${naira(pay.owed)}</b></p><div class="tw"><table class="t"><tr><th>Store</th><th>Delivered sales</th><th>Our commission</th><th>Paid out</th><th>Owed</th><th>On the way</th><th></th></tr>${pay.vendors.map((v) => `<tr><td>${e(v.name)}</td><td>${naira(v.gross)}</td><td>${naira(v.commission)}</td><td>${naira(v.paid)}</td><td><b>${naira(v.balance)}</b></td><td>${naira(v.in_progress)}</td><td>${v.balance > 0 ? `<button class="btn sm" data-pay="${v.id}" data-bal="${v.balance}">Record payout</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="mu">No sales yet.</td></tr>'}</table></div></div>`;
+  mn(hd('Partner stores') + `<div style="display:flex;gap:8px;margin-bottom:12px">${tabs.map(([k, t]) => `<button class="btn ${vstate.tab === k ? '' : 'ghost'} sm" data-vt="${k}">${t}</button>`).join('')}</div>` + body);
+  onAll('[data-vt]', 'click', (el) => { vstate.tab = el.dataset.vt; return views.vendors(); });
+  on('#vst', 'change', () => { vstate.status = $('#vst').value; return views.vendors(); });
+  onAll('[data-v]', 'click', (el) => vendorForm(el.dataset.v));
+  onAll('[data-pa]', 'click', async (el) => { await api('/api/admin/vendors/review/products/' + el.dataset.pa, { body: { decision: 'approved' } }); toast('Approved'); views.vendors(); });
+  onAll('[data-pr]', 'click', async (el) => { const note = prompt('What should the store change?'); if (!note) return; await api('/api/admin/vendors/review/products/' + el.dataset.pr, { body: { decision: 'rejected', note } }); views.vendors(); });
+  onAll('[data-pay]', 'click', async (el) => { const a = prompt('Amount paid (₦). We owe ' + naira(el.dataset.bal) + ':', el.dataset.bal); if (!a) return; const ref = prompt('Bank transfer reference (optional):') || ''; await api(`/api/admin/vendors/${el.dataset.pay}/payouts`, { body: { amount: a, reference: ref } }); toast('Payout recorded'); views.vendors(); });
+};
+async function vendorForm(id) {
+  const d = await api('/api/admin/vendors/' + id); const v = d.vendor;
+  const have = new Map(v.departments.map((x) => [x.store, x.commission_pct]));
+  openModal(`<h2>${e(v.name)} <span class="mu2">${e(v.status === 'pending' ? 'evaluating' : v.status)}</span></h2>
+   <p class="mu2" style="margin-top:0">Applied ${new Date(v.created * 1000).toLocaleDateString('en-NG')} · Registration (CAC): <b>${e(v.reg_no || 'none')}</b> · Sign-in: ${d.users.map((u2) => e(u2.email)).join(', ') || 'none'}${d.partner ? ' · Pickup point #' + d.partner.id : ''}</p>
+   <div class="fgrid"><label class="f">Store name<input id="vn" value="${e(v.name)}" maxlength="80"></label><label class="f">Contact person<input id="vc" value="${e(v.contact_name)}"></label>
+   <label class="f">Phone<input id="vp" value="${e(v.phone)}"></label><label class="f">Email<input id="ve" value="${e(v.email)}"></label>
+   <label class="f full">Address<input id="va" value="${e(v.address)}"></label><label class="f">State<input id="vs" value="${e(v.state)}"></label><label class="f">City<input id="vci" value="${e(v.city)}"></label>
+   <label class="f">Business registration no.<input id="vr" value="${e(v.reg_no)}"></label><label class="f">Default commission (%)<input id="vcm" type="number" min="0" max="60" step="0.5" value="${e(Number(v.commission_pct))}"></label>
+   <label class="f">Latitude<input id="vlat" value="${v.lat == null ? '' : e(v.lat)}"></label><label class="f">Longitude<input id="vlng" value="${v.lng == null ? '' : e(v.lng)}"></label>
+   <p class="mu2 full" style="margin:0">Riders collect from this map position. <button type="button" class="btn ghost sm" id="vfind">Find from address</button> <span id="vfres"></span> Or copy the two numbers from Google Maps (press and hold on the shop).</p>
+   <div class="full"><b>Departments (up to ${d.vendor ? 3 : 3})</b> <span class="mu2">and an optional commission for each. Leave blank to use the default.</span>${d.all_departments.map((x) => `<div style="display:flex;gap:8px;align-items:center;padding:3px 0"><label class="chk" style="flex:1"><input type="checkbox" class="vdep" value="${e(x.slug)}" ${have.has(x.slug) ? 'checked' : ''}> ${e(x.icon)} ${e(x.name)}</label><input type="number" class="vdp" data-s="${e(x.slug)}" min="0" max="60" step="0.5" placeholder="%" value="${have.get(x.slug) == null ? '' : e(Number(have.get(x.slug)))}" style="width:80px"></div>`).join('')}</div>
+   <label class="f full">Note to the store (shown to them; required when rejecting)<input id="vnote" value="${e(v.status_note)}" maxlength="300"></label></div>
+   <div class="acts" style="flex-wrap:wrap"><button class="btn ghost" id="vx">Close</button><button class="btn ghost" id="vsave">Save changes</button>
+    ${v.status !== 'approved' && v.status !== 'suspended' ? '<button class="btn" id="vok">Approve store</button>' : ''}${v.status === 'approved' ? '<button class="btn ghost" id="vsus">Pause store</button>' : ''}${v.status === 'suspended' ? '<button class="btn" id="vre">Reinstate</button>' : ''}${v.status === 'pending' ? '<button class="btn ghost" id="vrej">Reject</button>' : ''}</div>
+   <h3 style="margin-top:16px">Money</h3><p class="mu2">Delivered sales ${naira(v.gross)} · our commission ${naira(v.commission)} · paid out ${naira(v.paid)} · <b>we owe ${naira(v.balance)}</b> · on the way ${naira(v.in_progress)}</p>
+   ${d.payouts.length ? d.payouts.map((p) => `<div class="mu2">${new Date(p.created * 1000).toLocaleDateString('en-NG')} · ${naira(p.amount)} · ${e(p.method)} ${e(p.reference)} · by ${e(p.created_by)}</div>`).join('') : ''}
+   <h3 style="margin-top:16px">Recent orders with this store</h3>${d.orders.length ? d.orders.slice(0, 10).map((o) => `<div class="mu2">${e(o.ref)} · ${e(o.status)} · sales ${naira(o.gross)} · commission ${naira(o.commission)}</div>`).join('') : '<p class="mu2">None yet.</p>'}`, true);
+  const depts = () => $$('.vdep').filter((c) => c.checked).map((c) => ({ store: c.value, commission_pct: ($$('.vdp').find((i) => i.dataset.s === c.value) || {}).value || '' }));
+  const body = () => ({ name: $('#vn').value, contact_name: $('#vc').value, phone: $('#vp').value, email: $('#ve').value, address: $('#va').value, state: $('#vs').value, city: $('#vci').value, reg_no: $('#vr').value, commission_pct: $('#vcm').value, lat: $('#vlat').value, lng: $('#vlng').value, status_note: $('#vnote').value, departments: depts(), tagline: v.tagline, about: v.about, opening_hours: v.opening_hours });
+  const save = async () => api('/api/admin/vendors/' + id, { method: 'PUT', body: body() });
+  $('#vx').addEventListener('click', () => { closeModal(); views.vendors(); });
+  $('#vsave').addEventListener('click', guard(async () => { await save(); toast('Saved'); closeModal(); views.vendors(); }));
+  const act = (sel, path, needNote) => { const b = $(sel); if (b) b.addEventListener('click', guard(async () => { if (needNote && !$('#vnote').value.trim()) { toast('Write the reason in the note box first', 'bad'); return; } await save(); await api(`/api/admin/vendors/${id}/${path}`, { body: { note: $('#vnote').value } }); toast('Done'); closeModal(); views.vendors(); })); };
+  act('#vok', 'approve'); act('#vsus', 'suspend', true); act('#vre', 'reinstate'); act('#vrej', 'reject', true);
+  $('#vfind').addEventListener('click', guard(async () => { const r = await api(`/api/admin/vendors/${id}/locate`, { body: {} }); $('#vfres').innerHTML = r.results.length ? r.results.map((x, i) => `<button type="button" class="btn ghost sm" data-loc="${i}">${e(x.label || x.name || 'Use this')}</button>`).join(' ') : 'Nothing found. Type the numbers instead.'; $$('[data-loc]').forEach((b) => b.addEventListener('click', () => { const x = r.results[b.dataset.loc]; $('#vlat').value = x.lat; $('#vlng').value = x.lng; })); }));
+}
+
 views.pharmacy = async () => {
   const [rd, st, ph, pm, fl, rt, au] = await Promise.all([api('/api/admin/pharmacy/readiness'), api('/api/admin/pharmacy/settings'), api('/api/admin/pharmacy/pharmacies'), api('/api/admin/pharmacy/pharmacists'), api('/api/admin/pharmacy/flags'), api('/api/admin/pharmacy/returns'), api('/api/admin/pharmacy/audit?limit=40')]);
   const S = st.settings, now = Date.now() / 1000;
