@@ -1550,6 +1550,13 @@ views.settings = async () => {
       <div class="tw"><table class="t"><tr><th>File</th><th>Size</th><th>Made</th><th></th></tr>${bk.files.map((f) => `<tr><td class="mu2">${e(f.name)}</td><td>${mb(f.size)}</td><td class="mu2">${dt(f.created)}</td><td><a class="btn ghost sm" href="/api/admin/backups/${encodeURIComponent(f.name)}" download>Download</a></td></tr>`).join('') || '<tr><td colspan="4" class="mu">No backup files yet.</td></tr>'}</table></div>
       <p class="mu2">A backup runs every night. The last ${14} are kept. To restore one, follow docs/RESTORE.md.</p></div>`;
     $('#mn').appendChild(h.firstChild);
+    try {
+      const er = await api('/api/admin/errors'), openN = er.errors.filter((x) => !x.resolved_at).length;
+      const eh = document.createElement('div');
+      eh.innerHTML = `<div class="panel"><h3>Errors${openN ? ` (${openN} open)` : ''}</h3><p class="mu2">Alerts go to ${er.alerts.email ? 'your email' : ''}${er.alerts.email && er.alerts.webhook ? ' and ' : ''}${er.alerts.webhook ? 'your chat webhook' : ''}${!er.alerts.email && !er.alerts.webhook ? '<b>nowhere yet</b>: set ALERT_EMAIL and/or ALERT_WEBHOOK_URL' : ''}. The same mistake is counted, not repeated.</p>${er.errors.length ? `<div class="tw"><table class="t"><tr><th>What happened</th><th>Where</th><th>Times</th><th>Last</th><th></th></tr>${er.errors.map((x) => `<tr${x.resolved_at ? ' style="opacity:.5"' : ''}><td>${e(x.message)}</td><td class="mu2">${e(x.source)} ${e(x.route)}</td><td>${x.count}</td><td class="mu2">${dt(x.last_seen)}</td><td>${x.resolved_at ? 'fixed' : `<button class="btn ghost sm" data-fixed="${x.id}">Mark fixed</button>`}</td></tr>`).join('')}</table></div>` : '<p class="mu2">No errors recorded.</p>'}</div>`;
+      $('#mn').appendChild(eh.firstChild);
+      $$('[data-fixed]', $('#mn')).forEach((b) => b.addEventListener('click', async () => { await api('/api/admin/errors/' + b.dataset.fixed + '/resolve', { body: {} }); route(); }));
+    } catch { /* optional */ }
     on('#bknow', 'click', async (ev) => { ev.target.disabled = true; ev.target.textContent = 'Backing up...'; try { const r = await api('/api/admin/backups', { body: {} }); toast('Backup saved (' + r.rows + ' rows)'); } catch (er) { toast(er.message); } route(); });
   } catch { /* the status panel is optional */ }
   on('#ssave', 'click', async () => {

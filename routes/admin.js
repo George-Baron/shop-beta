@@ -323,6 +323,8 @@ router.get('/status', ah(async (req, res) => {
     ].filter(Boolean),
   });
 }));
+router.get('/errors', ah(async (req, res) => res.json({ errors: await require('../lib/errors').list(), alerts: { email: !!process.env.ALERT_EMAIL && !!process.env.RESEND_API_KEY, webhook: !!process.env.ALERT_WEBHOOK_URL } })));
+router.post('/errors/:id/resolve', ah(async (req, res) => { if (!(await require('../lib/errors').resolve(int(req.params.id)))) fail(404, 'That error is already marked fixed.'); res.json({ ok: true }); }));
 router.get('/backups', ah(async (req, res) => res.json({ ...(await require('../lib/backup').status()), files: await storage.backups.list() })));
 router.post('/backups', ah(async (req, res) => {
   const snap = await require('../lib/backup').create('admin');

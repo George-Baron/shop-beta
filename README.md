@@ -154,3 +154,7 @@ Emails, Paystack webhooks and the timed chores (expire unpaid orders, abandoned-
 
 Everything is behind `PHARMACY_ENABLED` and stays invisible until it is set: no medicine can be listed, seen, searched, added to a cart or ordered, and every `/api/pharmacy` route answers 404. The demo medicines in the seed data are hidden too. Setting up (pharmacies, pharmacists, homepage details, checklist) works while it is off, in **Admin > Pharmacy**.
 Full guide, the compliance checklist for your lawyer and PCN, and what is NOT built: [docs/PHARMACY.md](docs/PHARMACY.md). Run `npm run test:pharmacy`.
+
+## From the rebuild/scale branch (merged into best-of)
+
+Refunds (a `refunded` order status with stock rules), error tracking with email or chat alerts (`ALERT_EMAIL`, `ALERT_WEBHOOK_URL`), `docker-compose.yml` for a local database (`npm run db:up`), and a numeric `TRUST_PROXY` hop count. See [docs/BEST_OF.md](docs/BEST_OF.md) for what was taken from which branch and why.

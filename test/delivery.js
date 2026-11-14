@@ -13,7 +13,7 @@ const { Client: Pg } = require('pg');
 const ADMIN_URL = process.env.TEST_DATABASE_URL || 'postgres://postgres@127.0.0.1:5432/postgres';
 const DB = 'sb_delivery_' + Date.now().toString(36);
 const URL_DB = ADMIN_URL.replace(/\/[^/?]*(\?.*)?$/, '/' + DB + '$1');
-const FAKE = 5000 + Math.floor(Math.random() * 90), P1 = FAKE + 100;
+const FAKE = 6100 + Math.floor(Math.random() * 1500), P1 = FAKE + 1500;
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-delivery-'));
 let passed = 0, failed = 0;
 const test = async (n, f) => { try { await f(); passed++; console.log('  ok   ' + n); } catch (e) { failed++; console.log('  FAIL ' + n + '\n       ' + (e.stack || e.message).split('\n').slice(0, 7).join('\n       ')); } };

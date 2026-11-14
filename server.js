@@ -31,7 +31,8 @@ const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
 // when the request comes through Cloudflare (it adds cf-ray) we send pages uncompressed and let Cloudflare compress them at the edge, which saves a lot of CPU.
 app.use(compression({ threshold: 1024, level: 1, filter: (req, res) => !(req.headers['cf-ray'] && /text\/html/.test(String(res.getHeader('Content-Type') || ''))) && compression.filter(req, res) }));
 app.disable('x-powered-by');
-app.set('trust proxy', process.env.TRUST_PROXY === '0' ? false : 1);
+// TRUST_PROXY: number of proxy hops in front of the app (default 1 = Render). 0 turns it off (not for production).
+app.set('trust proxy', /^\d+$/.test(process.env.TRUST_PROXY || '') ? Number(process.env.TRUST_PROXY) || false : 1);
 app.use((req, res, next) => { req.clientIp = require('./lib/clientip').clientIp(req); next(); });
 app.use(log.requestLogger); // request id on every response and one log line per request
 
@@ -211,6 +212,7 @@ app.use((err, req, res, next) => {
   if (err && err.type === 'entity.parse.failed') return res.status(400).json({ error: 'That request was not understood.' });
   if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'That upload is too large.' });
   log.error('unhandled error', { id: req.id, method: req.method, path: String(req.originalUrl || '').split('?')[0], err });
+  require('./lib/errors').record(err, { source: 'request', route: `${req.method} ${req.route && req.route.path ? req.baseUrl + req.route.path : String(req.path).replace(/\d+/g, ':n')}`, status: 500 });
   res.status(500).json({ error: 'Something went wrong on our side. Please try again.', requestId: req.id });
 });
 
@@ -236,4 +238,4 @@ let server;
   });
 })().catch((err) => { log.error('startup failed', { err }); process.exit(1); });
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { Promise.resolve(worker.stop()).finally(() => { if (server) server.close(() => process.exit(0)); else process.exit(0); }); setTimeout(() => process.exit(0), 3000).unref(); });
-process.on('unhandledRejection', (e) => log.error('unhandled rejection', { err: e }));
+require('./lib/errors').installProcessHandlers(() => { if (server) server.close(); });

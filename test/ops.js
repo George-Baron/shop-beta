@@ -168,6 +168,22 @@ const logsOf = (p) => p.log.split('\n').filter((l) => l.startsWith('{')).map((l)
     const st2 = await B.status(); assert.ok(st2.lastFailure === null || /bucket missing/.test(st2.lastFailure.error));
   });
 
+  await test('error tracking: the same error is stored once with a count, alerts are limited, admins can mark it fixed', async () => {
+    const E = require('../lib/errors'); const boom = () => new Error('Test boom 12345');
+    for (let i = 0; i < 5; i++) E.record(boom(), { source: 'request', route: 'GET /api/x' });
+    E.record(new Error('Another kind'), { source: 'job', route: 'order-mail' });
+    await sleep(2600);
+    const rows = await pg("SELECT * FROM error_log WHERE message LIKE 'Test boom%' OR message='Another kind' ORDER BY id", DBS.enc);
+    assert.strictEqual(rows.length, 2); assert.ok(rows.find((r) => /Test boom/.test(r.message)).count >= 5, 'counted, not repeated');
+    assert.strictEqual(Number((await pg("SELECT COUNT(*) n FROM jobs WHERE kind='alert'", DBS.enc))[0].n) >= 2, true, 'a new error queues an alert');
+    assert.ok(!JSON.stringify(rows).includes('password'), 'no request data is stored');
+    const admin = (await call(PE, 'POST', '/api/auth/login', { email: 'owner@example.com', password: 'Str0ng-Owner-Pass!' })).c;
+    const list = await call(PE, 'GET', '/api/admin/errors', undefined, { cookie: admin }); assert.strictEqual(list.s, 200);
+    assert.strictEqual((await call(PE, 'GET', '/api/admin/errors')).s, 401);
+    const id = rows[0].id; assert.strictEqual((await call(PE, 'POST', '/api/admin/errors/' + id + '/resolve', {}, { cookie: admin })).s, 200);
+    assert.strictEqual((await call(PE, 'POST', '/api/admin/errors/' + id + '/resolve', {}, { cookie: admin })).s, 404);
+  });
+
   for (const p of procs) p.kill();
   await sleep(400);
   for (const d of Object.values(DBS)) await pg(`DROP DATABASE IF EXISTS ${d} WITH (FORCE)`).catch(() => {});

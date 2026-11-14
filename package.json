@@ -25,6 +25,8 @@
     "test:delivery": "node --disable-warning=ExperimentalWarning test/delivery.js",
     "test:checkout": "node --disable-warning=ExperimentalWarning test/checkout.js",
     "test:queue": "node --disable-warning=ExperimentalWarning test/queue.js",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
     "test:pharmacy": "node --disable-warning=ExperimentalWarning test/pharmacy.js",
     "test:cache": "node --disable-warning=ExperimentalWarning test/cache.js"
   },
