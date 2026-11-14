@@ -109,6 +109,10 @@ section.blk{padding:30px 0}.sec-head{display:flex;align-items:baseline;justify-c
 .slogo{width:54px;height:54px;border-radius:12px;background:var(--surface-2);display:grid;place-items:center;font-size:26px;overflow:hidden;flex:none}.slogo img{width:100%;height:100%;object-fit:cover}
 .sban{height:150px;border-radius:16px;background:linear-gradient(135deg,var(--accent),var(--surface-2));background-size:cover;background-position:center;margin-bottom:-34px}
 .shead{display:flex;gap:16px;align-items:flex-end;padding:0 18px}.shead .slogo{width:84px;height:84px;font-size:40px;border:3px solid var(--surface)}
+/* wholesale */
+.wtab{width:100%;border-collapse:collapse;font-size:14px}.wtab th{text-align:left;font-size:12px;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--border)}.wtab td{padding:8px;border-bottom:1px solid var(--border);vertical-align:middle}.wtab input{width:84px}
+.totals{margin-left:auto;max-width:360px;font-size:15px}.totals div{display:flex;justify-content:space-between;padding:4px 0}.totals .big{font-size:18px;font-weight:800;border-top:2px solid var(--border);margin-top:4px;padding-top:8px}
+@media print{body *{visibility:hidden}#proforma,#proforma *{visibility:visible}#proforma{position:absolute;left:0;top:0;width:100%;box-shadow:none;border:0}.noprint{display:none!important}}
 /* footer */
 footer.foot{background:var(--surface-2);border-top:1px solid var(--border);margin-top:40px;padding:36px 0 90px}
 .foot-grid{display:grid;grid-template-columns:1.4fr repeat(3,1fr);gap:24px}@media(max-width:760px){.foot-grid{grid-template-columns:1fr 1fr}}
@@ -628,6 +632,7 @@ async function view(main, seg, u, cfg) {
   if (name === 'rider') return riderPage(main);
   if (name === 'pharmacist') return pharmacistPage(main);
   if (name === 'partner') return partnerPortal(main);
+  if (name === 'wholesale') return wholesalePage(main);
   return '';
 }
 
@@ -1149,7 +1154,7 @@ async function route() {
     else if (seg[0] === 'store' && seg[1]) title = await storeView(main, seg[1], u, cfg);
     else if (seg[0] === 'sell' && seg.length === 1) title = await sellView(main, cfg);
     else if (seg[0] === 'page' && seg[1]) title = staticPage(main, seg[1], cfg);
-    else if (['checkout', 'order', 'account', 'login', 'register', 'wishlist', 'track', 'forgot', 'rider', 'pharmacist', 'partner'].includes(seg[0])) { title = await view(main, seg, u, cfg); }
+    else if (['checkout', 'order', 'account', 'login', 'register', 'wishlist', 'track', 'forgot', 'rider', 'pharmacist', 'partner', 'wholesale'].includes(seg[0])) { title = await view(main, seg, u, cfg); }
     else main.innerHTML = `<div class="wrap empty"><div class="em">🧭</div><h2>Page not found</h2><p><a class="btn" href="/" data-link>Back to the store</a></p></div>`;
     document.title = (title ? title + ' · ' : '') + cfg.settings.store_name;
     syncHeader(); $('#main').focus({ preventScroll: true });
@@ -1311,6 +1316,84 @@ async function partnerPortal(main) {
   return 'Partner store';
 }
 
+
+/* ===== wholesale (buyers) ===== */
+const WSTATUS = { requested: 'Waiting for our quotation', quoted: 'Quotation ready: please approve', accepted: 'Approved: waiting for payment', paid: 'Paid: being arranged', shipped: 'Shipped', delivered: 'Delivered', declined: 'Declined', cancelled: 'Cancelled', expired: 'Expired' };
+const wdate = (t) => (t ? new Date(t * 1000).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+function proformaHtml(q, biz) {
+  return `<div id="proforma" class="card" style="padding:22px"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><div><h2 style="margin:0">Proforma invoice &amp; quotation</h2><div class="mu">${e(q.ref)} · requested ${wdate(q.created)}${q.valid_until ? ' · valid until <b>' + wdate(q.valid_until) + '</b>' : ''}</div></div><div style="text-align:right"><b>${e(biz || '')}</b><div class="mu" style="font-size:13px">${e(q.ship.name)}<br>${e(q.ship.address)}, ${e([q.ship.city, q.ship.state].filter(Boolean).join(', '))}<br>${e(q.ship.phone)}</div></div></div>
+   <table class="wtab" style="margin-top:14px"><tr><th>Item</th><th>Qty</th><th>Wholesale price</th><th style="text-align:right">Amount</th></tr>${q.items.map((i) => `<tr><td>${e(i.name)}</td><td>${i.qty}</td><td>${naira(i.unit_price)}</td><td style="text-align:right">${naira(i.line_total)}</td></tr>`).join('')}</table>
+   <div class="totals" style="margin-top:12px"><div><span>Total value of goods</span><b>${naira(q.goods_total)}</b></div><div><span>Logistics fee</span><b>${naira(q.logistics_fee)}</b></div><div><span>Service fee${q.service_pct ? ' (' + q.service_pct + '%)' : ''}</span><b>${naira(q.service_fee)}</b></div><div class="big"><span>Total to pay</span><span>${naira(q.total)}</span></div></div>
+   ${q.shipment_plan ? `<p style="margin:14px 0 0"><b>Shipment:</b> ${e(q.shipment_plan)}</p>` : ''}${q.admin_note ? `<p class="mu" style="margin:6px 0 0">${e(q.admin_note)}</p>` : ''}
+   <p class="mu" style="font-size:12px;margin:14px 0 0">Payment is made in full before shipment. This is a proforma invoice, not a tax receipt.</p></div>`;
+}
+
+async function wholesalePage(main) {
+  const parts = location.pathname.split('/').filter(Boolean), ref = parts[1] === 'quote' ? (parts[2] || '').toUpperCase() : '';
+  const draw = (inner) => { main.innerHTML = `<div class="wrap page" style="max-width:1000px"><nav class="crumbs noprint"><a href="/" data-link>Home</a> › <a href="/wholesale" data-link>Wholesale</a>${ref ? ' › ' + e(ref) : ''}</nav><h1 style="font-size:28px;margin:0 0 6px" class="noprint">📦 Wholesale</h1>${inner}</div>`; };
+  const W = (p, o) => api('/api/wholesale' + p, o);
+  const run = (fn) => async (ev) => { try { await fn(ev); } catch (x) { toast(x.message, 'bad'); } };
+  if (!store.user) {
+    draw(`<div class="card"><p>Buy our products in bulk at wholesale prices. Customers and partner stores can both apply. We evaluate every application for a few weeks and check your business registration before approving it. After that you pick products, we send a proforma invoice and quotation, you approve it and pay, and we ship.</p><p><a class="btn" href="/login?next=/wholesale" data-link>Sign in</a> <a class="btn ghost" href="/register?next=/wholesale" data-link>Create an account</a></p></div>`);
+    return 'Wholesale';
+  }
+  if (!['customer', 'vendor'].includes(store.user.role)) { draw('<div class="card"><p class="mu">Wholesale is for customer and partner store accounts.</p></div>'); return 'Wholesale'; }
+  const { account, terms } = await W('/me');
+  const zones = (store.cfg && store.cfg.zones) || [];
+  if (!account) {
+    draw(`<div class="card"><p class="mu" style="margin-top:0">Tell us about your business. We evaluate applications for about ${terms.eval_days} days, then email you. Wholesale prices are shown only to approved buyers.</p><form id="wf" novalidate>
+      <div class="row c2">${field('wb', 'Business name', { req: 1, max: 100 })}${field('wc', 'Contact person', { req: 1, max: 80, val: store.user.name })}</div>
+      <div class="row c2">${field('wp', 'Phone', { req: 1, type: 'tel', val: store.user.phone })}${field('we', 'Email', { req: 1, type: 'email', val: store.user.email })}</div>
+      ${field('wa', 'Business address', { req: 1, max: 200 })}<div class="row c2"><label class="f">State<select id="ws" required><option value="">Choose…</option>${zones.map((z) => `<option>${e(z.state)}</option>`).join('')}</select></label>${field('wci', 'City / area', { max: 60 })}</div>
+      <div class="row c2">${field('wr', 'Business registration number (CAC)', { req: 1, max: 40 })}${field('wt', 'Type of business', { max: 40, ph: 'Retailer, restaurant, reseller…' })}</div>
+      <label class="f">What do you plan to buy?<textarea id="wbuy" rows="2" maxlength="500" required></textarea></label>${field('wm', 'Rough monthly spend', { max: 80, ph: '₦1,000,000' })}
+      <p class="err hide" id="werr" role="alert"></p><button class="btn lg">Apply for wholesale</button></form></div>`);
+    $('#wf').addEventListener('submit', async (ev) => { ev.preventDefault(); try { await W('/apply', { body: { business_name: $('#wb').value, contact_name: $('#wc').value, phone: $('#wp').value, email: $('#we').value, address: $('#wa').value, state: $('#ws').value, city: $('#wci').value, reg_no: $('#wr').value, business_type: $('#wt').value, buys: $('#wbuy').value, est_monthly: $('#wm').value } }); toast('Application sent'); wholesalePage(main); } catch (x) { $('#werr').textContent = x.message; $('#werr').classList.remove('hide'); } });
+    return 'Wholesale';
+  }
+  if (account.status !== 'approved') {
+    draw(`<div class="card"><h3 style="margin-top:0">${account.status === 'pending' ? 'Your application is being evaluated' : 'Your wholesale account is ' + e(account.status)}</h3><p>${account.status === 'pending' ? `Thank you, ${e(account.business_name)}. We check your details over a few weeks (planned until ${wdate(account.evaluate_until)}) and will email you. Wholesale prices appear here once you are approved.` : e(account.status_note || 'Please contact us.')}</p></div>`);
+    return 'Wholesale';
+  }
+  if (ref) {
+    const { quote: q } = await W('/quotes/' + encodeURIComponent(ref));
+    const act = {
+      requested: '<p class="mu">We are preparing your proforma invoice. You will get an email.</p><button class="btn ghost" id="wdec">Cancel this request</button>',
+      quoted: '<p>Please check the invoice. When you approve it, we set these goods aside for you, then you pay, and only then do we ship.</p><button class="btn" id="wacc">Approve quotation</button> <button class="btn ghost" id="wdec">Decline</button>',
+      accepted: `<p><b>Pay before ${wdate(q.pay_by)}</b> or the goods are released. We ship after payment.</p><button class="btn" id="wpay">Pay ${naira(q.total)} online</button>${q.bank ? `<div class="card" style="margin-top:12px"><b>Or pay by bank transfer</b><p style="white-space:pre-line;margin:6px 0">${e(q.bank)}</p><p class="mu" style="font-size:13px;margin:0">Use <b>${e(q.ref)}</b> as the payment reference. We confirm your transfer and email you.</p></div>` : ''}`,
+      paid: '<p>✅ Payment received. We will arrange the shipment as agreed above.</p>',
+      shipped: `<p>🚚 Shipped with <b>${e(q.carrier || 'our carrier')}</b>${q.tracking ? ', tracking ' + e(q.tracking) : ''}.</p>`, delivered: '<p>✅ Delivered.</p>',
+    }[q.status] || `<p class="mu">${e(WSTATUS[q.status] || q.status)}</p>`;
+    draw(`<p class="noprint"><span class="pill">${e(WSTATUS[q.status] || q.status)}</span> <button class="btn ghost sm" onclick="window.print()">Print invoice</button></p>${proformaHtml(q, account.business_name)}<div class="card noprint" style="margin-top:14px">${act}</div>
+      <div class="card noprint" style="margin-top:14px"><h4 style="margin-top:0">Progress</h4>${q.events.map((x) => `<div style="font-size:13px;padding:2px 0"><span class="mu">${wdate(x.created)}</span> · ${e(x.note || x.status)}</div>`).join('')}</div>`);
+    const after = () => wholesalePage(main);
+    const acc = $('#wacc'); if (acc) acc.addEventListener('click', run(async () => { await W(`/quotes/${q.ref}/accept`, { body: {} }); toast('Approved'); after(); }));
+    const dec = $('#wdec'); if (dec) dec.addEventListener('click', run(async () => { if (!confirm('Decline this quotation?')) return; await W(`/quotes/${q.ref}/decline`, { body: {} }); after(); }));
+    const pay = $('#wpay'); if (pay) pay.addEventListener('click', run(async () => { const r = await W(`/quotes/${q.ref}/pay`, { body: {} }); if (r.url) { location.href = r.url; return; } if (r.demo) { await W(`/quotes/${q.ref}/pay/demo`, { body: {} }); toast('Demo payment recorded'); after(); } }));
+    if (new URLSearchParams(location.search).get('reference') && q.status === 'accepted') api('/api/paystack/verify?reference=' + encodeURIComponent(q.ref)).then(after).catch(() => {});
+    return 'Quotation ' + q.ref;
+  }
+  const [{ products }, { quotes }] = await Promise.all([W('/catalog'), W('/quotes')]);
+  draw(`<div class="card" style="margin-bottom:14px"><b>${e(account.business_name)}</b> · approved wholesale buyer. Choose quantities (at or above the minimum), tell us where to deliver, and request a quotation. We reply with a proforma invoice.</div>
+    ${quotes.length ? `<div class="card" style="margin-bottom:14px"><h4 style="margin-top:0">Your quotations</h4>${quotes.map((x) => `<a href="/wholesale/quote/${e(x.ref)}" data-link style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)"><span><b>${e(x.ref)}</b> · ${wdate(x.created)}</span><span>${naira(x.total)} · ${e(WSTATUS[x.status] || x.status)}</span></a>`).join('')}</div>` : ''}
+    <div class="card"><h3 style="margin-top:0">Wholesale price list</h3><input id="wq" placeholder="Filter products" style="max-width:300px;margin-bottom:8px">
+     ${products.length ? `<div style="overflow-x:auto"><table class="wtab" id="wt"><tr><th>Product</th><th>Retail</th><th>Wholesale</th><th>Minimum</th><th>In stock</th><th>Quantity</th></tr>${products.map((p) => `<tr data-n="${e(p.name.toLowerCase())}"><td><b>${e(p.name)}</b><div class="mu" style="font-size:12px">${e(p.category || '')}</div></td><td class="mu"><s>${naira(p.retail_price)}</s></td><td><b>${naira(p.price)}</b></td><td>${p.min_qty}</td><td>${p.stock}</td><td><input type="number" min="0" max="${p.stock}" data-pid="${p.id}" data-min="${p.min_qty}" data-price="${p.price}" placeholder="0"></td></tr>`).join('')}</table></div>` : '<p class="mu">No wholesale products are listed yet. Ask us, or check back soon.</p>'}
+     <div class="totals" style="margin-top:10px"><div><span>Goods at wholesale price</span><b id="wsum">₦0</b></div></div>
+     <h4 style="margin:14px 0 4px">Deliver to</h4><div class="row c2">${field('xn', 'Receiver name', { val: account.contact_name })}${field('xp', 'Receiver phone', { val: account.phone })}</div>${field('xa', 'Address', { val: account.address, req: 1 })}<div class="row c2"><label class="f">State<select id="xs">${zones.map((z) => `<option ${z.state === account.state ? 'selected' : ''}>${e(z.state)}</option>`).join('')}</select></label>${field('xc', 'City / area', { val: account.city })}</div>
+     <label class="f">Note to us (when you need it, how you would like it shipped…)<textarea id="xnote" rows="2" maxlength="800"></textarea></label>
+     <p class="mu" style="font-size:12px">Our quotation adds a logistics fee and a service fee (usually ${terms.service_pct}%). You approve the quotation, pay, and then we ship.</p><button class="btn lg" id="wreq">Request quotation</button></div>`);
+  const sum = () => { let t = 0; for (const i of $$('[data-pid]')) t += (Number(i.value) || 0) * Number(i.dataset.price); $('#wsum').textContent = naira(t); };
+  $$('[data-pid]').forEach((i) => i.addEventListener('input', sum));
+  const wq = $('#wq'); if (wq) wq.addEventListener('input', () => { const t = wq.value.toLowerCase(); $$('#wt tr[data-n]').forEach((r) => { r.style.display = r.dataset.n.includes(t) ? '' : 'none'; }); });
+  $('#wreq').addEventListener('click', run(async () => {
+    const items = $$('[data-pid]').filter((i) => Number(i.value) > 0).map((i) => { if (Number(i.value) < Number(i.dataset.min)) throw new Error('The minimum for one of the products is ' + i.dataset.min); return { productId: Number(i.dataset.pid), qty: Number(i.value) }; });
+    if (!items.length) throw new Error('Enter a quantity for at least one product.');
+    const r = await W('/quotes', { body: { items, ship_name: $('#xn').value, ship_phone: $('#xp').value, ship_address: $('#xa').value, ship_state: $('#xs').value, ship_city: $('#xc').value, note: $('#xnote').value } });
+    toast('Request sent'); go('/wholesale/quote/' + r.ref);
+  }));
+  return 'Wholesale';
+}
+
 /* ---------- shell ---------- */
 function shell() {
   const s = cfg.settings;
@@ -1335,7 +1418,7 @@ function shell() {
         <form class="news" id="nform"><input type="email" required placeholder="Your email" aria-label="Email for newsletter"><button class="btn sm">Subscribe</button></form></div>
       <div><h4>Shop</h4>${cfg.stores.map((st) => `<a href="/d/${e(st.slug)}" data-link>${e(st.name)}</a>`).join('')}</div>
       <div><h4>Help</h4><a href="/page/faq" data-link>FAQ</a><a href="/page/shipping" data-link>Shipping &amp; Returns</a><a href="/track" data-link>Track an order</a><a href="/page/contact" data-link>Contact us</a></div>
-      <div><h4>Company</h4><a href="/page/about" data-link>About</a><a href="/stores" data-link>Partner stores</a><a href="/sell" data-link>Sell with us</a><a href="/page/privacy" data-link>Privacy</a><a href="/page/terms" data-link>Terms</a>
+      <div><h4>Company</h4><a href="/page/about" data-link>About</a><a href="/stores" data-link>Partner stores</a><a href="/wholesale" data-link>Wholesale</a><a href="/sell" data-link>Sell with us</a><a href="/page/privacy" data-link>Privacy</a><a href="/page/terms" data-link>Terms</a>
         ${s.instagram ? `<a href="${e(s.instagram)}" target="_blank" rel="noopener">Instagram</a>` : ''}${s.facebook ? `<a href="${e(s.facebook)}" target="_blank" rel="noopener">Facebook</a>` : ''}</div>
     </div>
     ${cfg.pharmacy && (s.pharm_aggregator_licence || s.pharm_pcn_logo || s.pharm_statement) ? `<div class="legal" style="display:block;text-align:left">${s.pharm_pcn_logo ? `<img src="${e(s.pharm_pcn_logo)}" alt="Pharmacists Council of Nigeria" style="height:44px;vertical-align:middle;margin-right:10px">` : ''}${s.pharm_aggregator_licence ? `<b>Pharmacy aggregator licence no. ${e(s.pharm_aggregator_licence)}</b><br>` : ''}${s.pharm_statement ? e(s.pharm_statement) : ''}</div>` : ''}
@@ -1448,7 +1531,7 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['pharmacy', '💊', 'Pharmacy']];
+const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['pharmacy', '💊', 'Pharmacy']];
 async function shell(page, body, unread) {
   root.innerHTML = `<div class="adm"><aside class="side"><div class="side-top"><div><b>🛠 Shop-Beta</b><div class="who">${e(me.email)}</div></div><div><a class="btn ghost sm" href="/" target="_blank" rel="noopener">View store</a> <button class="btn ghost sm" id="lo">Sign out</button></div></div>
   <nav>${NAV.map(([k, ic, t]) => `<a data-nav="${k}" class="${page === k ? 'on' : ''}">${ic} ${t}${k === 'messages' && unread ? ` <span class="dot">${unread}</span>` : ''}</a>`).join('')}</nav></aside><main class="main" id="mn">${body}</main></div>`;
@@ -1744,6 +1827,73 @@ views.settings = async () => {
 /* ---------------- pharmacy (admin) ---------------- */
 
 /* ---------------- partner stores ---------------- */
+/* ---------------- wholesale (admin) ---------------- */
+const wstate = { tab: 'quotes', qs: '', as: '', pq: '', only: '' };
+const wd = (t) => (t ? new Date(t * 1000).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+const WS = { requested: 'Needs quotation', quoted: 'Sent: waiting for buyer', accepted: 'Approved: waiting for payment', paid: 'Paid: ready to ship', shipped: 'Shipped', delivered: 'Delivered', declined: 'Declined', cancelled: 'Cancelled', expired: 'Expired' };
+async function wholesaleQuote(ref) {
+  const { quote: q } = await api('/api/admin/wholesale/quotes/' + encodeURIComponent(ref));
+  const editable = ['requested', 'quoted'].includes(q.status), a = q.account, d = q.defaults;
+  const money = (x) => naira(x);
+  openModal(`<h3 style="margin-top:0">${e(q.ref)} · ${e(a.business_name)}</h3>
+   <p class="mu2">${e(WS[q.status] || q.status)} · ${e(a.contact_name)}, ${e(a.phone)}, ${e(a.email)}${a.partner_store ? ' · <b>partner store</b>' : ''}<br>Deliver to: ${e(q.ship.name)}, ${e(q.ship.address)}, ${e([q.ship.city, q.ship.state].filter(Boolean).join(', '))}, ${e(q.ship.phone)}${q.buyer_note ? '<br>Buyer note: ' + e(q.buyer_note) : ''}</p>
+   <div class="tw"><table class="t"><tr><th>Item</th><th>Retail</th><th>Qty</th><th>Unit price (₦)</th><th>In stock</th><th>Line</th></tr>${q.items.map((i) => `<tr><td>${e(i.name)}</td><td>${money(i.list_price)}</td><td>${editable ? `<input type="number" min="0" style="width:80px" data-qi="${i.id}" data-k="qty" value="${i.qty}">` : i.qty}</td><td>${editable ? `<input type="number" min="0" style="width:100px" data-qi="${i.id}" data-k="unit_price" value="${i.unit_price}">` : money(i.unit_price)}</td><td>${q.in_stock[i.id] == null ? '' : q.in_stock[i.id]}</td><td>${money(i.line_total)}</td></tr>`).join('')}</table></div>
+   ${editable ? `<div class="row c2" style="margin-top:10px"><label>Logistics fee (₦)<input id="ql" type="number" min="0" value="${q.logistics_fee || ''}"></label><label>Service fee % (blank = ${d.service_pct}%)<input id="qp" type="number" min="0" max="30" step="0.5" value="${q.status === 'quoted' ? q.service_pct : ''}"></label></div>
+   <div class="row c2"><label>Valid for (days)<input id="qv" type="number" min="1" max="60" value="${d.valid_days}"></label><label>Shipment plan<input id="qs" maxlength="400" value="${e(q.shipment_plan || '')}" placeholder="Truck from Lagos, pickup within 3 days of payment"></label></div>
+   <label>Note to buyer<input id="qn" maxlength="500" value="${e(q.admin_note || '')}"></label>
+   <p class="mu2">Total of goods is recalculated when you send. Service fee is a percentage of goods. Sending emails the proforma invoice to the buyer.</p>
+   <button class="btn" id="qsend">${q.status === 'quoted' ? 'Update and resend' : 'Send proforma invoice'}</button> ` : `<div class="panel" style="margin-top:10px"><div>Goods ${money(q.goods_total)} · Logistics ${money(q.logistics_fee)} · Service ${money(q.service_fee)}${q.service_pct ? ' (' + q.service_pct + '%)' : ''}</div><b>Total ${money(q.total)}</b>${q.shipment_plan ? '<div class="mu2">' + e(q.shipment_plan) + '</div>' : ''}${q.payment_method ? `<div class="mu2">Paid by ${e(q.payment_method)}${q.payment_ref ? ', ref ' + e(q.payment_ref) : ''}</div>` : ''}</div>`}
+   ${q.status === 'accepted' ? `<div class="panel"><b>Bank transfer received?</b><div class="tbar"><input id="qtr" placeholder="Bank reference (from your statement)"><button class="btn sm" id="qtrb">Mark paid</button></div><p class="mu2">Online payments are marked automatically. Pay-by ${wd(q.pay_by)}; after that the goods are released.</p></div>` : ''}
+   ${q.status === 'paid' ? `<div class="panel"><b>Ship (payment is in)</b><div class="row c2"><label>Carrier<input id="qc" maxlength="80" placeholder="Our truck, courier name, buyer collects"></label><label>Tracking / waybill<input id="qt" maxlength="80"></label></div><button class="btn sm" id="qshipb">Mark shipped</button></div>` : ''}
+   ${q.status === 'shipped' ? '<button class="btn sm" id="qdel">Mark delivered</button> ' : ''}
+   ${['requested', 'quoted', 'accepted'].includes(q.status) ? '<button class="btn ghost sm" id="qcan">Cancel quote</button> ' : ''}
+   <button class="btn ghost sm" id="qprint">Print</button> <button class="btn ghost sm" id="qclose">Close</button>
+   <h4>History</h4>${q.events.map((x) => `<div class="mu2">${wd(x.created)} · ${e(x.note || x.status)}</div>`).join('')}`, true);
+  const done = guard(async (fn) => { await fn(); closeModal(); views.wholesale(); });
+  const P = (act, body) => api(`/api/admin/wholesale/quotes/${q.ref}/${act}`, { body: body || {} });
+  const bind = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', () => done(fn)); };
+  $('#qclose').addEventListener('click', closeModal); $('#qprint').addEventListener('click', () => window.print());
+  bind('#qsend', async () => { const items = $$('[data-qi]', modal).reduce((m, i) => { const o = m.find((x) => x.id === Number(i.dataset.qi)) || m[m.push({ id: Number(i.dataset.qi) }) - 1]; o[i.dataset.k] = i.value; return m; }, []); await P('send', { items, logistics_fee: $('#ql').value, service_pct: $('#qp').value, valid_days: $('#qv').value, shipment_plan: $('#qs').value, admin_note: $('#qn').value }); toast('Proforma sent'); });
+  bind('#qtrb', async () => { await P('transfer', { reference: $('#qtr').value }); toast('Marked paid'); });
+  bind('#qshipb', async () => { await P('ship', { carrier: $('#qc').value, tracking: $('#qt').value }); toast('Marked shipped'); });
+  bind('#qdel', async () => { await P('deliver'); toast('Delivered'); });
+  bind('#qcan', async () => { const r = prompt('Reason for cancelling (the buyer is told)'); if (r === null) throw new Error('Not cancelled'); await P('cancel', { reason: r }); toast('Cancelled'); });
+}
+views.wholesale = async () => {
+  const tabs = [['quotes', 'Requests & quotes'], ['apps', 'Applications'], ['prices', 'Wholesale prices'], ['set', 'Settings']];
+  let body = '';
+  if (wstate.tab === 'quotes') {
+    const { quotes } = await api('/api/admin/wholesale/quotes' + (wstate.qs ? '?status=' + wstate.qs : ''));
+    body = `<div class="tbar"><select id="wqs"><option value="">All</option>${Object.entries(WS).map(([k, v]) => `<option value="${k}" ${wstate.qs === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="panel"><div class="tw"><table class="t"><tr><th>Quote</th><th>Buyer</th><th>Status</th><th>Goods</th><th>Total</th><th>Requested</th></tr>${quotes.map((x) => `<tr class="click" data-q="${e(x.ref)}"><td><b>${e(x.ref)}</b></td><td>${e(x.business)}</td><td>${e(WS[x.status] || x.status)}</td><td>${naira(x.goods_total)}</td><td>${x.status === 'requested' ? '-' : naira(x.total)}</td><td>${wd(x.created)}</td></tr>`).join('') || '<tr><td colspan="6" class="mu">No quotes yet.</td></tr>'}</table></div></div>`;
+  } else if (wstate.tab === 'apps') {
+    const { accounts } = await api('/api/admin/wholesale/accounts' + (wstate.as ? '?status=' + wstate.as : ''));
+    body = `<div class="tbar"><select id="was"><option value="">All</option>${['pending', 'approved', 'rejected', 'suspended'].map((x) => `<option value="${x}" ${wstate.as === x ? 'selected' : ''}>${x === 'pending' ? 'evaluating' : x}</option>`).join('')}</select></div>` + (accounts.map((a) => `<div class="panel"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><b>${e(a.business_name)}</b> ${a.partner_store ? '<span class="pill">partner store</span>' : ''} <span class="pill ${a.status === 'approved' ? 'ok' : a.status === 'pending' ? '' : 'bad'}">${a.status === 'pending' ? 'evaluating until ' + wd(a.evaluate_until) : e(a.status)}</span><div class="mu2">${e(a.contact_name)} · ${e(a.phone)} · ${e(a.email)}<br>CAC: <b>${e(a.reg_no)}</b> · ${e(a.business_type || '')} · ${e([a.address, a.city, a.state].filter(Boolean).join(', '))}<br>Plans to buy: ${e(a.buys || '')} · ~${e(a.est_monthly || '')} / month · applied ${wd(a.created)}${a.status_note ? '<br>Note: ' + e(a.status_note) : ''}</div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start">${a.status !== 'approved' ? `<button class="btn sm" data-ac="approve" data-id="${a.id}" data-pend="${a.status === 'pending' && a.evaluate_until > Date.now() / 1000 ? 1 : ''}">Approve</button>` : ''}${a.status === 'pending' ? `<button class="btn ghost sm" data-ac="extend" data-id="${a.id}">Extend evaluation</button>` : ''}${a.status !== 'rejected' && a.status !== 'suspended' ? `<button class="btn ghost sm" data-ac="${a.status === 'approved' ? 'suspend' : 'reject'}" data-id="${a.id}">${a.status === 'approved' ? 'Suspend' : 'Reject'}</button>` : ''}</div></div></div>`).join('') || '<div class="panel"><p class="mu">No applications.</p></div>') + '<p class="mu2">Check each business registration number before you approve. Applicants cannot see wholesale prices until approved.</p>';
+  } else if (wstate.tab === 'prices') {
+    const { products } = await api('/api/admin/wholesale/products?' + new URLSearchParams({ q: wstate.pq, only: wstate.only }));
+    body = `<div class="tbar"><input id="wpq" placeholder="Search products" value="${e(wstate.pq)}"><label><input type="checkbox" id="wpo" ${wstate.only ? 'checked' : ''}> only wholesale products</label></div><div class="panel"><div class="tw"><table class="t"><tr><th>Product</th><th>Retail</th><th>Stock</th><th>Wholesale price (₦)</th><th>Minimum qty</th><th></th></tr>${products.map((p) => `<tr><td>${e(p.name)}</td><td>${naira(p.price)}</td><td>${p.stock}</td><td><input type="number" min="1" style="width:110px" data-wp="${p.id}" data-k="p" value="${p.wholesale_price == null ? '' : p.wholesale_price}" placeholder="not offered"></td><td><input type="number" min="1" style="width:80px" data-wp="${p.id}" data-k="m" value="${p.wholesale_min_qty || 1}"></td><td><button class="btn sm" data-wsave="${p.id}">Save</button></td></tr>`).join('') || '<tr><td colspan="6" class="mu">No products.</td></tr>'}</table></div><p class="mu2">Leave the price empty to stop offering a product wholesale. Only our own products without sizes or colours are listed; partner-store stock and medicines are never sold wholesale.</p></div>`;
+  } else {
+    const { defaults: d, settings: s } = await api('/api/admin/wholesale/settings');
+    body = `<div class="panel" style="max-width:560px"><h3>Wholesale settings</h3><label>Service fee % (added to goods)<input id="sp" type="number" min="0" max="30" step="0.5" value="${e(s.wholesale_service_pct || d.service_pct)}"></label><label>Quote valid for (days)<input id="sv" type="number" min="1" value="${e(s.wholesale_valid_days || d.valid_days)}"></label><label>Days to pay after approval<input id="sy" type="number" min="1" value="${e(s.wholesale_pay_days || d.pay_days)}"></label><label>Evaluation period (days)<input id="se" type="number" min="0" value="${e(s.wholesale_eval_days || d.eval_days)}"></label><label>Bank transfer details (shown to buyers)<textarea id="sb" rows="4" maxlength="400">${e(s.wholesale_bank_details || '')}</textarea></label><button class="btn" id="ssave">Save</button></div>`;
+  }
+  mn(hd('Wholesale') + `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">${tabs.map(([k, t]) => `<button class="btn ${wstate.tab === k ? '' : 'ghost'} sm" data-wt="${k}">${t}</button>`).join('')}</div>` + body);
+  onAll('[data-wt]', 'click', (el) => { wstate.tab = el.dataset.wt; return views.wholesale(); });
+  on('#wqs', 'change', () => { wstate.qs = $('#wqs').value; return views.wholesale(); });
+  on('#was', 'change', () => { wstate.as = $('#was').value; return views.wholesale(); });
+  onAll('[data-q]', 'click', (el) => wholesaleQuote(el.dataset.q));
+  onAll('[data-ac]', 'click', async (el) => {
+    const act = el.dataset.ac, body2 = {};
+    if (act === 'approve') { if (el.dataset.pend) { if (!confirm('The evaluation period is not over yet. Approve early?')) return; body2.early = true; } }
+    else if (act === 'extend') { const dd = prompt('Extend evaluation by how many days?', '14'); if (dd === null) return; body2.days = dd; }
+    else { const r = prompt(act === 'reject' ? 'Reason (the applicant is emailed this)' : 'Reason for suspending (the buyer is emailed this)'); if (!r) return; body2.note = r; }
+    await api(`/api/admin/wholesale/accounts/${el.dataset.id}/${act}`, { body: body2 }); toast('Done'); views.wholesale();
+  });
+  on('#wpq', 'change', () => { wstate.pq = $('#wpq').value; return views.wholesale(); });
+  on('#wpo', 'change', () => { wstate.only = $('#wpo').checked ? '1' : ''; return views.wholesale(); });
+  onAll('[data-wsave]', 'click', async (el) => { const id = el.dataset.wsave, g = (k) => $(`[data-wp="${id}"][data-k="${k}"]`, $('#mn')).value; await api('/api/admin/wholesale/products/' + id, { method: 'PUT', body: { wholesale_price: g('p'), wholesale_min_qty: g('m') } }); toast('Saved'); });
+  on('#ssave', 'click', async () => { await api('/api/admin/wholesale/settings', { method: 'PUT', body: { wholesale_service_pct: $('#sp').value, wholesale_valid_days: $('#sv').value, wholesale_pay_days: $('#sy').value, wholesale_eval_days: $('#se').value, wholesale_bank_details: $('#sb').value } }); toast('Saved'); });
+};
+
 const vstate = { tab: 'stores', status: '' };
 views.vendors = async () => {
   const [list, rev, pay] = await Promise.all([api('/api/admin/vendors?' + new URLSearchParams(vstate.status ? { status: vstate.status } : {})), api('/api/admin/vendors/review/products'), api('/api/admin/vendors/payables')]);

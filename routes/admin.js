@@ -51,6 +51,7 @@ router.post('/setup', A.limiter('setup', 5, 3600000), ah(async (req, res) => {
 
 router.use(A.requireAdmin);
 router.use('/vendors', require('./vendors-admin'));
+router.use('/wholesale', require('./wholesale-admin'));
 
 // Activity log: every change an admin makes (not reads) is written down with who, what and from where. Passwords are never recorded.
 router.use((req, res, next) => {
