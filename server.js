@@ -34,6 +34,8 @@ app.disable('x-powered-by');
 // TRUST_PROXY: number of proxy hops in front of the app (default 1 = Render). 0 turns it off (not for production).
 app.set('trust proxy', /^\d+$/.test(process.env.TRUST_PROXY || '') ? Number(process.env.TRUST_PROXY) || false : 1);
 app.use((req, res, next) => { req.clientIp = require('./lib/clientip').clientIp(req); next(); });
+const INSTANCE = process.env.INSTANCE_ID || process.env.RENDER_INSTANCE_ID || require('os').hostname();
+app.use((req, res, next) => { res.setHeader('X-Instance', INSTANCE); next(); }); // lets tests and load balancers see which instance answered
 app.use(log.requestLogger); // request id on every response and one log line per request
 
 /* ---------- first admin from environment variables (optional) ---------- */

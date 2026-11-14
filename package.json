@@ -29,7 +29,11 @@
     "db:down": "docker compose down",
     "test:vendors": "node --disable-warning=ExperimentalWarning test/vendors.js",
     "test:pharmacy": "node --disable-warning=ExperimentalWarning test/pharmacy.js",
-    "test:cache": "node --disable-warning=ExperimentalWarning test/cache.js"
+    "test:cache": "node --disable-warning=ExperimentalWarning test/cache.js",
+    "test:multi": "node --disable-warning=ExperimentalWarning test/two-instances.js",
+    "check:storage": "node scripts/check-storage.js",
+    "lb": "node scripts/dev-lb.js",
+    "load:local": "node load/run-staging.js"
   },
   "dependencies": {
     "compression": "^1.8.2",
