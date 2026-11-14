@@ -86,7 +86,7 @@ app.get('/health', async (req, res) => {
 /* ---------- API ---------- */
 // Request bodies are small by default. The photo upload is the one exception, and it reads its larger body only AFTER the admin check (see routes/admin.js).
 const smallJson = express.json({ limit: '100kb', verify: (req, res, buf) => { req.rawBody = buf; } });
-app.use('/api', (req, res, next) => (req.path === '/admin/upload' || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) ? next() : smallJson(req, res, next)));
+app.use('/api', (req, res, next) => (req.path === '/admin/upload' || req.path === '/partner/upload' || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) ? next() : smallJson(req, res, next)));
 app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin) {
@@ -100,16 +100,19 @@ app.use('/api/admin/pharmacy', require('./routes/pharmacy-admin'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/pharmacy', require('./routes/pharmacy'));
 app.use('/api/rider', require('./routes/rider'));
+app.use('/api/partner', require('./routes/partner'));
 app.use('/api', require('./routes/public'));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
 /* ---------- robots & sitemap ---------- */
 app.get('/robots.txt', (req, res) => {
-  res.type('text/plain').send(`User-agent: *\nDisallow: /admin\nDisallow: /rider\nDisallow: /pharmacist\nDisallow: /api/\nDisallow: /checkout\nDisallow: /account\nDisallow: /order/\nDisallow: /login\nDisallow: /register\n\nSitemap: ${BASE_URL}/sitemap.xml\n`);
+  res.type('text/plain').send(`User-agent: *\nDisallow: /admin\nDisallow: /rider\nDisallow: /pharmacist\nDisallow: /partner\nDisallow: /api/\nDisallow: /checkout\nDisallow: /account\nDisallow: /order/\nDisallow: /login\nDisallow: /register\n\nSitemap: ${BASE_URL}/sitemap.xml\n`);
 });
 app.get('/sitemap.xml', ah(async (req, res) => {
   const urls = [BASE_URL + '/'];
   for (const s of await all(`SELECT slug FROM stores s WHERE active=1 AND ${PC.storeVisibleSql('s')} ORDER BY sort`)) urls.push(`${BASE_URL}/d/${s.slug}`);
+  urls.push(BASE_URL + '/stores');
+  for (const v of await all("SELECT slug FROM vendors WHERE status='approved' ORDER BY name LIMIT 2000")) urls.push(`${BASE_URL}/store/${v.slug}`);
   for (const p of ['about', 'faq', 'shipping', 'contact', 'privacy', 'terms']) urls.push(`${BASE_URL}/page/${p}`);
   for (const p of await all(`SELECT p.slug FROM products p JOIN stores s ON s.slug=p.store WHERE p.active=1 AND s.active=1 AND ${PC.visibleSql('p')} AND ${PC.storeVisibleSql('s')} ORDER BY p.id DESC LIMIT 5000`)) urls.push(`${BASE_URL}/product/${p.slug}`);
   res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((u) => `<url><loc>${esc(u)}</loc></url>`).join('\n')}\n</urlset>\n`);
@@ -118,7 +121,7 @@ app.get('/sitemap.xml', ah(async (req, res) => {
 /* ---------- pages (one HTML shell, filled in per URL for search engines and link previews) ---------- */
 const TEMPLATE = fs.readFileSync(path.join(__dirname, 'views', 'index.html'), 'utf8');
 const PAGES = { about: 'About us', faq: 'Frequently asked questions', shipping: 'Shipping & Returns', privacy: 'Privacy policy', terms: 'Terms of service', contact: 'Contact us' };
-const NOINDEX = new Set(['rider', 'pharmacist', 'checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
+const NOINDEX = new Set(['rider', 'pharmacist', 'partner', 'checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
 const clip = (s, n) => { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s; };
 const absUrl = (u) => (!u ? '' : /^https?:\/\//.test(u) ? u : BASE_URL + u);
 
@@ -141,6 +144,13 @@ async function describe(req) {
     out.store = s.slug; out.title = `${s.name} · ${S0.store_name}`; out.desc = clip(s.hero_sub || s.tagline, 160);
     out.canonical = `${BASE_URL}/d/${s.slug}`;
     out.body = `<h1>${esc(s.name)}</h1><p>${esc(s.hero_sub)}</p>${nav}${productLinks(await all(`SELECT slug, name, price FROM products p WHERE store=? AND active=1 AND ${PC.visibleSql('p')} ORDER BY featured DESC, id DESC LIMIT 30`, s.slug))}`;
+    return out;
+  }
+  if (seg[0] === 'store' && seg[1]) {
+    const v = await get("SELECT name, tagline, about, logo FROM vendors WHERE slug=? AND status='approved'", String(seg[1]).slice(0, 80));
+    if (!v) { out.status = 404; out.noindex = true; return out; }
+    out.title = `${v.name} · ${S0.store_name}`; out.desc = clip(v.about || v.tagline || v.name, 160); out.canonical = `${BASE_URL}/store/${seg[1]}`; if (v.logo) out.image = absUrl(v.logo);
+    out.body = `<h1>${esc(v.name)}</h1><p>${esc(v.about)}</p>${nav}`;
     return out;
   }
   if (seg[0] === 'shop') {
