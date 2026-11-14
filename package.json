@@ -4,12 +4,36 @@
   "description": "Shop-Beta online store: storefront, checkout, admin dashboard",
   "main": "server.js",
   "private": true,
-  "engines": { "node": ">=22.13" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning server.js",
-    "test": "node --disable-warning=ExperimentalWarning test/smoke.js"
+    "test": "node --disable-warning=ExperimentalWarning test/smoke.js",
+    "import:sqlite": "node --disable-warning=ExperimentalWarning scripts/import-sqlite.js",
+    "migrate": "node -e \"require('./lib/db').migrate().then(()=>process.exit(0)).catch((e)=>{console.error(e.message);process.exit(1)})\"",
+    "test:stateless": "node --disable-warning=ExperimentalWarning test/stateless.js",
+    "migrate:uploads": "node --disable-warning=ExperimentalWarning scripts/migrate-uploads.js",
+    "worker": "node --disable-warning=ExperimentalWarning worker.js",
+    "backup": "node --disable-warning=ExperimentalWarning -e \"require('./lib/db').migrate().then(()=>require('./lib/backup').create('manual')).then((s)=>{console.log('Backup saved:',s.name,s.rows,'rows');process.exit(0)}).catch((e)=>{console.error(e.message);process.exit(1)})\"",
+    "restore": "node --disable-warning=ExperimentalWarning scripts/restore.js",
+    "preflight": "node --disable-warning=ExperimentalWarning scripts/preflight.js",
+    "loadtest": "node scripts/loadtest.js",
+    "test:load": "node --disable-warning=ExperimentalWarning test/load.js",
+    "test:ops": "node --disable-warning=ExperimentalWarning test/ops.js",
+    "test:security": "node --disable-warning=ExperimentalWarning test/security.js",
+    "test:delivery": "node --disable-warning=ExperimentalWarning test/delivery.js",
+    "test:checkout": "node --disable-warning=ExperimentalWarning test/checkout.js",
+    "test:queue": "node --disable-warning=ExperimentalWarning test/queue.js",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "test:pharmacy": "node --disable-warning=ExperimentalWarning test/pharmacy.js",
+    "test:cache": "node --disable-warning=ExperimentalWarning test/cache.js"
   },
   "dependencies": {
-    "express": "^4.21.2"
+    "compression": "^1.8.2",
+    "express": "^4.21.2",
+    "leaflet": "^1.9.4",
+    "pg": "^8.23.1"
   }
 }

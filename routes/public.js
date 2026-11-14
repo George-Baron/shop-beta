@@ -3,6 +3,11 @@ const crypto = require('crypto');
 const express = require('express');
 const { get, all, run, tx, now } = require('../lib/db');
 const S_ = require('../lib/shop');
+const PC = require('../lib/pharmacy-core');
+const cache = require('../lib/cache');
+const queue = require('../lib/queue');
+const D = require('../lib/delivery');
+const geo = require('../lib/geo');
 const A = require('../lib/auth');
 const { fail, str, int, isEmail, parseImages, card, RATING_JOIN, getSettings, esc } = S_;
 
@@ -11,46 +16,74 @@ const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
 const PRODUCT_SELECT = `SELECT p.*, c.name AS category, c.slug AS category_slug, COALESCE(rv.r,0) AS rating, COALESCE(rv.n,0) AS rating_n
   FROM products p LEFT JOIN categories c ON c.id = p.category_id ${RATING_JOIN}`;
 const PER_PAGE = 20;
+// Catalogue answers are the same for every visitor, so browsers and Cloudflare may keep them briefly. Never use this on anything that depends on who is asking.
+const publicCache = (res) => res.set('Cache-Control', 'public, max-age=10, s-maxage=30, stale-while-revalidate=60');
+const queryKey = (prefix, query) => { const k = prefix + JSON.stringify(Object.entries(query).sort()); return k.length <= 400 ? k : null; };
 
 /* ================= config ================= */
-router.get('/config', (req, res) => {
-  const S = getSettings();
-  const stores = all('SELECT * FROM stores WHERE active=1 ORDER BY sort, slug');
+router.get('/config', ah(async (req, res) => {
+  const base = await cache.cached('config', 30000, buildConfig);
+  res.set('Cache-Control', 'private, no-cache'); // includes the signed-in user, so never shared
+  res.json({ ...base, user: req.user ? A.publicUser(req.user) : null });
+}));
+async function buildConfig() {
+  const S = await getSettings();
+  const stores = await all(`SELECT * FROM stores s WHERE active=1 AND ${PC.storeVisibleSql('s')} ORDER BY sort, slug`);
   const slugs = new Set(stores.map((s) => s.slug));
   const settings = { ...S }; delete settings.demo_seeded; delete settings.pod_enabled; delete settings.paystack_enabled;
-  res.json({
+  if (!PC.enabled()) for (const k of Object.keys(settings)) if (k.startsWith('pharm_')) delete settings[k];
+  const categories = (await all('SELECT id, store, slug, name, icon FROM categories ORDER BY sort, id')).filter((c) => slugs.has(c.store));
+  const zones = (await all('SELECT state, fee, eta, pod FROM zones ORDER BY sort, state')).map((z) => ({ ...z, pod: z.pod && S.pod_enabled === '1' ? 1 : 0 }));
+  return {
     settings, stores,
-    categories: all('SELECT id, store, slug, name, icon FROM categories ORDER BY sort, id').filter((c) => slugs.has(c.store)),
-    zones: all('SELECT state, fee, eta, pod FROM zones ORDER BY sort, state').map((z) => ({ ...z, pod: z.pod && S.pod_enabled === '1' ? 1 : 0 })),
-    payments: { paystack: S.paystack_enabled === '1', pod: S.pod_enabled === '1', demo: !S_.paystackLive() },
-    user: req.user ? A.publicUser(req.user) : null,
-  });
-});
+    categories,
+    zones,
+    pharmacy: PC.enabled(),
+    payments: { paystack: S.paystack_enabled === '1' && (S_.paystackLive() || S_.demoAllowed()), pod: S.pod_enabled === '1', demo: !S_.paystackLive() && S_.demoAllowed() },
+  };
+}
 
 /* ================= catalogue ================= */
-router.get('/home/:slug', (req, res) => {
-  const store = get('SELECT * FROM stores WHERE slug=? AND active=1', str(req.params.slug, 40));
+router.get('/home/:slug', ah(async (req, res) => {
+  const slug = str(req.params.slug, 40);
+  const data = await cache.cached('home:' + slug, 30000, () => buildHome(slug));
+  publicCache(res);
+  res.json(data);
+}));
+async function buildHome(slug) {
+  const store = await get(`SELECT * FROM stores s WHERE slug=? AND active=1 AND ${PC.storeVisibleSql('s')}`, slug);
   if (!store) fail(404, 'Department not found.');
-  const list = (cond, order, limit) => all(`${PRODUCT_SELECT} WHERE p.active=1 AND p.store=? ${cond} ORDER BY ${order} LIMIT ${limit}`, store.slug).map(card);
-  res.json({
-    store, categories: all('SELECT id, slug, name, icon FROM categories WHERE store=? ORDER BY sort, id', store.slug),
-    featured: list('AND p.featured=1', 'p.id DESC', 10),
-    bestsellers: list('AND p.bestseller=1', 'p.sold DESC, p.id DESC', 10),
-    newArrivals: list('AND p.new_arrival=1', 'p.created DESC', 8),
-    deals: list('AND p.compare_price > p.price', '(p.compare_price - p.price) * 1.0 / p.compare_price DESC', 10),
-  });
-});
+  const list = async (cond, order, limit) => (await all(`${PRODUCT_SELECT} WHERE p.active=1 AND ${PC.visibleSql('p')} AND p.store=? ${cond} ORDER BY ${order} LIMIT ${limit}`, store.slug)).map(card);
+  const categories = await all('SELECT id, slug, name, icon FROM categories WHERE store=? ORDER BY sort, id', store.slug);
+  const featured = await list('AND p.featured=1', 'p.id DESC', 10);
+  const bestsellers = await list('AND p.bestseller=1', 'p.sold DESC, p.id DESC', 10);
+  const newArrivals = await list('AND p.new_arrival=1', 'p.created DESC', 8);
+  const deals = await list('AND p.compare_price > p.price', '(p.compare_price - p.price) * 1.0 / p.compare_price DESC', 10);
+  return { store, categories, featured, bestsellers, newArrivals, deals };
+}
 
 const likeEsc = (s) => s.replace(/[\\%_]/g, (c) => '\\' + c);
-router.get('/products', (req, res) => {
-  const q = req.query, where = ['p.active=1'], args = [], facetWhere = ['p.active=1'], facetArgs = [];
+const searchLimit = A.quickLimiter('search', 90, 60000, 'Too many searches. Please wait a moment and try again.');
+router.get('/products', (req, res, next) => (req.query.q ? searchLimit(req, res, next) : next()), ah(async (req, res) => {
+  const key = queryKey('products:', req.query);
+  const data = key ? await cache.cached(key, 30000, () => listProducts(req.query)) : await listProducts(req.query);
+  publicCache(res);
+  res.json(data);
+}));
+async function listProducts(q) {
+  const vis = PC.visibleSql('p'), where = ['p.active=1', vis], args = [], facetWhere = ['p.active=1', vis], facetArgs = [];
   const store = str(q.store, 40), category = str(q.category, 60);
   if (store) { where.push('p.store=?'); args.push(store); facetWhere.push('p.store=?'); facetArgs.push(store); }
   if (category) { where.push('c.slug=?'); args.push(category); facetWhere.push('c.slug=?'); facetArgs.push(category); }
-  for (const w of str(q.q, 80).toLowerCase().split(/\s+/).filter(Boolean).slice(0, 5)) {
+  const words = str(q.q, 80).toLowerCase().split(/\s+/).filter(Boolean).slice(0, 5);
+  // Category names are matched in JavaScript against a small cached list, so the SQL only tests plain product columns and can use the search indexes
+  // (matching c.name inside the OR forced a scan of the whole catalogue: about 100 times slower).
+  const catNames = words.length ? await cache.cached('catnames', 30000, () => all('SELECT id, LOWER(name) AS name FROM categories')) : [];
+  for (const w of words) {
     const l = '%' + likeEsc(w) + '%';
-    where.push("(LOWER(p.name) LIKE ? ESCAPE '\\' OR LOWER(p.brand) LIKE ? ESCAPE '\\' OR LOWER(p.sku) LIKE ? ESCAPE '\\' OR LOWER(COALESCE(c.name,'')) LIKE ? ESCAPE '\\' OR LOWER(p.description) LIKE ? ESCAPE '\\')");
-    args.push(l, l, l, l, l);
+    const catIds = catNames.filter((c) => c.name.includes(w)).map((c) => Number(c.id)).filter(Number.isInteger);
+    where.push(`(LOWER(p.name) LIKE ? ESCAPE '\\' OR LOWER(p.brand) LIKE ? ESCAPE '\\' OR LOWER(p.sku) LIKE ? ESCAPE '\\' OR LOWER(p.description) LIKE ? ESCAPE '\\'${catIds.length ? ` OR p.category_id IN (${catIds.join(',')})` : ''})`);
+    args.push(l, l, l, l);
   }
   const min = int(q.min, -1), max = int(q.max, -1);
   if (min >= 0) { where.push('p.price >= ?'); args.push(min); }
@@ -64,97 +97,169 @@ router.get('/products', (req, res) => {
   if (q.flag === 'best') where.push('p.bestseller=1');
   const order = {
     popular: 'p.sold DESC, p.id DESC', newest: 'p.created DESC, p.id DESC', price_asc: 'p.price ASC', price_desc: 'p.price DESC',
-    rating: 'COALESCE(rv.r,0) DESC, COALESCE(rv.n,0) DESC', name: 'p.name COLLATE NOCASE ASC',
+    rating: 'COALESCE(rv.r,0) DESC, COALESCE(rv.n,0) DESC', name: 'LOWER(p.name) ASC',
   }[q.sort] || 'p.featured DESC, p.id DESC';
   const from = `FROM products p LEFT JOIN categories c ON c.id = p.category_id ${RATING_JOIN} WHERE ${where.join(' AND ')}`;
-  const total = get(`SELECT COUNT(*) n ${from}`, ...args).n;
+  const total = (await get(`SELECT COUNT(*) n ${from}`, ...args)).n;
   const pages = Math.max(1, Math.ceil(total / PER_PAGE)), page = Math.min(pages, Math.max(1, int(q.page, 1)));
-  const products = all(`SELECT p.*, c.name AS category, COALESCE(rv.r,0) AS rating, COALESCE(rv.n,0) AS rating_n ${from} ORDER BY ${order} LIMIT ${PER_PAGE} OFFSET ${(page - 1) * PER_PAGE}`, ...args).map(card);
-  const fr = all(`SELECT DISTINCT v.size, v.color FROM variants v JOIN products p ON p.id=v.product_id LEFT JOIN categories c ON c.id=p.category_id WHERE ${facetWhere.join(' AND ')}`, ...facetArgs);
+  const products = (await all(`SELECT p.*, c.name AS category, COALESCE(rv.r,0) AS rating, COALESCE(rv.n,0) AS rating_n ${from} ORDER BY ${order} LIMIT ${PER_PAGE} OFFSET ${(page - 1) * PER_PAGE}`, ...args)).map(card);
+  // The size/colour lists depend only on department and category (never on the search words), so they are kept for a minute instead of re-reading every variant on each search.
+  const fr = await cache.cached(`facets:${store}:${category}`, 60000, () => all(`SELECT DISTINCT v.size, v.color FROM variants v JOIN products p ON p.id=v.product_id LEFT JOIN categories c ON c.id=p.category_id WHERE ${facetWhere.join(' AND ')}`, ...facetArgs));
   const nat = (a, b) => a.localeCompare(b, undefined, { numeric: true });
-  res.json({ products, total, page, pages, facets: { sizes: [...new Set(fr.map((x) => x.size).filter(Boolean))].sort(nat), colors: [...new Set(fr.map((x) => x.color).filter(Boolean))].sort(nat) } });
-});
+  return { products, total, page, pages, facets: { sizes: [...new Set(fr.map((x) => x.size).filter(Boolean))].sort(nat), colors: [...new Set(fr.map((x) => x.color).filter(Boolean))].sort(nat) } };
+}
 
-router.post('/products/by-ids', (req, res) => {
+router.post('/products/by-ids', ah(async (req, res) => {
   const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map((x) => int(x)).filter((x) => x > 0).slice(0, 24);
   if (!ids.length) return res.json({ products: [] });
-  const rows = all(`${PRODUCT_SELECT} WHERE p.active=1 AND p.id IN (${ids.map(() => '?').join(',')})`, ...ids);
+  const rows = await all(`${PRODUCT_SELECT} WHERE p.active=1 AND ${PC.visibleSql('p')} AND p.id IN (${ids.map(() => '?').join(',')})`, ...ids);
   const byId = new Map(rows.map((r) => [r.id, r]));
   res.json({ products: ids.map((i) => byId.get(i)).filter(Boolean).map(card) });
-});
+}));
 
-router.get('/products/:slug', (req, res) => {
-  const p = get(`${PRODUCT_SELECT} WHERE p.active=1 AND p.slug=?`, str(req.params.slug, 120));
+router.get('/products/:slug', ah(async (req, res) => {
+  const slug = str(req.params.slug, 120);
+  const base = await cache.cached('product:' + slug, 20000, () => buildProduct(slug));
+  // Description, reviews and related products may be 20 seconds old. Stock is at most 3 seconds old (a popular product is asked for many times a second,
+  // so one read serves them all). It is only for display: checkout takes stock atomically and refuses what is gone.
+  const { stock, variants } = await cache.cached('stock:' + base.product.id, 3000, async () => ({
+    stock: (await get('SELECT stock FROM products WHERE id=?', base.product.id) || { stock: 0 }).stock,
+    variants: await all('SELECT id, size, color, stock FROM variants WHERE product_id=? ORDER BY id', base.product.id),
+  }));
+  res.set('Cache-Control', 'no-cache'); // stock changes with every order, so browsers must ask again (the server answer is cheap)
+  res.json({ ...base, product: { ...base.product, stock, variants } });
+}));
+async function buildProduct(slug) {
+  const p = await get(`${PRODUCT_SELECT} WHERE p.active=1 AND ${PC.visibleSql('p')} AND p.slug=?`, slug);
   if (!p) fail(404, 'We could not find that product.');
-  const variants = all('SELECT id, size, color, stock FROM variants WHERE product_id=? ORDER BY id', p.id);
-  const reviews = all('SELECT name, rating, title, body, created FROM reviews WHERE product_id=? AND approved=1 ORDER BY id DESC LIMIT 50', p.id);
+  const variants = await all('SELECT id, size, color, stock FROM variants WHERE product_id=? ORDER BY id', p.id);
+  const reviews = await all('SELECT name, rating, title, body, created FROM reviews WHERE product_id=? AND approved=1 ORDER BY id DESC LIMIT 50', p.id);
   const dist = [5, 4, 3, 2, 1].map((s) => ({ stars: s, n: reviews.filter((r) => r.rating === s).length }));
-  const related = all(`${PRODUCT_SELECT} WHERE p.active=1 AND p.store=? AND p.id<>? ORDER BY (p.category_id IS ? ) DESC, p.sold DESC LIMIT 5`, p.store, p.id, p.category_id).map(card);
-  res.json({
+  const related = (await all(`${PRODUCT_SELECT} WHERE p.active=1 AND ${PC.visibleSql('p')} AND p.store=? AND p.id<>? ORDER BY (p.category_id IS NOT DISTINCT FROM ?::bigint) DESC, p.sold DESC LIMIT 5`, p.store, p.id, p.category_id)).map(card);
+  return {
     product: { ...card(p), store: p.store, category: p.category || '', category_slug: p.category_slug || '', description: p.description, sku: p.sku, size_label: p.size_label, images: parseImages(p.images), variants, reviews, dist },
     related,
-  });
-});
+  };
+}
 
-router.post('/products/:id/reviews', A.limiter('review', 8, 3600000), (req, res) => {
+router.post('/products/:id/reviews', A.limiter('review', 8, 3600000), ah(async (req, res) => {
   const pid = int(req.params.id), b = req.body || {};
-  const p = get('SELECT id FROM products WHERE id=? AND active=1', pid);
+  const p = await get(`SELECT id, slug FROM products p WHERE id=? AND active=1 AND ${PC.visibleSql('p')}`, pid);
   if (!p) fail(404, 'We could not find that product.');
   const rating = int(b.rating), body = str(b.body, 1000), title = str(b.title, 80);
   if (rating < 1 || rating > 5) fail(400, 'Please choose a star rating.');
   if (body.length < 3) fail(400, 'Please write a few words about the product.');
   const name = req.user ? req.user.name : str(b.name, 60);
   if (!name) fail(400, 'Please enter your name.');
-  if (req.user && get('SELECT 1 x FROM reviews WHERE product_id=? AND user_id=?', pid, req.user.id)) fail(409, 'You have already reviewed this product.');
-  run('INSERT INTO reviews (product_id,user_id,name,rating,title,body,approved,created) VALUES (?,?,?,?,?,?,1,?)', pid, req.user ? req.user.id : null, name, rating, title, body, now());
+  if (req.user && await get('SELECT 1 x FROM reviews WHERE product_id=? AND user_id=?', pid, req.user.id)) fail(409, 'You have already reviewed this product.');
+  try {
+    // Only people who actually received this product are published at once. Everyone else waits for the store to approve the review.
+    const bought = req.user && await get("SELECT 1 x FROM orders o JOIN order_items i ON i.order_id=o.id WHERE o.user_id=? AND i.product_id=? AND o.status='delivered' LIMIT 1", req.user.id, pid);
+    const live = (await S_.getSettings()).review_moderation === '0' || !!bought;
+    await run('INSERT INTO reviews (product_id,user_id,name,rating,title,body,approved,created) VALUES (?,?,?,?,?,?,?,?)', pid, req.user ? req.user.id : null, name, rating, title, body, live ? 1 : 0, now());
+    cache.drop('product:' + p.slug);
+    return res.json({ ok: true, pending: !live, message: live ? 'Thanks for your review!' : 'Thank you! Your review will appear after we have checked it.' });
+  } catch (err) {
+    if (err && err.code === '23505') fail(409, 'You have already reviewed this product.');
+    throw err;
+  }
+  cache.drop('product:' + p.slug); // so the reviewer sees their review at once; rating averages on listings catch up within 30 seconds
   res.json({ ok: true });
-});
+}));
 
 /* ================= cart & checkout ================= */
-router.post('/cart/price', (req, res) => {
-  const { zone, ...out } = S_.priceCart(req.body || {});
+router.post('/cart/price', ah(async (req, res) => {
+  const { zone, ...out } = await S_.priceCart(req.body || {});
   res.json(out);
-});
+}));
 
-router.post('/cart/abandon', A.limiter('abandon', 40, 3600000), (req, res) => {
+router.post('/cart/abandon', A.limiter('abandon', 40, 3600000), ah(async (req, res) => {
   const email = str(req.body.email, 120).toLowerCase();
   if (!isEmail(email)) return res.json({ ok: true });
   const items = (Array.isArray(req.body.items) ? req.body.items : []).slice(0, 30).map((i) => ({ productId: int(i && i.productId), variantId: i && i.variantId ? int(i.variantId) : null, qty: Math.min(99, Math.max(1, int(i && i.qty, 1))) })).filter((i) => i.productId > 0);
   if (!items.length) return res.json({ ok: true });
-  run('INSERT INTO abandoned (email,cart,created,reminded) VALUES (?,?,?,0) ON CONFLICT(email) DO UPDATE SET cart=excluded.cart, created=excluded.created, reminded=0', email, JSON.stringify(items), now());
+  await run('INSERT INTO abandoned (email,cart,created,reminded) VALUES (?,?,?,0) ON CONFLICT(email) DO UPDATE SET cart=excluded.cart, created=excluded.created, reminded=0', email, JSON.stringify(items), now());
   res.json({ ok: true });
-});
+}));
 
 router.post('/checkout', A.limiter('checkout', 20, 3600000), ah(async (req, res) => {
-  const order = S_.createOrder(req.body || {}, req.user);
-  if (order.payment_method === 'pod') { S_.mailOrderPlaced(order); return res.json({ ref: order.ref, next: 'pod' }); }
-  if (!S_.paystackLive()) return res.json({ ref: order.ref, next: 'demo' });
-  try { return res.json({ ref: order.ref, next: 'paystack', url: await S_.paystackInitialize(order) }); }
-  catch (err) { S_.cancelOrder(order, 'Payment could not be started'); throw err; }
+  const key = req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey) || '';
+  const order = await S_.createOrder(req.body || {}, req.user, key);
+  // Prescription orders are paid only after the pharmacist approves: nothing is charged now.
+  if (order.rx_required && order.rx_status !== 'verified') return res.json({ ref: order.ref, token: order.access_token, next: 'rx', replayed: !!order.replayed });
+  if (order.replayed) { // the same checkout sent again: answer exactly as before, send no second email, start no second payment
+    if (order.status === 'cancelled') fail(409, 'That order was cancelled. Please place a new order.');
+    if (order.payment_method === 'pod' || order.payment_status === 'paid') return res.json({ ref: order.ref, token: order.access_token, next: 'pod', replayed: true });
+    if (!S_.paystackLive()) return res.json({ ref: order.ref, token: order.access_token, next: 'demo', replayed: true });
+    if (!order.pay_url) { order.pay_url = await S_.paystackInitialize(order); await run('UPDATE orders SET pay_url=? WHERE id=?', order.pay_url, order.id); }
+    return res.json({ ref: order.ref, token: order.access_token, next: 'paystack', url: order.pay_url, replayed: true });
+  }
+  if (order.payment_method === 'pod') { S_.mailOrderPlaced(order); return res.json({ ref: order.ref, token: order.access_token, next: 'pod' }); }
+  if (!S_.paystackLive()) return res.json({ ref: order.ref, token: order.access_token, next: 'demo' });
+  try {
+    const url = await S_.paystackInitialize(order);
+    await run('UPDATE orders SET pay_url=? WHERE id=?', url, order.id);
+    return res.json({ ref: order.ref, token: order.access_token, next: 'paystack', url });
+  } catch (err) { await S_.cancelOrder(order, 'Payment could not be started'); throw err; }
+}));
+
+/* ================= delivery map ================= */
+router.get('/delivery/config', ah(async (req, res) => {
+  res.set('Cache-Control', 'public, max-age=60');
+  res.json({ mapped: await D.hasPartners(), tiles: geo.TILE_URL, search: geo.hasProvider(), attribution: geo.hasProvider() ? 'Powered by <a href="https://www.geoapify.com/" target="_blank" rel="noopener">Geoapify</a> | © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors' : '' });
+}));
+router.get('/delivery/search', A.limiter('geosearch', 60, 600000), ah(async (req, res) => res.json({ results: await geo.search(str(req.query.q, 120)) })));
+router.post('/delivery/quote', A.limiter('quote', 60, 600000), ah(async (req, res) => {
+  const b = req.body || {}, loc = b.location || {};
+  const q = await D.quote({ lat: loc.lat, lng: loc.lng, state: str(b.state, 60), items: b.items });
+  if (q.legs) q.legs = q.legs.map((l) => ({ name: l.name, lat: l.lat, lng: l.lng, km: l.km, minutes: l.minutes, line: l.line })); // no partner phone numbers
+  res.json(q);
 }));
 
 /* ================= orders ================= */
-function ownedOrder(req, ref, email) {
-  const o = S_.loadOrder('ref=?', str(ref, 20).toUpperCase());
-  const e = str(email, 120).toLowerCase();
-  const ok = o && ((req.user && (o.user_id === req.user.id || req.user.role === 'admin')) || (e && o.email.toLowerCase() === e));
+// Who is asking? 'full' = the signed-in owner, an admin, or someone holding the order's private link token.
+// 'basic' = someone who only knows the order number and email: they see the status but not the phone number or street address.
+async function ownedOrder(req, ref, email, token) {
+  const o = await S_.loadOrder('ref=?', str(ref, 20).toUpperCase());
+  const e = str(email, 120).toLowerCase(), tk = str(token, 80);
+  const tokenOk = !!(o && o.access_token && tk && tk.length === o.access_token.length && require('crypto').timingSafeEqual(Buffer.from(tk), Buffer.from(o.access_token)));
+  const owner = !!(o && req.user && (o.user_id === req.user.id || req.user.role === 'admin'));
+  const ok = o && (owner || tokenOk || (e && o.email.toLowerCase() === e));
   if (!ok) fail(404, 'We could not find an order with those details. Check the order number and email.');
+  o.view = owner || tokenOk ? 'full' : 'basic';
   return o;
 }
-router.post('/orders/lookup', A.limiter('lookup', 40, 600000), (req, res) => {
-  res.json({ order: S_.publicOrder(ownedOrder(req, req.body.ref, req.body.email)) });
-});
-router.post('/orders/:ref/cancel', A.limiter('cancel', 10, 600000), (req, res) => {
-  const o = ownedOrder(req, req.params.ref, req.body.email);
+// The order as the customer sees it: stages, promised time, their handover code while it is useful, and the rider's position only while the delivery is under way.
+async function customerOrder(o) {
+  const out = S_.publicOrder(o);
+  if (o.view === 'basic') { // order number + email only: hide what a stranger could misuse
+    out.phone = out.phone ? '•••••••' + String(out.phone).slice(-3) : ''; out.address = out.address ? '••••••••' : ''; out.landmark_hidden = true;
+    if (out.delivery_info) { out.delivery_info = { ...out.delivery_info, lat: null, lng: null, landmark: '' }; }
+    out.masked = true;
+    return out; // no delivery code and no rider position for a masked view
+  }
+  out.handover_code = await D.visibleCode(o);
+  if (out.delivery_info && o.status === 'shipped' && o.rider_id) {
+    const pt = await get('SELECT lat, lng, created FROM rider_points WHERE order_id=? ORDER BY id DESC LIMIT 1', o.id);
+    out.rider = pt ? { lat: pt.lat, lng: pt.lng, at: Number(pt.created) } : null;
+  }
+  return out;
+}
+router.post('/orders/lookup', A.limiter('lookup', 40, 600000), ah(async (req, res) => {
+  res.json({ order: await customerOrder(await ownedOrder(req, req.body.ref, req.body.email, req.body.token)) });
+}));
+router.post('/orders/:ref/cancel', A.limiter('cancel', 10, 600000), ah(async (req, res) => {
+  const o = await ownedOrder(req, req.params.ref, req.body.email);
   if (o.status !== 'pending' || o.payment_status === 'paid') fail(400, 'This order can no longer be cancelled. Please contact us.');
-  S_.cancelOrder(o, 'Cancelled by customer');
+  await S_.cancelOrder(o, 'Cancelled by customer');
   res.json({ ok: true });
-});
-router.get('/orders', A.requireUser, (req, res) => {
-  const orders = all('SELECT id, ref, status, total, created FROM orders WHERE user_id=? ORDER BY id DESC LIMIT 100', req.user.id)
-    .map((o) => ({ ref: o.ref, status: o.status, total: o.total, created: o.created, items: all('SELECT name, qty FROM order_items WHERE order_id=?', o.id) }));
+}));
+router.get('/orders', A.requireUser, ah(async (req, res) => {
+  const rows = await all('SELECT id, ref, status, total, created FROM orders WHERE user_id=? ORDER BY id DESC LIMIT 100', req.user.id);
+  const orders = [];
+  for (const o of rows) orders.push({ ref: o.ref, status: o.status, total: o.total, created: o.created, items: await all('SELECT name, qty FROM order_items WHERE order_id=?', o.id) });
   res.json({ orders });
-});
+}));
 
 /* ================= payments ================= */
 router.get('/paystack/verify', A.limiter('verify', 40, 600000), ah(async (req, res) => {
@@ -166,121 +271,139 @@ router.get('/paystack/verify', A.limiter('verify', 40, 600000), ah(async (req, r
 router.post('/paystack/webhook', ah(async (req, res) => {
   if (!S_.verifyWebhookSignature(req.rawBody, req.headers['x-paystack-signature'])) return res.status(401).json({ error: 'Bad signature' });
   const ev = req.body || {};
-  if (ev.event === 'charge.success' && ev.data && ev.data.reference) await S_.settleWithPaystack(str(ev.data.reference, 40).toUpperCase());
+  // Acknowledge fast and do the work in the background: Paystack retries slow or failed webhooks, and we must not time out.
+  if (ev.event === 'charge.success' && ev.data && ev.data.reference) {
+    const ref = str(ev.data.reference, 40).toUpperCase();
+    await queue.enqueue('paystack.settle', { ref }, { key: 'paystack:' + ref });
+  }
   res.json({ ok: true });
 }));
 // Demo mode only (no PAYSTACK_SECRET_KEY set): lets you test the whole order flow without real money.
-router.post('/pay/demo/:ref', A.limiter('demo', 30, 600000), (req, res) => {
+router.post('/pay/demo/:ref', A.limiter('demo', 30, 600000), ah(async (req, res) => {
+  if (!S_.demoAllowed()) fail(404, 'Not found.');
   if (S_.paystackLive()) fail(404, 'Not found.');
-  const o = S_.loadOrder('ref=?', str(req.params.ref, 20).toUpperCase());
+  const o = await S_.loadOrder('ref=?', str(req.params.ref, 20).toUpperCase());
   if (!o || o.payment_method !== 'paystack' || o.payment_status === 'paid' || o.status !== 'pending') fail(400, 'This order is not waiting for payment.');
-  if (req.body.outcome === 'fail') S_.cancelOrder(o, 'Demo payment failed');
-  else S_.markPaid(o, 'DEMO-' + o.ref, 'Payment received (demo)');
+  if (req.body.outcome === 'fail') await S_.cancelOrder(o, 'Demo payment failed');
+  else await S_.markPaid(o, 'DEMO-' + o.ref, 'Payment received (demo)');
   res.json({ ok: true });
-});
+}));
 
 /* ================= accounts ================= */
-const pwOk = (p) => typeof p === 'string' && p.length >= 8 && p.length <= 200;
-router.post('/auth/register', A.limiter('register', 10, 3600000), ah(async (req, res) => {
+const PW = require('../lib/passwords');
+router.post('/auth/register', A.limiter('register', 5, 3600000), ah(async (req, res) => {
   const b = req.body || {}, name = str(b.name, 80), email = str(b.email, 120).toLowerCase(), phone = str(b.phone, 30);
   if (!name) fail(400, 'Please enter your name.');
   if (!isEmail(email)) fail(400, 'Please enter a valid email address.');
-  if (!pwOk(b.password)) fail(400, 'Your password must be at least 8 characters.');
-  if (get('SELECT 1 x FROM users WHERE email=?', email)) fail(409, 'An account with that email already exists. Try signing in.');
-  const r = run("INSERT INTO users (name,email,phone,password,role,created) VALUES (?,?,?,?, 'customer', ?)", name, email, phone, await A.hashPassword(b.password), now());
-  A.startSession(req, res, Number(r.lastInsertRowid));
-  res.json({ user: A.publicUser(get('SELECT * FROM users WHERE id=?', Number(r.lastInsertRowid))) });
+  const bad = PW.check(b.password, { email, name }); if (bad) fail(400, bad);
+  // The same answer and the same work whether or not the email is taken, so this form cannot be used to find out who has an account.
+  const hash = await A.hashPassword(b.password);
+  const CANT = 'We could not create that account. If you already have one, sign in or use "Forgot password".';
+  if (await get('SELECT 1 x FROM users WHERE email=?', email)) fail(400, CANT);
+  let r;
+  try {
+    r = await run("INSERT INTO users (name,email,phone,password,role,created) VALUES (?,?,?,?,'customer', ?)", name, email, phone, hash, now());
+  } catch (err) {
+    if (err && err.code === '23505') fail(400, CANT);
+    throw err;
+  }
+  await A.startSession(req, res, Number(r.lastInsertRowid), 'customer');
+  res.json({ user: A.publicUser(await get('SELECT * FROM users WHERE id=?', Number(r.lastInsertRowid))) });
 }));
 router.post('/auth/login', ah(async (req, res) => {
   const b = req.body || {}, email = str(b.email, 120).toLowerCase(), pw = typeof b.password === 'string' ? b.password.slice(0, 200) : '';
-  if (!A.hit('login-ip:' + req.ip, 30, 900000) || !A.hit('login-email:' + email, 8, 900000)) fail(429, 'Too many sign-in attempts. Please wait 15 minutes and try again.');
-  const u = get('SELECT * FROM users WHERE email=?', email);
+  // Only FAILED attempts are counted, per visitor address and per account-from-this-address. A stranger guessing at your email from his own
+  // connection can lock out only himself, never you.
+  const ip = req.clientIp, kIp = 'login-fail-ip:' + ip, kAcc = `login-fail:${email}:${ip}`;
+  if ((await A.over(kIp, 40)) || (await A.over(kAcc, 8))) fail(429, 'Too many sign-in attempts. Please wait 15 minutes and try again.');
+  const u = await get('SELECT * FROM users WHERE email=?', email);
   const good = u ? await A.checkPassword(pw, u.password) : await A.burn(pw);
-  if (!u || !good) fail(401, 'That email and password do not match.');
-  if (req.sessionToken) run('DELETE FROM sessions WHERE id=?', A.sha(req.sessionToken));
-  A.startSession(req, res, u.id);
+  if (!u || !good) { await A.hit(kIp, 1e9, 900000); await A.hit(kAcc, 1e9, 900000); fail(401, 'That email and password do not match.'); }
+  if (u.active === 0) fail(403, 'This account has been switched off. Please contact the store.');
+  if (req.sessionToken) await run('DELETE FROM sessions WHERE id=?', A.sha(req.sessionToken));
+  await A.startSession(req, res, u.id, u.role);
   res.json({ user: A.publicUser(u) });
 }));
-router.post('/auth/logout', (req, res) => { A.endSession(req, res); res.json({ ok: true }); });
-router.post('/auth/forgot', A.limiter('forgot', 6, 3600000), (req, res) => {
+router.post('/auth/logout', ah(async (req, res) => { await A.endSession(req, res); res.json({ ok: true }); }));
+router.post('/auth/forgot', A.limiter('forgot', 6, 3600000), ah(async (req, res) => {
   const email = str(req.body.email, 120).toLowerCase();
-  const u = isEmail(email) ? get('SELECT * FROM users WHERE email=?', email) : null;
+  const u = isEmail(email) ? await get('SELECT * FROM users WHERE email=?', email) : null;
   if (u) {
     const token = crypto.randomBytes(32).toString('hex');
-    run('DELETE FROM resets WHERE user_id=?', u.id);
-    run('INSERT INTO resets (token,user_id,expires) VALUES (?,?,?)', A.sha(token), u.id, now() + 3600);
-    const S = getSettings();
-    S_.queueMail(u.email, `Reset your ${S.store_name} password`, S_.mailWrap(S, `<p>Hi ${esc(u.name.split(' ')[0])}, use the link below to choose a new password. It works for one hour.</p><p><a href="${S_.BASE_URL}/forgot?token=${token}">Choose a new password</a></p><p>If you did not ask for this, you can ignore this email.</p>`));
+    await run('DELETE FROM resets WHERE user_id=?', u.id);
+    await run('INSERT INTO resets (token,user_id,expires) VALUES (?,?,?)', A.sha(token), u.id, now() + 3600);
+    const S = await getSettings();
+    await S_.queueMail(u.email, `Reset your ${S.store_name} password`, S_.mailWrap(S, `<p>Hi ${esc(u.name.split(' ')[0])}, use the link below to choose a new password. It works for one hour.</p><p><a href="${S_.BASE_URL}/forgot?token=${token}">Choose a new password</a></p><p>If you did not ask for this, you can ignore this email.</p>`));
   }
   res.json({ ok: true });
-});
+}));
 router.post('/auth/reset', A.limiter('reset', 15, 3600000), ah(async (req, res) => {
   const token = str(req.body.token, 80);
-  if (!pwOk(req.body.password)) fail(400, 'Your password must be at least 8 characters.');
-  const r = /^[0-9a-f]{64}$/.test(token) ? get('SELECT * FROM resets WHERE token=? AND expires>?', A.sha(token), now()) : null;
+  { const rr = /^[0-9a-f]{64}$/.test(String(req.body.token || '')) ? await get('SELECT u.email, u.name, u.role FROM resets r JOIN users u ON u.id=r.user_id WHERE r.token=? AND r.expires>?', A.sha(String(req.body.token)), now()) : null; const bad = PW.check(req.body.password, { email: rr && rr.email, name: rr && rr.name, min: rr && rr.role !== 'customer' ? PW.STAFF_MIN : 8 }); if (bad) fail(400, bad); }
+  const r = /^[0-9a-f]{64}$/.test(token) ? await get('SELECT * FROM resets WHERE token=? AND expires>?', A.sha(token), now()) : null;
   if (!r) fail(400, 'This reset link has expired. Please ask for a new one.');
   const hash = await A.hashPassword(req.body.password);
-  run('UPDATE users SET password=? WHERE id=?', hash, r.user_id);
-  run('DELETE FROM resets WHERE user_id=?', r.user_id);
-  A.dropUserSessions(r.user_id);
-  A.startSession(req, res, r.user_id);
-  res.json({ user: A.publicUser(get('SELECT * FROM users WHERE id=?', r.user_id)) });
+  await run('UPDATE users SET password=? WHERE id=?', hash, r.user_id);
+  await run('DELETE FROM resets WHERE user_id=?', r.user_id);
+  await A.dropUserSessions(r.user_id);
+  await A.startSession(req, res, r.user_id);
+  res.json({ user: A.publicUser(await get('SELECT * FROM users WHERE id=?', r.user_id)) });
 }));
 router.get('/me', (req, res) => res.json({ user: req.user ? A.publicUser(req.user) : null }));
 router.put('/me', A.requireUser, ah(async (req, res) => {
   const b = req.body || {}, name = str(b.name, 80), phone = str(b.phone, 30);
   if (!name) fail(400, 'Please enter your name.');
   if (b.newPassword) {
-    if (!pwOk(b.newPassword)) fail(400, 'Your new password must be at least 8 characters.');
+    { const bad = PW.check(b.newPassword, { email: req.user.email, name: req.user.name, min: req.user.role !== 'customer' ? PW.STAFF_MIN : 8 }); if (bad) fail(400, bad); }
     if (!(await A.checkPassword(String(b.password || ''), req.user.password))) fail(400, 'Your current password is not correct.');
-    run('UPDATE users SET password=? WHERE id=?', await A.hashPassword(b.newPassword), req.user.id);
-    A.dropUserSessions(req.user.id, req.sessionToken);
+    await run('UPDATE users SET password=? WHERE id=?', await A.hashPassword(b.newPassword), req.user.id);
+    await A.dropUserSessions(req.user.id, req.sessionToken);
   }
-  run('UPDATE users SET name=?, phone=? WHERE id=?', name, phone, req.user.id);
-  res.json({ user: A.publicUser(get('SELECT * FROM users WHERE id=?', req.user.id)) });
+  await run('UPDATE users SET name=?, phone=? WHERE id=?', name, phone, req.user.id);
+  res.json({ user: A.publicUser(await get('SELECT * FROM users WHERE id=?', req.user.id)) });
 }));
 
-router.get('/addresses', A.requireUser, (req, res) => res.json({ addresses: all('SELECT id,label,name,phone,state,city,address FROM addresses WHERE user_id=? ORDER BY id DESC', req.user.id) }));
-router.post('/addresses', A.requireUser, (req, res) => {
+router.get('/addresses', A.requireUser, ah(async (req, res) => res.json({ addresses: await all('SELECT id,label,name,phone,state,city,address FROM addresses WHERE user_id=? ORDER BY id DESC', req.user.id) })));
+router.post('/addresses', A.requireUser, ah(async (req, res) => {
   const b = req.body || {}, state = str(b.state, 60), address = str(b.address, 200);
-  if (!get('SELECT 1 x FROM zones WHERE state=?', state)) fail(400, 'Please choose a state.');
+  if (!(await get('SELECT 1 x FROM zones WHERE state=?', state))) fail(400, 'Please choose a state.');
   if (address.length < 4) fail(400, 'Please enter your street address.');
-  if (get('SELECT COUNT(*) n FROM addresses WHERE user_id=?', req.user.id).n >= 10) fail(400, 'You can save up to 10 addresses.');
-  run('INSERT INTO addresses (user_id,label,name,phone,state,city,address) VALUES (?,?,?,?,?,?,?)', req.user.id, str(b.label, 30) || 'Home', str(b.name, 80), str(b.phone, 30), state, str(b.city, 60), address);
+  if ((await get('SELECT COUNT(*) n FROM addresses WHERE user_id=?', req.user.id)).n >= 10) fail(400, 'You can save up to 10 addresses.');
+  await run('INSERT INTO addresses (user_id,label,name,phone,state,city,address) VALUES (?,?,?,?,?,?,?)', req.user.id, str(b.label, 30) || 'Home', str(b.name, 80), str(b.phone, 30), state, str(b.city, 60), address);
   res.json({ ok: true });
-});
-router.delete('/addresses/:id', A.requireUser, (req, res) => { run('DELETE FROM addresses WHERE id=? AND user_id=?', int(req.params.id), req.user.id); res.json({ ok: true }); });
+}));
+router.delete('/addresses/:id', A.requireUser, ah(async (req, res) => { await run('DELETE FROM addresses WHERE id=? AND user_id=?', int(req.params.id), req.user.id); res.json({ ok: true }); }));
 
 /* ================= wishlist ================= */
-router.get('/wishlist', A.requireUser, (req, res) => res.json({ ids: all('SELECT product_id FROM wishlist WHERE user_id=?', req.user.id).map((r) => r.product_id) }));
-router.post('/wishlist-merge', A.requireUser, (req, res) => {
+router.get('/wishlist', A.requireUser, ah(async (req, res) => res.json({ ids: (await all('SELECT product_id FROM wishlist WHERE user_id=?', req.user.id)).map((r) => r.product_id) })));
+router.post('/wishlist-merge', A.requireUser, ah(async (req, res) => {
   const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map((x) => int(x)).filter((x) => x > 0).slice(0, 200);
-  tx(() => { for (const id of ids) if (get('SELECT 1 x FROM products WHERE id=?', id)) run('INSERT OR IGNORE INTO wishlist (user_id,product_id) VALUES (?,?)', req.user.id, id); });
+  await tx(async () => { for (const id of ids) if (await get(`SELECT 1 x FROM products p WHERE id=? AND ${PC.visibleSql('p')}`, id)) await run('INSERT INTO wishlist (user_id,product_id) VALUES (?,?) ON CONFLICT DO NOTHING', req.user.id, id); });
   res.json({ ok: true });
-});
-router.post('/wishlist/:id', A.requireUser, (req, res) => {
+}));
+router.post('/wishlist/:id', A.requireUser, ah(async (req, res) => {
   const id = int(req.params.id);
-  if (get('SELECT 1 x FROM products WHERE id=?', id)) run('INSERT OR IGNORE INTO wishlist (user_id,product_id) VALUES (?,?)', req.user.id, id);
+  if (await get(`SELECT 1 x FROM products p WHERE id=? AND ${PC.visibleSql('p')}`, id)) await run('INSERT INTO wishlist (user_id,product_id) VALUES (?,?) ON CONFLICT DO NOTHING', req.user.id, id);
   res.json({ ok: true });
-});
-router.delete('/wishlist/:id', A.requireUser, (req, res) => { run('DELETE FROM wishlist WHERE user_id=? AND product_id=?', req.user.id, int(req.params.id)); res.json({ ok: true }); });
+}));
+router.delete('/wishlist/:id', A.requireUser, ah(async (req, res) => { await run('DELETE FROM wishlist WHERE user_id=? AND product_id=?', req.user.id, int(req.params.id)); res.json({ ok: true }); }));
 
 /* ================= contact & newsletter ================= */
-router.post('/contact', A.limiter('contact', 6, 3600000), (req, res) => {
+router.post('/contact', A.limiter('contact', 6, 3600000), ah(async (req, res) => {
   const b = req.body || {};
   if (b.website) return res.json({ ok: true }); // honeypot: real visitors never fill this in
   const name = str(b.name, 80), email = str(b.email, 120), body = str(b.body, 2000), subject = str(b.subject, 120);
   if (!name || !isEmail(email) || body.length < 3) fail(400, 'Please fill in your name, a valid email and your message.');
-  run('INSERT INTO messages (name,email,subject,body,read,created) VALUES (?,?,?,?,0,?)', name, email, subject, body, now());
-  const S = getSettings();
-  if (S.contact_email) S_.queueMail(S.contact_email, `New message: ${subject || '(no subject)'}`, S_.mailWrap(S, `<p><b>${esc(name)}</b> (${esc(email)}) wrote:</p><p style="white-space:pre-wrap">${esc(body)}</p>`));
+  await run('INSERT INTO messages (name,email,subject,body,read,created) VALUES (?,?,?,?,0,?)', name, email, subject, body, now());
+  const S = await getSettings();
+  if (S.contact_email) await S_.queueMail(S.contact_email, `New message: ${subject || '(no subject)'}`, S_.mailWrap(S, `<p><b>${esc(name)}</b> (${esc(email)}) wrote:</p><p style="white-space:pre-wrap">${esc(body)}</p>`));
   res.json({ ok: true });
-});
-router.post('/newsletter', A.limiter('news', 10, 3600000), (req, res) => {
+}));
+router.post('/newsletter', A.limiter('news', 10, 3600000), ah(async (req, res) => {
   const email = str(req.body.email, 120).toLowerCase();
   if (!isEmail(email)) fail(400, 'Please enter a valid email address.');
-  run('INSERT OR IGNORE INTO newsletter (email,created) VALUES (?,?)', email, now());
+  await run('INSERT INTO newsletter (email,created) VALUES (?,?) ON CONFLICT DO NOTHING', email, now());
   res.json({ ok: true });
-});
+}));
 
 module.exports = router;
