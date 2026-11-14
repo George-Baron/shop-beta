@@ -12,6 +12,8 @@ const queue = require('../lib/queue');
 const backup = require('../lib/backup');
 const errors = require('../lib/errors');
 const log = require('../lib/log');
+const D = require('../lib/delivery');
+const geo = require('../lib/geo');
 const { slugify } = require('../lib/seed');
 const { fail, str, int, isEmail, parseImages, getSettings, dayStart } = S;
 
@@ -70,7 +72,9 @@ router.get('/dashboard', async (req, res) => {
   const byDay = new Map(perDay.map((r) => [Number(r.d), r.rev]));
   const days = [];
   for (let i = 0; i < 14; i++) days.push({ t: first + i * 86400, rev: byDay.get(i) || 0 });
-  res.json({ today, week, month, all: allTime, customers: customers.n, byStatus, days, recent, top, low, unread: unread.n });
+  const late = await all("SELECT id, ref, name, promised_at, status FROM orders WHERE status IN ('paid','confirmed','dispatched') AND promised_at IS NOT NULL AND promised_at < ? ORDER BY promised_at LIMIT 20", t);
+  const locked = (await get('SELECT COUNT(*)::int n FROM orders WHERE handover_locked=1 AND handover_used_at IS NULL')).n;
+  res.json({ today, week, month, all: allTime, customers: customers.n, byStatus, days, recent, top, low, unread: unread.n, late, locked });
 });
 
 /* ---------- orders ---------- */
@@ -82,12 +86,12 @@ router.get('/orders', async (req, res) => {
   if (q) { const l = '%' + q.replace(/[\\%_]/g, (c) => '\\' + c) + '%'; where.push("(LOWER(ref) LIKE ? ESCAPE '\\' OR LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(email) LIKE ? ESCAPE '\\' OR phone LIKE ? ESCAPE '\\')"); args.push(l, l, l, l); }
   const total = (await get(`SELECT COUNT(*) n FROM orders WHERE ${where.join(' AND ')}`, ...args)).n;
   const per = 20, pages = Math.max(1, Math.ceil(total / per)), page = Math.min(pages, Math.max(1, int(req.query.page, 1)));
-  res.json({ orders: await all(`SELECT id, ref, name, email, phone, total, status, payment_method, payment_status, created FROM orders WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ${per} OFFSET ${(page - 1) * per}`, ...args), total, page, pages });
+  res.json({ orders: (await all(`SELECT id, ref, name, email, phone, total, status, payment_method, payment_status, created, promised_at, started_at, delivered_at, rider_id, handover_locked FROM orders WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ${per} OFFSET ${(page - 1) * per}`, ...args)).map((o) => ({ ...o, late: geo.isLate(o, now()) })), total, page, pages });
 });
 router.get('/orders/:id', async (req, res) => {
   const o = await S.loadOrder('id=?', int(req.params.id));
   if (!o) fail(404, 'Order not found.');
-  res.json({ order: o, allowed: S.allowedNext(o) });
+  res.json({ order: await D.adminView(o), allowed: S.allowedNext(o) });
 });
 router.put('/orders/:id', async (req, res) => {
   const o = await S.loadOrder('id=?', int(req.params.id));
@@ -102,6 +106,100 @@ router.post('/orders/:id/confirm-phone', async (req, res) => {
   const note = str(req.body.note, 300);
   if (note.length < 3) fail(400, 'Please write who you spoke to and what they said (for example "Spoke to Mrs Obi, address confirmed").');
   await S.confirmByPhone(o, req.user.name, note);
+  res.json({ ok: true });
+});
+
+// 6A: give a paid/confirmed delivery to a rider who covers its state; handover-code override for a locked order (reason is logged).
+router.post('/orders/:id/assign', async (req, res) => {
+  const o = await S.loadOrder('id=?', int(req.params.id));
+  if (!o) fail(404, 'Order not found.');
+  const r = await D.assign(o, int(req.body.riderId), req.user.name);
+  res.json({ ok: true, rider: r });
+});
+router.post('/orders/:id/handover', async (req, res) => {
+  const o = await S.loadOrder('id=?', int(req.params.id));
+  if (!o) fail(404, 'Order not found.');
+  res.json({ ok: true, ...(await D.override(o, req.user.name, str(req.body.action, 10), req.body.reason)) });
+});
+
+/* ---------- partner stores (pickup points) ---------- */
+function readPartner(b) {
+  const name = str(b.name, 80); if (!name) fail(400, 'Please enter the store name.');
+  const lat = b.lat === '' || b.lat == null ? null : Number(b.lat), lng = b.lng === '' || b.lng == null ? null : Number(b.lng);
+  if ((lat === null) !== (lng === null)) fail(400, 'Enter both latitude and longitude, or neither.');
+  if (lat !== null && !geo.inNigeria(lat, lng)) fail(400, 'The store location must be a point in Nigeria.');
+  const radius = Number(b.radius_km || 0);
+  if (!Number.isFinite(radius) || radius < 0 || radius > 200) fail(400, 'The delivery radius must be between 0 and 200 km (0 uses the shop-wide radius).');
+  return { name, address: str(b.address, 200), state: str(b.state, 60), phone: str(b.phone, 30), lat, lng, radius, active: b.active === 0 || b.active === false ? 0 : 1, is_default: b.is_default ? 1 : 0 };
+}
+router.get('/partners', async (req, res) => res.json({ partners: await all('SELECT p.*, (SELECT COUNT(*)::int FROM products x WHERE x.partner_id=p.id) products FROM partners p ORDER BY is_default DESC, id') }));
+router.post('/partners', async (req, res) => {
+  const p = readPartner(req.body || {});
+  const id = await tx(async () => {
+    if (p.is_default) await run('UPDATE partners SET is_default=0 WHERE is_default=1');
+    return insert('INSERT INTO partners (name,address,state,phone,lat,lng,radius_km,is_default,active,created) VALUES (?,?,?,?,?,?,?,?,?,?)', p.name, p.address, p.state, p.phone, p.lat, p.lng, p.radius, p.is_default, p.active, now());
+  });
+  res.json({ ok: true, id });
+});
+router.put('/partners/:id', async (req, res) => {
+  const id = int(req.params.id), p = readPartner(req.body || {});
+  if (!await get('SELECT 1 x FROM partners WHERE id=?', id)) fail(404, 'Store not found.');
+  await tx(async () => {
+    if (p.is_default) await run('UPDATE partners SET is_default=0 WHERE is_default=1 AND id<>?', id);
+    await run('UPDATE partners SET name=?,address=?,state=?,phone=?,lat=?,lng=?,radius_km=?,is_default=?,active=? WHERE id=?', p.name, p.address, p.state, p.phone, p.lat, p.lng, p.radius, p.is_default, p.active, id);
+  });
+  res.json({ ok: true });
+});
+router.delete('/partners/:id', async (req, res) => {
+  const id = int(req.params.id);
+  const open = await get("SELECT 1 x FROM order_legs l JOIN orders o ON o.id=l.order_id WHERE l.partner_id=? AND o.status IN ('pending','paid','confirmed','dispatched') LIMIT 1", id);
+  if (open) fail(409, 'This store has open orders. Deactivate it instead, or delete it when they are finished.');
+  await run('DELETE FROM partners WHERE id=?', id);
+  res.json({ ok: true });
+});
+
+/* ---------- riders (delivery staff) ---------- */
+async function readRider(b, creating) {
+  const name = str(b.name, 80), email = str(b.email, 120).toLowerCase(), phone = str(b.phone, 30);
+  if (!name) fail(400, 'Please enter the rider\'s name.');
+  if (creating && !isEmail(email)) fail(400, 'Please enter a valid email address for the rider to sign in with.');
+  if (phone.replace(/\D/g, '').length < 7) fail(400, 'Please enter the rider\'s phone number.');
+  const password = typeof b.password === 'string' ? b.password : '';
+  if ((creating || password) && password.length < 10) fail(400, 'The rider\'s password must be at least 10 characters.');
+  const states = [...new Set((Array.isArray(b.states) ? b.states : []).map((x) => str(x, 60)).filter(Boolean))].slice(0, 40);
+  for (const st of states) if (!await get('SELECT 1 x FROM zones WHERE state=?', st)) fail(400, `${st} is not a delivery state.`);
+  if (!states.length) fail(400, 'Choose at least one state this rider covers.');
+  return { name, email, phone, password, states };
+}
+const saveStates = async (uid, states) => { await run('DELETE FROM rider_states WHERE user_id=?', uid); for (const st of states) await run('INSERT INTO rider_states (user_id,state) VALUES (?,?)', uid, st); };
+router.get('/riders', async (req, res) => {
+  const riders = await all("SELECT u.id, u.name, u.email, u.phone, (SELECT COUNT(*)::int FROM orders o WHERE o.rider_id=u.id AND o.status IN ('paid','confirmed','dispatched')) active FROM users u WHERE u.role='rider' ORDER BY u.name");
+  const st = await all('SELECT user_id, state FROM rider_states ORDER BY state');
+  res.json({ riders: riders.map((r) => ({ ...r, states: st.filter((x) => x.user_id === r.id).map((x) => x.state) })) });
+});
+router.post('/riders', ah(async (req, res) => {
+  const r = await readRider(req.body || {}, true);
+  if (await get('SELECT 1 x FROM users WHERE lower(email)=?', r.email)) fail(409, 'Someone already uses that email address.');
+  const hash = await A.hashPassword(r.password);
+  const id = await tx(async () => { const uid = await insert("INSERT INTO users (name,email,phone,password,role,created) VALUES (?,?,?,?,'rider',?)", r.name, r.email, r.phone, hash, now()); await saveStates(uid, r.states); return uid; });
+  res.json({ ok: true, id });
+}));
+router.put('/riders/:id', ah(async (req, res) => {
+  const id = int(req.params.id);
+  if (!await get("SELECT 1 x FROM users WHERE id=? AND role='rider'", id)) fail(404, 'Rider not found.');
+  const r = await readRider(req.body || {}, false);
+  const hash = r.password ? await A.hashPassword(r.password) : null;
+  await tx(async () => {
+    await run('UPDATE users SET name=?, phone=? WHERE id=?', r.name, r.phone, id);
+    if (hash) { await run('UPDATE users SET password=? WHERE id=?', hash, id); await A.dropUserSessions(id); }
+    await saveStates(id, r.states);
+  });
+  res.json({ ok: true });
+}));
+router.delete('/riders/:id', async (req, res) => {
+  const id = int(req.params.id);
+  if (await get("SELECT 1 x FROM orders WHERE rider_id=? AND status IN ('paid','confirmed','dispatched') LIMIT 1", id)) fail(409, 'This rider has active deliveries. Give them to another rider first.');
+  await run("DELETE FROM users WHERE id=? AND role='rider'", id);
   res.json({ ok: true });
 });
 
@@ -136,8 +234,10 @@ async function readProduct(b) {
   if (images.some((u) => !okImage(u))) fail(400, 'One of the photo links is not allowed. Use an upload or an https link.');
   const variants = (Array.isArray(b.variants) ? b.variants : []).slice(0, 80).map((v) => ({ id: int(v && v.id) || null, size: str(v && v.size, 30), color: str(v && v.color, 30), stock: Math.max(0, int(v && v.stock)) }));
   if (variants.some((v) => !v.size && !v.color)) fail(400, 'Each variant needs a size or a colour. Remove the empty rows.');
+  let partner_id = b.partner_id ? int(b.partner_id) : null;
+  if (partner_id && !await get('SELECT 1 x FROM partners WHERE id=?', partner_id)) fail(400, 'That partner store does not exist.');
   return {
-    name, store, category_id, price, compare, brand: str(b.brand, 60), description: str(b.description, 4000), sku: str(b.sku, 40), emoji: str(b.emoji, 8) || '📦',
+    partner_id, name, store, category_id, price, compare, brand: str(b.brand, 60), description: str(b.description, 4000), sku: str(b.sku, 40), emoji: str(b.emoji, 8) || '📦',
     size_label: str(b.size_label, 20) || 'Size', images, variants, stock: Math.max(0, int(b.stock)),
     featured: b.featured ? 1 : 0, bestseller: b.bestseller ? 1 : 0, new_arrival: b.new_arrival ? 1 : 0, active: b.active ? 1 : 0,
   };
@@ -160,8 +260,8 @@ const uniqueSlug = async (name, ignoreId) => {
 router.post('/products', async (req, res) => {
   const p = await readProduct(req.body || {});
   const id = await tx(async () => {
-    const r = await insert('INSERT INTO products (slug,store,category_id,name,brand,description,price,compare_price,stock,sku,emoji,images,size_label,featured,bestseller,new_arrival,active,created) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      await uniqueSlug(p.name), p.store, p.category_id, p.name, p.brand, p.description, p.price, p.compare, p.variants.length ? 0 : p.stock, p.sku, p.emoji, JSON.stringify(p.images), p.size_label, p.featured, p.bestseller, p.new_arrival, p.active, now());
+    const r = await insert('INSERT INTO products (slug,store,category_id,name,brand,description,price,compare_price,stock,sku,emoji,images,size_label,featured,bestseller,new_arrival,active,created,partner_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      await uniqueSlug(p.name), p.store, p.category_id, p.name, p.brand, p.description, p.price, p.compare, p.variants.length ? 0 : p.stock, p.sku, p.emoji, JSON.stringify(p.images), p.size_label, p.featured, p.bestseller, p.new_arrival, p.active, now(), p.partner_id);
     const pid = r;
     await saveVariants(pid, p.variants);
     return pid;
@@ -173,8 +273,8 @@ router.put('/products/:id', async (req, res) => {
   if (!await get('SELECT 1 x FROM products WHERE id=?', id)) fail(404, 'Product not found.');
   const p = await readProduct(req.body || {});
   await tx(async () => {
-    await run('UPDATE products SET store=?,category_id=?,name=?,brand=?,description=?,price=?,compare_price=?,stock=?,sku=?,emoji=?,images=?,size_label=?,featured=?,bestseller=?,new_arrival=?,active=? WHERE id=?',
-      p.store, p.category_id, p.name, p.brand, p.description, p.price, p.compare, p.variants.length ? 0 : p.stock, p.sku, p.emoji, JSON.stringify(p.images), p.size_label, p.featured, p.bestseller, p.new_arrival, p.active, id);
+    await run('UPDATE products SET store=?,category_id=?,name=?,brand=?,description=?,price=?,compare_price=?,stock=?,sku=?,emoji=?,images=?,size_label=?,featured=?,bestseller=?,new_arrival=?,active=?,partner_id=? WHERE id=?',
+      p.store, p.category_id, p.name, p.brand, p.description, p.price, p.compare, p.variants.length ? 0 : p.stock, p.sku, p.emoji, JSON.stringify(p.images), p.size_label, p.featured, p.bestseller, p.new_arrival, p.active, p.partner_id, id);
     await saveVariants(id, p.variants);
   });
   res.json({ ok: true });
@@ -331,6 +431,11 @@ router.put('/settings', async (req, res) => {
   if ('free_shipping_threshold' in s) out.free_shipping_threshold = String(Math.max(0, int(s.free_shipping_threshold)));
   if ('return_days' in s) out.return_days = String(Math.min(365, Math.max(0, int(s.return_days))));
   if ('express_multiplier' in s) { const m = Number(s.express_multiplier); out.express_multiplier = String(Number.isFinite(m) ? Math.min(5, Math.max(1, m)) : 1.5); }
+  // 6A delivery rules
+  const NUM = { delivery_radius_km: [0, 200], delivery_max_km: [0, 500], delivery_per_km: [0, 100000], delivery_road_factor: [1, 3], delivery_prep_min: [0, 600], delivery_speed_kmh: [5, 120], delivery_promise_min: [10, 2880] };
+  for (const [k, [lo, hi]] of Object.entries(NUM)) if (k in s) { const v = Number(s[k]); if (!Number.isFinite(v) || v < lo || v > hi) fail(400, `${k.replace(/_/g, ' ')} must be a number from ${lo} to ${hi}.`); out[k] = String(v); }
+  for (const k of ['delivery_open', 'delivery_cutoff']) if (k in s) { if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(str(s[k], 5))) fail(400, 'Times must look like 08:00 or 18:30 (Lagos time).'); out[k] = str(s[k], 5).padStart(5, '0'); }
+  if ('map_checkout' in s) out.map_checkout = s.map_checkout === '1' || s.map_checkout === true ? '1' : '0';
   for (const k of ['pod_enabled', 'paystack_enabled']) if (k in s) out[k] = s[k] === '1' || s[k] === true ? '1' : '0';
   await tx(async () => {
     for (const [k, v] of Object.entries(out)) await run('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', k, v);

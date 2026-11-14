@@ -138,6 +138,7 @@ app.use('/api', (req, res, next) => {
 });
 app.use('/api', A.loadUser);
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/rider', require('./routes/rider'));
 app.use('/api', require('./routes/public'));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
@@ -250,7 +251,7 @@ app.get(/^\/(?!api\/|uploads\/).*/, async (req, res) => {
 /* ---------- errors ---------- */
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  if (err instanceof S.HttpError) return res.status(err.status).json({ error: err.message });
+  if (err instanceof S.HttpError) return res.status(err.status).json({ error: err.message, ...(err.extra || {}) });
   if (err && err.type === 'entity.parse.failed') return res.status(400).json({ error: 'That request was not understood.' });
   if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'That upload is too large.' });
   // Postgres says the input itself is impossible (bad text encoding, number too big, wrong type): that is the caller's mistake, not ours.
@@ -267,6 +268,7 @@ async function main() {
   await ping();                 // fail fast with a clear message if the database cannot be reached
   await storage.init(); await storage.backupInit();
   if (process.env.MIGRATE_ON_START !== '0') { const done = await migrate(); if (done.length) log.log('Database migrated:', done.join(', ')); }
+  { const p = require('./lib/handover').secretProblem(); if (p) { log.error(p); process.exit(1); } }
   await ensureAdmin();          // creates the first administrator from ADMIN_EMAIL/ADMIN_PASSWORD; in production refuses to start with none
   await seed();
   // Node closes idle connections after 5 s by default, which makes load balancers (Render, Cloudflare) see random 502 errors. Keep them longer than the balancer does.

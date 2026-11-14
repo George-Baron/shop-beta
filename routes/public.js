@@ -6,6 +6,8 @@ const S_ = require('../lib/shop');
 const A = require('../lib/auth');
 const cache = require('../lib/cache');
 const queue = require('../lib/queue');
+const D_ = require('../lib/delivery');
+const maps = require('../lib/maps');
 const { fail, str, int, isEmail, parseImages, card, RATING_JOIN, getSettings, esc } = S_;
 
 const router = require('../lib/async-router').Router();
@@ -19,6 +21,9 @@ const LIM = {
   checkout: rl('checkout', (req) => { const c = bodyOf(req).contact; const x = c && typeof c === 'object' ? c : {}; return [A.emailKey(x.email), A.phoneKey(x.phone)]; }, 10, 3600000, 400),
   review: rl('review', (req) => [req.user ? 'u' + req.user.id : '', A.emailKey(bodyOf(req).email)], 8, 3600000, 200),
   abandon: rl('abandon', (req) => [A.emailKey(bodyOf(req).email)], 40, 3600000, 400),
+  track: rl('track', (req) => [A.emailKey(bodyOf(req).email), A.textKey(bodyOf(req).ref, 20)], 160, 600000, 900),
+  quote: rl('quote', (req) => [req.user ? 'u' + req.user.id : ''], 90, 600000, 400),
+  geocode: rl('geocode', (req) => [req.user ? 'u' + req.user.id : ''], 40, 600000, 200),
   lookup: rl('lookup', (req) => [A.emailKey(bodyOf(req).email), A.textKey(bodyOf(req).ref, 20)], 40, 600000, 300),
   cancel: rl('cancel', (req) => [A.emailKey(bodyOf(req).email), A.textKey(req.params.ref, 20)], 10, 600000, 100),
   verify: rl('verify', (req) => [A.textKey(req.query.reference || req.query.trxref, 20)], 40, 600000, 300),
@@ -48,6 +53,7 @@ router.get('/config', async (req, res) => {
       settings, stores,
       categories: (await all('SELECT id, store, slug, name, icon FROM categories ORDER BY sort, id')).filter((c) => slugs.has(c.store)),
       zones: (await all('SELECT state, fee, eta, pod FROM zones ORDER BY sort, state')).map((z) => ({ ...z, pod: z.pod && S.pod_enabled === '1' ? 1 : 0 })),
+      map: maps.clientConfig(),
       payments: { paystack: S.paystack_enabled === '1', pod: S.pod_enabled === '1', demo: !S_.paystackLive() },
     }).slice(0, -1);
   });
@@ -181,6 +187,20 @@ router.post('/checkout', LIM.checkout, ah(async (req, res) => {
   }
 }));
 
+/* ================= delivery map ================= */
+// Address search (cached for 30 days, capped per day). Says plainly when search is unavailable so the page can ask for a pin instead.
+router.get('/delivery/geocode', LIM.geocode, ah(async (req, res) => { res.json(await maps.geocode(req.query.q)); }));
+// Distance, route, fee and time for a point, before payment. Cart and state come from the browser; the server prices them again.
+router.post('/delivery/quote', LIM.quote, ah(async (req, res) => {
+  const b = bodyOf(req), state = str(b.state, 60);
+  const S = await getSettings();
+  if (S.map_checkout !== '1') return res.json({ quote: { ok: false, code: 'disabled', message: 'Map delivery is not switched on.', alternatives: [] } });
+  const priced = await S_.priceCart({ items: b.items, coupon: b.coupon, state, delivery: b.delivery === 'express' ? 'express' : 'standard' });
+  if (!priced.zone) fail(400, 'Please choose your delivery state.');
+  const q = await D_.quote({ lat: b.lat, lng: b.lng, state, productIds: priced.lines.map((l) => l.productId), stateFee: priced.delivery.fee, free: priced.delivery.free });
+  res.json({ quote: D_.publicQuote(q), total: q.ok ? priced.subtotal - priced.discount + q.fee : null });
+}));
+
 /* ================= orders ================= */
 async function ownedOrder(req, ref, email) {
   const o = await S_.loadOrder('ref=?', str(ref, 20).toUpperCase());
@@ -189,9 +209,17 @@ async function ownedOrder(req, ref, email) {
   if (!ok) fail(404, 'We could not find an order with those details. Check the order number and email.');
   return o;
 }
+// The handover code is shown to the customer (matched by account or by order email), not to an administrator looking at the page.
+const isCustomerOf = (req, o) => !!((req.user && o.user_id === req.user.id) || (req.body && o.email.toLowerCase() === str(req.body.email, 120).toLowerCase()));
 router.post('/orders/lookup', LIM.lookup, async (req, res) => {
-  res.json({ order: S_.publicOrder(await ownedOrder(req, req.body.ref, req.body.email)) });
+  const o = await ownedOrder(req, req.body.ref, req.body.email);
+  res.json({ order: S_.publicOrder(o, { showCode: isCustomerOf(req, o) }) });
 });
+// Live tracking page: status, timer against the promise, and the rider's position while the delivery is on the way.
+router.post('/orders/track', LIM.track, ah(async (req, res) => {
+  const o = await ownedOrder(req, req.body.ref, req.body.email);
+  res.json({ tracking: await D_.trackingFor(o), code: isCustomerOf(req, o) ? D_.codeFor(o) : '' });
+}));
 router.post('/orders/:ref/cancel', LIM.cancel, async (req, res) => {
   const o = await ownedOrder(req, req.params.ref, req.body.email);
   if (o.status !== 'pending' || o.payment_status === 'paid') fail(400, 'This order can no longer be cancelled. Please contact us.');
