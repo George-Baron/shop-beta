@@ -33,6 +33,8 @@ services:
         sync: false              # Shop-Beta <orders@yourdomain.com>
       - key: GEOAPIFY_API_KEY
         sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false              # optional: switches on the support chat assistant (docs/ASSISTANT.md)
       - key: HANDOVER_SECRET
         generateValue: true      # Render makes a long random value. Do not change it later: delivery codes already issued would stop matching
       - key: BACKUP_PASSPHRASE

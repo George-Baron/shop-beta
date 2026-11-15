@@ -66,7 +66,7 @@ const logsOf = (p) => p.log.split('\n').filter((l) => l.startsWith('{')).map((l)
   });
   await test('preflight: a good production setup passes, a careless one is stopped with plain reasons', async () => {
     const { checkEnv, checkLive, summary } = require('../lib/preflight');
-    const good = { NODE_ENV: 'production', BASE_URL: 'https://www.shop.example', DATABASE_URL: 'postgres://u:p@aws-0-eu.pooler.supabase.com:6543/postgres', SUPABASE_URL: 'https://x.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'k', PAYSTACK_SECRET_KEY: 'sk_live_abc', RESEND_API_KEY: 're_x', MAIL_FROM: 'Shop <orders@shop.example>', HANDOVER_SECRET: 'x'.repeat(40), GEOAPIFY_API_KEY: 'g', BACKUP_PASSPHRASE: 'y'.repeat(30), ADMIN_EMAIL: 'o@shop.example', ADMIN_PASSWORD: 'Long-Strong-Pass-1', SEED_DEMO: '0' };
+    const good = { NODE_ENV: 'production', BASE_URL: 'https://www.shop.example', DATABASE_URL: 'postgres://u:p@aws-0-eu.pooler.supabase.com:6543/postgres', SUPABASE_URL: 'https://x.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'k', PAYSTACK_SECRET_KEY: 'sk_live_abc', RESEND_API_KEY: 're_x', MAIL_FROM: 'Shop <orders@shop.example>', HANDOVER_SECRET: 'x'.repeat(40), GEOAPIFY_API_KEY: 'g', ANTHROPIC_API_KEY: 'sk-ant-x', BACKUP_PASSPHRASE: 'y'.repeat(30), ADMIN_EMAIL: 'o@shop.example', ADMIN_PASSWORD: 'Long-Strong-Pass-1', SEED_DEMO: '0' };
     assert.deepStrictEqual(summary(checkEnv(good)), { fail: 0, warn: 0, pass: summary(checkEnv(good)).pass });
     const bad = summary(checkEnv({ NODE_ENV: 'development', BASE_URL: 'http://localhost:3000', DATABASE_URL: 'postgres://postgres@127.0.0.1:5432/x', ALLOW_DEMO_PAYMENTS: '1', RATE_LIMIT_MULTIPLIER: '1000', TRUST_PROXY: '0', PAYSTACK_SECRET_KEY: 'pk_live_public' }));
     assert.ok(bad.fail >= 8, 'fails: ' + bad.fail);
