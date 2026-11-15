@@ -10,6 +10,7 @@ const { int } = S;
 const router = express.Router();
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 router.use(A.requireVendor);
+router.use('/catalog', require('./catalog-io')('partner'));
 
 router.get('/me', ah(async (req, res) => res.json({ store: await V.profile(req.user), max_departments: V.MAX_DEPARTMENTS })));
 router.put('/me', ah(async (req, res) => res.json({ store: await V.saveProfile(req.user, req.body || {}) })));

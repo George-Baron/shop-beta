@@ -251,6 +251,14 @@ body.is-admin .box{position:absolute;left:0;top:0;width:100%;box-shadow:none}
 body.is-admin .acts,body.is-admin .nop{display:none!important}}
 
 
+.pbx{border:2px dashed var(--border);border-radius:var(--radius);padding:18px;text-align:center;cursor:pointer;background:var(--surface-2,transparent)}.pbx:hover,.pbx.over,.pbx:focus-visible{border-color:var(--accent);background:var(--accent-soft)}
+.pbl{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}.pbt{position:relative;width:104px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface);font-size:12px}.pbt img{width:100%;height:90px;object-fit:cover;display:block}.pbt.main{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}.pbt.bad{border-color:var(--bad)}
+.pbm{position:absolute;top:4px;left:4px;background:var(--accent);color:var(--accent-ink);border-radius:6px;padding:1px 7px;font-weight:800;font-size:11px}.pba{display:flex;flex-direction:column}.pba button,.pbs button{border:0;border-top:1px solid var(--border);background:transparent;padding:5px;font-size:12px;cursor:pointer;color:inherit}.pba button:hover,.pbs button:hover{background:var(--accent-soft)}
+.pbs{padding:8px;min-height:90px}.pbp{height:6px;background:var(--border);border-radius:4px;overflow:hidden;margin:6px 0}.pbp i{display:block;height:100%;background:var(--accent);transition:width .15s}.pbp.big{height:10px}.pbu{display:flex;gap:6px;margin-top:6px}
+.cio-t{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.cio-s{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;font-size:13px}.cio-s span{padding:4px 12px;border-radius:999px;background:var(--surface-2,#eee);color:var(--muted,#666)}.cio-s .on{background:var(--accent);color:var(--accent-ink);font-weight:700}.cio-s .ok{background:var(--accent-soft)}
+.cio-p{border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px;background:var(--surface)}.cio-p h3{margin:0 0 8px}.cio-tw{overflow:auto;max-height:520px;border:1px solid var(--border);border-radius:10px}.cio-tb{border-collapse:collapse;width:100%;font-size:13px}.cio-tb th,.cio-tb td{padding:7px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}.cio-tb th{position:sticky;top:0;background:var(--surface-2,#f5f5f5)}
+.cio-k{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}.cio-k div{border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:13px}.cio-k b{display:block;font-size:24px}.cio-k .bad{border-color:var(--bad);color:var(--bad)}.cio-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.cio-b{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:700;background:#dcfce7;color:#166534}.cio-b.error{background:#fee2e2;color:#991b1b}.cio-b.unchanged{background:#e5e7eb;color:#374151}.cio-w{color:#92400e;font-size:12.5px}.hide{display:none}
 </style>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🛍%3C/text%3E%3C/svg%3E">
 </head>
@@ -1334,7 +1342,7 @@ async function partnerPortal(main) {
     const me = (await P('/me')).store;
     const banner = me.status === 'pending' ? `<div class="note">Your application is being evaluated. Customers cannot see your store yet. You can prepare your store page and products meanwhile. ${e(me.status_note)}</div>`
       : me.status === 'approved' ? '' : `<div class="note" style="border-color:var(--bad,#c33)">Your store is <b>${e(me.status)}</b>. ${e(me.status_note)} Please contact us.</div>`;
-    const tabs = [['products', 'Products'], ['orders', 'Orders'], ['earnings', 'Earnings'], ['store', 'Store page']];
+    const tabs = [['products', 'Products'], ['orders', 'Orders'], ['earnings', 'Earnings'], ['catalog', 'Import & export'], ['store', 'Store page']];
     const wrap = (inner) => draw(`<p class="mu">${e(me.name)} · ${e(me.status)} · <button class="btn ghost sm" id="plo">Sign out</button> ${me.status === 'approved' ? `<a class="btn ghost sm" href="/store/${e(me.slug)}" data-link>View my page</a>` : ''}</p>${banner}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">${tabs.map(([k, t]) => `<button class="btn ${tab === k ? '' : 'ghost'} sm" data-tab="${k}">${t}</button>`).join('')}</div>${inner}`);
     const wire = () => { $('#plo').addEventListener('click', async () => { await api('/api/auth/logout', { body: {} }); location.reload(); }); $$('[data-tab]', main).forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; editing = null; show(); })); };
@@ -1348,16 +1356,16 @@ async function partnerPortal(main) {
           <div class="row c2"><label class="f">Department<select id="pd">${cat.departments.map((d) => `<option value="${e(d.store)}" ${d.store === x.store ? 'selected' : ''}>${e(d.name)}</option>`).join('')}</select></label><label class="f">Category<select id="pcat"></select></label></div>
           <div class="row c2">${field('pp', 'Price (₦)', { req: 1, type: 'number', val: x.price })}${field('pcp', 'Old price (₦, optional)', { type: 'number', val: x.compare_price || '' })}</div>
           <div class="row c2">${field('ps', 'Stock', { type: 'number', val: x.stock })}${field('psku', 'SKU (optional)', { val: x.sku, max: 40 })}</div>
+          <details style="margin:8px 0"><summary style="cursor:pointer;font-weight:700;font-size:13px">More details (barcode, cost, minimum stock…)</summary><div class="row c2">${field('pbc', 'Barcode', { val: x.barcode || '', max: 40 })}${field('psub', 'Subcategory', { val: x.subcategory || '', max: 60 })}</div><div class="row c2">${field('pcost', 'Cost price (₦, private)', { type: 'number', val: x.cost_price || '' })}${field('pmin', 'Minimum stock (low-stock alert)', { type: 'number', val: x.min_stock || '' })}</div><div class="row c2">${field('punit', 'Unit of measure', { val: x.unit || '', max: 20 })}${field('ptax', 'Tax note', { val: x.tax || '', max: 30 })}</div>${field('pwt', 'Weight (kg)', { type: 'number', val: Number(x.weight_kg) || '' })}</details>
           <label class="f">Description<textarea id="pdesc" rows="4" maxlength="4000">${e(x.description)}</textarea></label>
-          <h4 style="margin:10px 0 4px">Photos (up to 8)</h4><div style="display:flex;gap:8px;flex-wrap:wrap">${images.map((u2, i) => `<span style="position:relative"><img src="${e(u2)}" style="width:72px;height:72px;object-fit:cover;border-radius:10px"><button type="button" class="rm" data-rmi="${i}" style="position:absolute;top:-6px;right:-6px">✕</button></span>`).join('')}<label class="btn ghost sm" style="cursor:pointer">+ Add photo<input type="file" id="pimg" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none"></label></div>
+          <h4 style="margin:10px 0 4px">Photos (up to 8)</h4><div id="pbox"></div>
           <label class="chk" style="margin-top:10px"><input type="checkbox" id="pact" ${x.active ? 'checked' : ''}> Show this product in my store</label>
           <p class="mu" style="font-size:12px">Sizes and colours: ask us to set them up for now.</p>
           <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="psave">Save</button><button class="btn ghost" id="pcancel">Cancel</button></div></div>`);
         const fillCats = () => { const d = $('#pd').value; $('#pcat').innerHTML = '<option value="">None</option>' + cat.categories.filter((c) => c.store === d).map((c) => `<option value="${c.id}" ${String(c.id) === String(x.category_id) ? 'selected' : ''}>${e(c.name)}</option>`).join(''); };
         fillCats(); $('#pd').addEventListener('change', () => { x.category_id = ''; fillCats(); });
-        $$('[data-rmi]', main).forEach((b) => b.addEventListener('click', () => { images.splice(Number(b.dataset.rmi), 1); keep(); paint(); }));
-        const keep = () => { Object.assign(x, { name: $('#pn').value, brand: $('#pb').value, price: $('#pp').value, compare_price: $('#pcp').value, stock: $('#ps').value, sku: $('#psku').value, description: $('#pdesc').value, store: $('#pd').value, category_id: $('#pcat').value, active: $('#pact').checked ? 1 : 0 }); };
-        $('#pimg').addEventListener('change', run(async (ev) => { keep(); if (images.length >= 8) throw new Error('Up to 8 photos'); images.push(await upload(ev.target.files[0])); paint(); }));
+        const keep = () => { Object.assign(x, { barcode: $('#pbc').value, subcategory: $('#psub').value, cost_price: $('#pcost').value, min_stock: $('#pmin').value, unit: $('#punit').value, tax: $('#ptax').value, weight_kg: $('#pwt').value, name: $('#pn').value, brand: $('#pb').value, price: $('#pp').value, compare_price: $('#pcp').value, stock: $('#ps').value, sku: $('#psku').value, description: $('#pdesc').value, store: $('#pd').value, category_id: $('#pcat').value, active: $('#pact').checked ? 1 : 0 }); };
+        photoBox($('#pbox'), { images, max: 8, upload: (blob, pr) => sendImage('/api/partner/upload', blob, pr) });
         $('#pcancel').addEventListener('click', () => { editing = null; show(); });
         $('#psave').addEventListener('click', run(async () => { keep(); const body = { ...x, images, variants: x.variants || [], category_id: x.category_id || null }; const r = editing ? await P('/products/' + editing, { method: 'PUT', body }) : await P('/products', { body }); toast(r.resubmitted ? 'Saved. Sent to us for review.' : 'Saved'); editing = null; show(); }));
         wire();
@@ -1374,6 +1382,7 @@ async function partnerPortal(main) {
       $$('[data-del]', main).forEach((b) => b.addEventListener('click', run(async () => { if (!confirm('Remove this product?')) return; await P('/products/' + b.dataset.del, { method: 'DELETE' }); show(); })));
       return;
     }
+    if (tab === 'catalog') { wrap('<div id="cio"></div>'); wire(); catalogTool($('#cio'), '/api/partner/catalog', false); return; }
     if (tab === 'orders') {
       const r = await P('/orders');
       wrap(r.orders.length ? r.orders.map((o) => `<div class="card" style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;gap:8px"><b>${e(o.ref)}</b><span class="mu">${e(o.status)} · ${fmt(o.created)}</span></div>${o.items.map((i) => `<div style="font-size:14px">${i.qty} × ${e(i.name)}${i.variant ? ' (' + e(i.variant) + ')' : ''} · ${naira(i.price * i.qty)}</div>`).join('')}<div class="mu" style="font-size:13px;margin-top:4px">Sales ${naira(o.gross)} · our commission ${naira(o.commission)} · yours ${naira(o.net)}</div></div>`).join('') + '<p class="mu" style="font-size:12px">Our rider collects the order from you. Customer details stay with us.</p>' : '<div class="card"><p class="mu">No orders yet.</p></div>');
@@ -1598,6 +1607,228 @@ function cookieNotice() {
 }
 
 }
+/* ---------------- photos: shrink in the browser, upload with progress ---------------- */
+const PH_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><rect width="80" height="80" fill="#eee"/><text x="40" y="52" font-size="34" text-anchor="middle">📦</text></svg>');
+document.addEventListener('error', (ev) => { const t = ev.target; if (t && t.tagName === 'IMG' && !t.dataset.ph) { t.dataset.ph = '1'; t.src = PH_IMG; } }, true);
+async function shrinkImage(file) {
+  if (!/^image\/(jpeg|png|webp)$/.test(file.type) && !/\.(jpe?g|png|webp)$/i.test(file.name)) throw new Error(`"${file.name}" is not a JPG, PNG or WEBP photo.`);
+  if (file.size > 25 * 1024 * 1024) throw new Error(`"${file.name}" is over 25 MB. Please pick a smaller photo.`);
+  let bmp; try { bmp = await createImageBitmap(file); } catch { throw new Error(`"${file.name}" could not be opened as a photo. Try saving it as JPG or PNG.`); }
+  const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height)), w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
+  const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, w, h); x.drawImage(bmp, 0, 0, w, h); if (bmp.close) bmp.close();
+  const toBlob = (t, q) => new Promise((r) => c.toBlob(r, t, q));
+  let b = await toBlob('image/webp', 0.85); if (!b || b.type !== 'image/webp') b = await toBlob('image/jpeg', 0.87);
+  if (b && b.size > 1_800_000) b = await toBlob('image/jpeg', 0.7);
+  if (!b || b.size > 1_900_000) throw new Error(`"${file.name}" is too detailed to shrink enough. Try a smaller photo.`);
+  return b;
+}
+function sendImage(url, blob, onProg) {
+  return new Promise((ok, no) => {
+    const r = new FileReader(); r.onerror = () => no(new Error('Could not read the photo.'));
+    r.onload = () => {
+      const x = new XMLHttpRequest(); x.open('POST', url); x.setRequestHeader('Content-Type', 'application/json'); x.withCredentials = true;
+      x.upload.onprogress = (ev) => { if (ev.lengthComputable) onProg(Math.round((ev.loaded / ev.total) * 100)); };
+      x.onerror = () => no(new Error('Network problem. Check your connection and try again.'));
+      x.onload = () => { let d = {}; try { d = JSON.parse(x.responseText); } catch { /* empty */ } if (x.status >= 200 && x.status < 300 && d.url) ok(d.url); else no(new Error(d.error || 'The upload failed. Please try again.')); };
+      x.send(JSON.stringify({ data: r.result }));
+    };
+    r.readAsDataURL(blob);
+  });
+}
+// A photo area: drag and drop, previews, main photo, replace, remove, progress and plain error messages. `o.images` is changed in place.
+function photoBox(host, o) {
+  const max = o.max || 8, busy = []; let at = -1;
+  const draw = () => {
+    host.innerHTML = `<div class="pbx" tabindex="0" role="button" aria-label="Add photos"><b>Drop photos here</b> or click to choose<div class="mu2">JPG, PNG or WEBP. Large photos are shrunk for you. Up to ${max}. The first photo is the main one.</div><input type="file" accept="image/png,image/jpeg,image/webp" multiple hidden></div>
+    <div class="pbl">${o.images.map((u, i) => `<div class="pbt ${i === 0 ? 'main' : ''}"><img src="${e(u)}" alt="Photo ${i + 1}">${i === 0 ? '<span class="pbm">Main</span>' : ''}<div class="pba">${i ? `<button type="button" data-mk="${i}">Make main</button>` : ''}<button type="button" data-rp="${i}">Replace</button><button type="button" data-rm="${i}">Remove</button></div></div>`).join('')}${busy.map((b, i) => `<div class="pbt ${b.err ? 'bad' : ''}"><div class="pbs"><div class="mu2" style="word-break:break-all">${e(b.name)}</div>${b.err ? `<div class="err">${e(b.err)}</div><button type="button" data-dm="${i}">Dismiss</button>` : `<div class="pbp"><i style="width:${b.pct}%"></i></div><div class="mu2">${b.pct < 5 ? 'Preparing…' : b.pct + '%'}</div>`}</div></div>`).join('')}</div>
+    <div class="pbu"><input placeholder="…or paste an https image link"><button type="button" class="btn ghost sm" data-u>Add</button></div>`;
+    const zone = $('.pbx', host), inp = $('input[type=file]', zone);
+    zone.addEventListener('click', () => { at = -1; inp.click(); });
+    zone.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); at = -1; inp.click(); } });
+    inp.addEventListener('click', (ev) => ev.stopPropagation());
+    inp.addEventListener('change', () => { const f = [...inp.files]; inp.value = ''; take(f, at); });
+    ['dragenter', 'dragover'].forEach((t) => zone.addEventListener(t, (ev) => { ev.preventDefault(); zone.classList.add('over'); }));
+    ['dragleave', 'drop'].forEach((t) => zone.addEventListener(t, (ev) => { ev.preventDefault(); zone.classList.remove('over'); }));
+    zone.addEventListener('drop', (ev) => take([...ev.dataTransfer.files], -1));
+    $$('[data-mk]', host).forEach((b) => b.addEventListener('click', () => { const i = Number(b.dataset.mk); o.images.unshift(o.images.splice(i, 1)[0]); changed(); }));
+    $$('[data-rm]', host).forEach((b) => b.addEventListener('click', () => { o.images.splice(Number(b.dataset.rm), 1); changed(); }));
+    $$('[data-rp]', host).forEach((b) => b.addEventListener('click', () => { at = Number(b.dataset.rp); inp.click(); }));
+    $$('[data-dm]', host).forEach((b) => b.addEventListener('click', () => { busy.splice(Number(b.dataset.dm), 1); draw(); }));
+    $('[data-u]', host).addEventListener('click', () => { const i = $('.pbu input', host), u = i.value.trim(); if (!/^https:\/\//.test(u)) return toast('Image links must start with https://', 'bad'); if (o.images.length >= max) return toast(`Up to ${max} photos`, 'bad'); o.images.push(u); changed(); });
+  };
+  const changed = () => { draw(); if (o.onChange) o.onChange(); };
+  const take = async (files, idx) => {
+    files = files.filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic)$/i.test(f.name));
+    if (!files.length) return toast('Please choose photo files (JPG, PNG or WEBP).', 'bad');
+    for (const f of files) {
+      if (idx < 0 && o.images.length + busy.filter((b) => !b.err).length >= max) { busy.push({ name: f.name, pct: 0, err: `Only ${max} photos fit. Remove one first.` }); draw(); continue; }
+      const b = { name: f.name, pct: 0 }; busy.push(b); draw();
+      try {
+        const blob = await shrinkImage(f);
+        const url = await o.upload(blob, (p) => { b.pct = p; const bar = $$('.pbp i', host)[busy.filter((x) => !x.err).indexOf(b)]; if (bar) bar.style.width = p + '%'; });
+        busy.splice(busy.indexOf(b), 1);
+        if (idx >= 0 && idx < o.images.length) o.images[idx] = url; else o.images.push(url);
+        changed();
+      } catch (x) { b.err = x.message; draw(); }
+      idx = -1;
+    }
+  };
+  draw();
+}
+
+/* ---------------- product import and export (admin and partner stores) ---------------- */
+function catalogTool(host, base, admin) {
+  const st = { tab: 'import', mode: 'create', step: 1, file: '', headers: [], rows: [], mapping: {}, fields: [], per: 200, res: [], final: [], skipDup: false, filter: 'all', out: null, editing: -1, busy: '' };
+  const A = (p, o) => api(base + p, o);
+  const dl = (url) => { const a = document.createElement('a'); a.href = url; a.download = ''; document.body.appendChild(a); a.click(); a.remove(); };
+  const errs = (i) => [...((st.res[i] && st.res[i].errors) || []), ...((st.res[i] && st.res[i].loc) || [])];
+  const stat = (i) => (errs(i).length ? 'error' : st.res[i].status);
+  const localDups = () => {
+    const per = st.per; st.res.forEach((r) => { if (r) r.loc = []; });
+    for (const k of ['sku', 'barcode']) {
+      const ci = st.mapping[k]; if (ci === undefined) continue; const seen = new Map();
+      st.rows.forEach((row, i) => { const v = String(row[ci] || '').trim().toLowerCase(); if (!v) return; if (!seen.has(v)) return seen.set(v, i); const f = seen.get(v); if (Math.floor(f / per) !== Math.floor(i / per)) st.res[i].loc.push(`${k === 'sku' ? 'Internal Reference' : 'Barcode'} "${row[ci]}" is repeated in this file (row ${f + 1}).`); });
+    }
+  };
+  const csvCell = (c) => { let s = String(c == null ? '' : c); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const paint = () => {
+    host.innerHTML = `<div class="cio"><div class="cio-t">${[['import', 'Import'], ['export', 'Export'], ['history', 'History']].map(([k, t]) => `<button class="btn ${st.tab === k ? '' : 'ghost'} sm" data-t="${k}">${t}</button>`).join('')}</div><div id="cio-b"></div></div>`;
+    $$('[data-t]', host).forEach((b) => b.addEventListener('click', () => { st.tab = b.dataset.t; paint(); }));
+    const b = $('#cio-b', host);
+    Promise.resolve(({ import: imp, export: exp, history: his })[st.tab](b)).catch((x) => toast(x.message, 'bad'));
+  };
+  const steps = () => `<div class="cio-s">${['Choose file', 'Match columns', 'Check', 'Done'].map((t, i) => `<span class="${st.step === i + 1 ? 'on' : st.step > i + 1 ? 'ok' : ''}">${i + 1}. ${t}</span>`).join('')}</div>`;
+  const imp = (b) => ({ 1: s1, 2: s2, 3: s3, 4: s4 })[st.step](b);
+
+  function s1(b) {
+    b.innerHTML = `${steps()}<div class="cio-p"><h3>What do you want to do?</h3>
+      <label class="chk"><input type="radio" name="md" value="create" ${st.mode === 'create' ? 'checked' : ''}> <b>Create new products</b></label>
+      <label class="chk"><input type="radio" name="md" value="update" ${st.mode === 'update' ? 'checked' : ''}> <b>Update existing products</b> <span class="mu2">found by Internal Reference, then Barcode. Empty cells never erase anything.</span></label>
+      <p style="margin:14px 0 6px">Start from the template (it lists the departments and categories you can use):</p>
+      <button class="btn ghost sm" data-d="template.xlsx">Excel template (.xlsx)</button> <button class="btn ghost sm" data-d="template.csv">CSV template</button>
+      <div class="pbx" id="cz" tabindex="0" role="button" style="margin-top:16px"><b>Drop your file here</b> or click to choose<div class="mu2">Excel (.xlsx) or CSV. Up to 10,000 products. Photos are not needed, add them later.</div><input type="file" accept=".xlsx,.csv,.txt,text/csv" hidden></div><div id="cmsg" role="status" aria-live="polite"></div></div>`;
+    $$('[name=md]', b).forEach((r) => r.addEventListener('change', () => { st.mode = r.value; }));
+    $$('[data-d]', b).forEach((x) => x.addEventListener('click', () => dl(base + '/' + x.dataset.d)));
+    const z = $('#cz', b), inp = $('input', z), msg = (t, bad) => { $('#cmsg', b).innerHTML = t ? `<p class="${bad ? 'err' : 'mu'}">${e(t)}</p>` : ''; };
+    const take = async (f) => {
+      if (!f) return; msg('Reading ' + f.name + '…');
+      try {
+        const r = await fetch(base + '/parse?filename=' + encodeURIComponent(f.name), { method: 'POST', body: f, credentials: 'same-origin' }); const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || 'That file could not be read.');
+        Object.assign(st, { file: f.name, headers: d.headers, rows: d.rows, mapping: d.mapping, step: 2, res: [], final: [], out: null, editing: -1 }); st.fields = (await A('/fields')).fields; paint();
+      } catch (x) { msg(x.message, true); }
+    };
+    z.addEventListener('click', () => inp.click()); inp.addEventListener('click', (ev) => ev.stopPropagation()); inp.addEventListener('change', () => { const f = inp.files[0]; inp.value = ''; take(f); });
+    z.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); inp.click(); } });
+    ['dragenter', 'dragover'].forEach((t) => z.addEventListener(t, (ev) => { ev.preventDefault(); z.classList.add('over'); })); ['dragleave', 'drop'].forEach((t) => z.addEventListener(t, (ev) => { ev.preventDefault(); z.classList.remove('over'); }));
+    z.addEventListener('drop', (ev) => take(ev.dataTransfer.files[0]));
+  }
+
+  function s2(b) {
+    const opts = (cur) => `<option value="">— not in my file —</option>${st.headers.map((h, i) => `<option value="${i}" ${cur === i ? 'selected' : ''}>${e(h || 'Column ' + (i + 1))}</option>`).join('')}`;
+    b.innerHTML = `${steps()}<div class="cio-p"><h3>Match your columns</h3><p class="mu">${e(st.file)} · ${st.rows.length.toLocaleString('en-NG')} rows · ${st.mode === 'create' ? 'creating new products' : 'updating existing products'}. We matched what we could. Change anything that is wrong.</p>
+      <div class="cio-tw"><table class="cio-tb"><tr><th>Our field</th><th>Column in your file</th><th>First row</th></tr>${st.fields.map((f) => `<tr><td><b>${e(f.label)}</b>${f.req && st.mode === 'create' ? ' <span class="err" style="display:inline">required</span>' : ''}</td><td><select data-f="${f.key}">${opts(st.mapping[f.key])}</select></td><td class="mu2" data-s="${f.key}">${e(st.mapping[f.key] !== undefined ? (st.rows[0] || [])[st.mapping[f.key]] : '')}</td></tr>`).join('')}</table></div>
+      <p class="err hide" id="mer"></p><div style="display:flex;gap:8px;margin-top:12px"><button class="btn ghost" id="mb">Back</button><button class="btn" id="mn2">Check my file</button></div></div>`;
+    $$('[data-f]', b).forEach((s) => s.addEventListener('change', () => { if (s.value === '') delete st.mapping[s.dataset.f]; else st.mapping[s.dataset.f] = Number(s.value); $(`[data-s=${s.dataset.f}]`, b).textContent = s.value === '' ? '' : (st.rows[0] || [])[Number(s.value)] || ''; }));
+    $('#mb', b).addEventListener('click', () => { st.step = 1; paint(); });
+    $('#mn2', b).addEventListener('click', () => {
+      const m = st.mapping, er = $('#mer', b), bad = (t) => { er.textContent = t; er.classList.remove('hide'); };
+      if (st.mode === 'create' && (m.name === undefined || m.price === undefined)) return bad('Please match at least Product Name and Selling Price.');
+      if (st.mode === 'update' && m.sku === undefined && m.barcode === undefined) return bad('To update products we need Internal Reference or Barcode matched.');
+      if (st.mode === 'update' && Object.keys(m).filter((k) => k !== 'sku' && k !== 'barcode').length === 0) return bad('Match at least one more column to update, such as Selling Price or Quantity.');
+      st.step = 3; paint();
+    });
+  }
+
+  async function s3(b) {
+    if (!st.res.length || st.res.length !== st.rows.length) {
+      const n = st.rows.length; st.res = new Array(n); b.innerHTML = `${steps()}<div class="cio-p"><h3>Checking your file…</h3><div class="pbp big"><i id="cp" style="width:0"></i></div><p class="mu" id="cpt">0 of ${n.toLocaleString('en-NG')} rows</p></div>`;
+      try {
+        for (let s = 0; s < n; s += st.per) { const r = await A('/check', { body: { mode: st.mode, mapping: st.mapping, rows: st.rows.slice(s, s + st.per), startRow: s } }); r.results.forEach((x, i) => { st.res[s + i] = x; }); const d = Math.min(n, s + st.per); $('#cp', b).style.width = Math.round((d / n) * 100) + '%'; $('#cpt', b).textContent = `${d.toLocaleString('en-NG')} of ${n.toLocaleString('en-NG')} rows`; }
+      } catch (x) { st.res = []; toast(x.message, 'bad'); st.step = 2; return paint(); }
+      localDups();
+    }
+    const n = st.rows.length, S = { ok: 0, unchanged: 0, error: 0, warn: 0 };
+    st.res.forEach((r, i) => { const s = stat(i); S[s] = (S[s] || 0) + 1; if (s === 'ok' && r.warnings.length) S.warn++; });
+    const dupN = st.res.filter((r, i) => stat(i) === 'ok' && r.warnings.some((w) => w.code === 'dup_name')).length;
+    const show = st.res.map((r, i) => i).filter((i) => ({ all: true, error: stat(i) === 'error', warn: stat(i) === 'ok' && st.res[i].warnings.length, change: st.res[i].changes && st.res[i].changes.length, ok: stat(i) === 'ok' })[st.filter]);
+    const cell = (i) => { const r = st.res[i], er = errs(i); return `<tr><td>${i + 2}</td><td><b>${e(r.name || '(no name)')}</b></td><td><span class="cio-b ${stat(i)}">${{ ok: st.mode === 'create' ? 'Ready' : 'Will update', unchanged: 'No change', error: 'Problem' }[stat(i)] || stat(i)}</span></td><td>${er.map((t) => `<div class="err">${e(t)}</div>`).join('')}${r.warnings.map((w) => `<div class="cio-w">${e(w.text)}</div>`).join('')}${(r.changes || []).map((c) => `<div class="mu2">${e(c.field)}: <s>${e(c.from || '(empty)')}</s> → <b>${e(c.to || '(empty)')}</b></div>`).join('')}</td><td>${stat(i) === 'error' ? `<button class="btn ghost sm" data-fx="${i}">Fix</button>` : ''}</td></tr>`; };
+    const readyN = S.ok || 0;
+    const editor = st.editing >= 0 ? `<div class="cio-p" style="background:var(--surface-2)"><h4 style="margin:0 0 8px">Correct row ${st.editing + 2}</h4><div class="cio-g">${Object.entries(st.mapping).map(([k, ci]) => `<label class="f">${e((st.fields.find((f) => f.key === k) || {}).label || k)}<input data-ed="${ci}" value="${e(st.rows[st.editing][ci] || '')}"></label>`).join('')}</div><div style="display:flex;gap:8px;margin-top:8px"><button class="btn sm" id="edsave">Save and recheck</button><button class="btn ghost sm" id="edx">Cancel</button></div></div>` : '';
+    b.innerHTML = `${steps()}<div class="cio-p"><h3>Check results</h3><p class="mu">${e(st.file)} · ${n.toLocaleString('en-NG')} rows. Nothing has been saved yet.</p>
+      <div class="cio-k"><div><b>${readyN.toLocaleString('en-NG')}</b>${st.mode === 'create' ? 'ready to create' : 'will be updated'}</div><div><b>${(S.unchanged || 0).toLocaleString('en-NG')}</b>no change</div><div class="${S.error ? 'bad' : ''}"><b>${(S.error || 0).toLocaleString('en-NG')}</b>with problems</div><div><b>${S.warn.toLocaleString('en-NG')}</b>warnings</div></div>
+      <div class="chips" style="margin:10px 0">${[['all', 'All'], ['error', 'Problems'], ['warn', 'Warnings'], ['change', 'Changes'], ['ok', 'Ready']].map(([k, t]) => `<button class="chip ${st.filter === k ? 'on' : ''}" data-flt="${k}">${t}</button>`).join('')}</div>
+      ${editor}<div class="cio-tw"><table class="cio-tb"><tr><th>Row</th><th>Product</th><th>Result</th><th>Details</th><th></th></tr>${show.slice(0, 300).map(cell).join('') || '<tr><td colspan="5" class="mu">Nothing to show here.</td></tr>'}</table></div>${show.length > 300 ? `<p class="mu2">Showing the first 300 of ${show.length.toLocaleString('en-NG')}.</p>` : ''}
+      ${dupN ? `<label class="chk" style="margin-top:10px"><input type="checkbox" id="skd" ${st.skipDup ? 'checked' : ''}> Skip the ${dupN} product${dupN === 1 ? '' : 's'} that look like existing ones (same name and brand)</label>` : ''}
+      ${S.error ? '<p class="mu2" style="margin-top:10px">Rows with problems will be left out. You can fix them here, or import the good rows now and download a report of the rest.</p>' : ''}
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn ghost" id="b2">Back</button><button class="btn" id="go" ${readyN ? '' : 'disabled'}>${st.mode === 'create' ? 'Create' : 'Update'} ${readyN.toLocaleString('en-NG')} product${readyN === 1 ? '' : 's'}</button></div></div>`;
+    $$('[data-flt]', b).forEach((c) => c.addEventListener('click', () => { st.filter = c.dataset.flt; paint(); }));
+    $$('[data-fx]', b).forEach((c) => c.addEventListener('click', () => { st.editing = Number(c.dataset.fx); paint(); }));
+    const sk = $('#skd', b); if (sk) sk.addEventListener('change', () => { st.skipDup = sk.checked; });
+    $('#b2', b).addEventListener('click', () => { st.step = 2; st.res = []; st.editing = -1; paint(); });
+    if (editor) {
+      $('#edx', b).addEventListener('click', () => { st.editing = -1; paint(); });
+      $('#edsave', b).addEventListener('click', async () => { const i = st.editing; $$('[data-ed]', b).forEach((x) => { st.rows[i][Number(x.dataset.ed)] = x.value; }); try { const r = await A('/check', { body: { mode: st.mode, mapping: st.mapping, rows: [st.rows[i]], startRow: i } }); st.res[i] = r.results[0]; localDups(); st.editing = -1; paint(); } catch (x) { toast(x.message, 'bad'); } });
+    }
+    $('#go', b).addEventListener('click', () => { if (st.mode === 'update' && !confirm(`Update ${readyN} product${readyN === 1 ? '' : 's'}? The changes are listed above.`)) return; apply(b); });
+  }
+
+  async function apply(b) {
+    const idx = st.res.map((r, i) => i).filter((i) => stat(i) === 'ok'), total = idx.length;
+    st.final = st.res.map((r, i) => ({ status: stat(i), errors: errs(i), name: r.name, action: r.action }));
+    b.innerHTML = `${steps()}<div class="cio-p"><h3>Saving…</h3><div class="pbp big"><i id="cp" style="width:0"></i></div><p class="mu" id="cpt">0 of ${total.toLocaleString('en-NG')}</p><p class="mu2">Please keep this page open.</p></div>`;
+    let done = 0;
+    try {
+      for (let s = 0; s < total; s += st.per) {
+        const part = idx.slice(s, s + st.per), r = await A('/apply', { body: { mode: st.mode, mapping: st.mapping, rows: part.map((i) => st.rows[i]), skipDuplicates: st.skipDup, startRow: 0 } });
+        r.results.forEach((x, j) => { st.final[part[j]] = { status: x.status, errors: x.errors, name: x.name, action: x.action }; }); done += part.length;
+        $('#cp', b).style.width = Math.round((done / total) * 100) + '%'; $('#cpt', b).textContent = `${done.toLocaleString('en-NG')} of ${total.toLocaleString('en-NG')}`;
+      }
+    } catch (x) { toast(x.message + ' Rows saved so far are kept.', 'bad'); }
+    const f = st.final, cnt = (fn) => f.filter(fn).length;
+    st.out = { created: cnt((x) => x.status === 'done' && x.action === 'create'), updated: cnt((x) => x.status === 'done' && x.action === 'update'), skipped: cnt((x) => x.status === 'skipped' || x.status === 'unchanged'), failed: cnt((x) => x.status === 'error') };
+    A('/log', { body: { kind: 'import', mode: st.mode, filename: st.file, total: f.length, created: st.out.created, updated: st.out.updated, skipped: st.out.skipped, failed: st.out.failed } }).catch(() => {});
+    st.step = 4; paint();
+  }
+
+  function s4(b) {
+    const o = st.out || { created: 0, updated: 0, skipped: 0, failed: 0 }, bad = st.final.map((x, i) => [x, i]).filter(([x]) => x.status === 'error');
+    b.innerHTML = `${steps()}<div class="cio-p"><h3>${o.failed ? 'Finished, with some problems' : 'All done'}</h3>
+      <div class="cio-k"><div><b>${o.created.toLocaleString('en-NG')}</b>created</div><div><b>${o.updated.toLocaleString('en-NG')}</b>updated</div><div><b>${o.skipped.toLocaleString('en-NG')}</b>skipped / unchanged</div><div class="${o.failed ? 'bad' : ''}"><b>${o.failed.toLocaleString('en-NG')}</b>failed</div></div>
+      ${admin ? '' : '<p class="mu" style="margin-top:10px">New products and changes to names, descriptions or categories are reviewed by our team before customers see them.</p>'}
+      ${bad.length ? `<p style="margin-top:12px"><button class="btn" id="rep">Download error report</button> <span class="mu2">Fix those rows in the file and import it again.</span></p><div class="cio-tw"><table class="cio-tb"><tr><th>Row</th><th>Product</th><th>Problem</th></tr>${bad.slice(0, 50).map(([x, i]) => `<tr><td>${i + 2}</td><td>${e(x.name || '')}</td><td>${x.errors.map((t) => `<div class="err">${e(t)}</div>`).join('')}</td></tr>`).join('')}</table></div>${bad.length > 50 ? '<p class="mu2">The report has every row.</p>' : ''}` : ''}
+      <div style="display:flex;gap:8px;margin-top:12px"><button class="btn" id="again">Import another file</button></div></div>`;
+    $('#again', b).addEventListener('click', () => { Object.assign(st, { step: 1, res: [], final: [], rows: [], out: null, editing: -1 }); paint(); });
+    const rep = $('#rep', b); if (rep) rep.addEventListener('click', () => {
+      const head = ['Row', 'Product', 'Problem', ...st.headers], lines = [head, ...bad.map(([x, i]) => [i + 2, x.name || '', x.errors.join(' | '), ...st.headers.map((h, c) => st.rows[i][c] || '')])];
+      const blob = new Blob(['﻿' + lines.map((r) => r.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'import-error-report.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    });
+  }
+
+  async function exp(b) {
+    const cats = admin ? (await api('/api/admin/categories')).categories : (await api('/api/partner/catalogue')).categories;
+    const vendors = admin ? (await api('/api/admin/vendors')).vendors.filter((v) => v.status === 'approved') : [];
+    b.innerHTML = `<div class="cio-p"><h3>Export products</h3><p class="mu">Choose what to include, then download. Leave everything as it is to export all products.</p><div class="cio-g">
+      <label class="f">Status<select id="xs"><option value="">All</option><option value="active">Active only</option><option value="inactive">Inactive only</option></select></label>
+      <label class="f">Category<select id="xc"><option value="">All categories</option>${cats.map((c) => `<option value="${c.id}">${e(c.name)}${admin ? ' (' + e(c.store) + ')' : ''}</option>`).join('')}</select></label>
+      <label class="f">Brand<input id="xb" placeholder="Any brand"></label>
+      ${admin ? `<label class="f">Partner<select id="xp"><option value="">Everyone</option><option value="ours">Our own products</option>${vendors.map((v) => `<option value="${v.id}">${e(v.name)}</option>`).join('')}</select></label>` : ''}</div>
+      <label class="chk" style="margin-top:10px"><input type="checkbox" id="xm"> Only products missing photos</label><label class="chk"><input type="checkbox" id="xl"> Only low stock (at or below the minimum stock)</label>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn" data-x="xlsx">Download Excel</button><button class="btn ghost" data-x="csv">Download CSV</button></div></div>`;
+    $$('[data-x]', b).forEach((x) => x.addEventListener('click', () => {
+      const q = new URLSearchParams(), v = (id) => { const el = $('#' + id, b); return el ? el.value.trim() : ''; };
+      if (v('xs')) q.set('status', v('xs')); if (v('xc')) q.set('category', v('xc')); if (v('xb')) q.set('brand', v('xb')); if (v('xp')) q.set('partner', v('xp')); if ($('#xm', b).checked) q.set('missing_images', '1'); if ($('#xl', b).checked) q.set('low_stock', '1');
+      dl(base + '/export.' + x.dataset.x + '?' + q);
+    }));
+  }
+  async function his(b) {
+    const h = (await A('/history')).history;
+    b.innerHTML = `<div class="cio-p"><h3>History</h3>${h.length ? `<div class="cio-tw"><table class="cio-tb"><tr><th>When</th><th>What</th><th>File</th><th>Rows</th><th>Created</th><th>Updated</th><th>Skipped</th><th>Failed</th><th>By</th></tr>${h.map((x) => `<tr><td>${e(new Date(x.created * 1000).toLocaleString('en-NG'))}</td><td>${x.kind === 'export' ? 'Export' : x.mode === 'update' ? 'Import (update)' : 'Import (create)'}</td><td>${e(x.filename)}</td><td>${x.total}</td><td>${x.created_n}</td><td>${x.updated_n}</td><td>${x.skipped_n}</td><td>${x.failed_n}</td><td>${e(x.partner || x.by_name || '')}</td></tr>`).join('')}</table></div>` : '<p class="mu">Nothing yet.</p>'}</div>`;
+  }
+  paint();
+}
+
 /* ===================== ADMIN DASHBOARD (/admin) ===================== */
 function startAdmin() {
 const root = $('#adm');
@@ -1649,7 +1880,7 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['pharmacy', '💊', 'Pharmacy']];
+const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['catalog', '⇅', 'Import & export'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['pharmacy', '💊', 'Pharmacy']];
 async function shell(page, body, unread) {
   root.innerHTML = `<div class="adm"><aside class="side"><div class="side-top"><div><b>🛠 Shop-Beta</b><div class="who">${e(me.email)}</div></div><div><a class="btn ghost sm" href="/" target="_blank" rel="noopener">View store</a> <button class="btn ghost sm" id="lo">Sign out</button></div></div>
   <nav>${NAV.map(([k, ic, t]) => `<a data-nav="${k}" class="${page === k ? 'on' : ''}">${ic} ${t}${k === 'messages' && unread ? ` <span class="dot">${unread}</span>` : ''}</a>`).join('')}</nav></aside><main class="main" id="mn">${body}</main></div>`;
@@ -1738,12 +1969,15 @@ async function orderModal(id) {
 }
 
 /* ---------------- products ---------------- */
+views.catalog = async () => { mn(hd('Import & export products') + '<div id="cio"></div>'); catalogTool($('#cio'), '/api/admin/catalog', true); };
 const pstate = { q: '', store: '' };
 views.products = async () => {
   const d = await api('/api/admin/products?' + new URLSearchParams(pstate));
-  mn(hd('Products', '<button class="btn" id="np">+ Add product</button>') + `<div class="tbar"><input id="pq" placeholder="Search name, SKU, brand" value="${e(pstate.q)}"><select id="ps"><option value="">All departments</option>${cfgStores.map((s) => `<option value="${e(s.slug)}" ${pstate.store === s.slug ? 'selected' : ''}>${e(s.name)}</option>`).join('')}</select></div>
-   <div class="panel"><div class="tw"><table class="t"><tr><th></th><th>Product</th><th>Department</th><th>Price</th><th>Stock</th><th>Status</th></tr>${d.products.map((p) => `<tr class="click" data-p="${p.id}"><td>${thumb(p)}</td><td><b>${e(p.name)}</b><div class="mu2">${e(p.sku || '')} ${p.category ? '· ' + e(p.category) : ''}</div></td><td>${e(storeName(p.store))}</td><td>${naira(p.price)}</td><td>${p.stock <= 5 ? `<span class="pill low">${p.stock}</span>` : p.stock}</td><td>${p.active ? 'Live' : '<span class="pill">Hidden</span>'}</td></tr>`).join('') || '<tr><td colspan="6" class="mu">No products found.</td></tr>'}</table></div></div>`);
+  mn(hd('Products', '<a class="btn ghost" href="#/catalog">Import / export</a> <button class="btn" id="np">+ Add product</button>') + `<div class="tbar"><button class="btn ghost sm" id="pexp">Export selected</button><input id="pq" placeholder="Search name, SKU, brand" value="${e(pstate.q)}"><select id="ps"><option value="">All departments</option>${cfgStores.map((s) => `<option value="${e(s.slug)}" ${pstate.store === s.slug ? 'selected' : ''}>${e(s.name)}</option>`).join('')}</select></div>
+   <div class="panel"><div class="tw"><table class="t"><tr><th><input type="checkbox" id="pall" aria-label="Select all"></th><th>Product</th><th>Department</th><th>Price</th><th>Stock</th><th>Status</th></tr>${d.products.map((p) => `<tr class="click" data-p="${p.id}"><td><input type="checkbox" data-sel="${p.id}" aria-label="Select"> ${thumb(p)}</td><td><b>${e(p.name)}</b><div class="mu2">${e(p.sku || '')} ${p.category ? '· ' + e(p.category) : ''}</div></td><td>${e(storeName(p.store))}</td><td>${naira(p.price)}</td><td>${p.stock <= 5 ? `<span class="pill low">${p.stock}</span>` : p.stock}</td><td>${p.active ? 'Live' : '<span class="pill">Hidden</span>'}</td></tr>`).join('') || '<tr><td colspan="6" class="mu">No products found.</td></tr>'}</table></div></div>`);
   on('#np', 'click', () => productForm());
+  $$('[data-sel],#pall').forEach((c) => c.addEventListener('click', (ev) => { ev.stopPropagation(); if (c.id === 'pall') $$('[data-sel]').forEach((x) => { x.checked = c.checked; }); }));
+  on('#pexp', 'click', () => { const ids = $$('[data-sel]:checked').map((x) => x.dataset.sel); if (!ids.length) return toast('Tick the products you want to export first.', 'bad'); const a = document.createElement('a'); a.href = '/api/admin/catalog/export.xlsx?ids=' + ids.join(','); a.download = ''; document.body.appendChild(a); a.click(); a.remove(); });
   let tm; on('#pq', 'input', () => { clearTimeout(tm); tm = setTimeout(async () => { pstate.q = $('#pq').value; await views.products(); const i = $('#pq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 400); });
   on('#ps', 'change', () => { pstate.store = $('#ps').value; return views.products(); });
   onAll('[data-p]', 'click', (el) => productForm(el.dataset.p));
@@ -1762,25 +1996,24 @@ async function productForm(id) {
     <label class="f">Brand<input id="pb" value="${e(p.brand)}" maxlength="60"></label><label class="f">SKU<input id="psku" value="${e(p.sku)}" maxlength="40"></label>
     <label class="f">Emoji (shown if no photo)<input id="pe" value="${e(p.emoji)}" maxlength="8"></label><label class="f">Stock ${variants.length ? '(from variants)' : ''}<input id="pstock" type="number" min="0" value="${e(p.stock)}" ${variants.length ? 'disabled' : ''}></label>
     <label class="f full">Pickup point (where the rider collects this item)<select id="ppartner"><option value="">Shop-Beta main store (nearest)</option>${partners.map((x) => `<option value="${x.id}" ${Number(p.partner_id) === Number(x.id) ? 'selected' : ''}>${e(x.name)}</option>`).join('')}</select></label>
+    <details class="full"><summary style="cursor:pointer;font-weight:700;font-size:13px">More details (barcode, cost, minimum stock…)</summary><div class="fgrid" style="margin-top:8px">
+    <label class="f">Barcode<input id="pbc" value="${e(p.barcode || '')}" maxlength="40"></label><label class="f">Subcategory<input id="psub" value="${e(p.subcategory || '')}" maxlength="60"></label>
+    <label class="f">Cost price (₦, private)<input id="pcost" type="number" min="0" value="${e(p.cost_price || '')}"></label><label class="f">Minimum stock (low-stock alert)<input id="pmin" type="number" min="0" value="${e(p.min_stock || '')}"></label>
+    <label class="f">Unit of measure<input id="punit" value="${e(p.unit || '')}" maxlength="20" placeholder="pcs, kg, carton"></label><label class="f">Tax note<input id="ptax" value="${e(p.tax || '')}" maxlength="30" placeholder="7.5%"></label>
+    <label class="f">Weight (kg)<input id="pwt" type="number" min="0" step="0.001" value="${e(Number(p.weight_kg) || '')}"></label></div></details>
     <label class="f full">Description<textarea id="pd" rows="4" maxlength="4000">${e(p.description)}</textarea></label>
-    <div class="full"><b style="font-size:13px">Photos</b><div class="imgs">${images.map((u, i) => `<div class="im"><img src="${e(u)}" alt=""><button type="button" data-rmimg="${i}" aria-label="Remove photo">×</button></div>`).join('')}</div><input type="file" id="pfile" accept="image/png,image/jpeg,image/webp,image/gif"><div class="mu2">PNG, JPG, WEBP or GIF up to 2 MB. Or paste an https image link below.</div><div style="display:flex;gap:6px;margin-top:6px"><input id="purl" placeholder="https://…"><button type="button" class="btn ghost sm" id="padd">Add</button></div></div>
+    <div class="full"><b style="font-size:13px">Photos</b><div id="pbox"></div></div>
     <div class="full" style="margin-top:12px"><b style="font-size:13px">Variants (sizes / colours)</b> <span class="mu2">Leave empty if the product has none.</span><label class="f" style="margin-top:6px">Size label<input id="psl" value="${e(p.size_label)}" maxlength="20"></label>
     ${variants.map((v, i) => `<div class="vrow"><input data-v="${i}" data-k="size" placeholder="Size" value="${e(v.size || '')}"><input data-v="${i}" data-k="color" placeholder="Colour" value="${e(v.color || '')}"><input data-v="${i}" data-k="stock" type="number" min="0" placeholder="Stock" value="${e(v.stock)}"><button type="button" class="btn ghost sm" data-rmv="${i}" aria-label="Remove variant">×</button></div>`).join('')}<button type="button" class="btn ghost sm" id="vadd">+ Add variant</button></div>
     <div class="full" style="margin-top:12px"><label class="chk"><input type="checkbox" id="pf" ${p.featured ? 'checked' : ''}> Featured on the homepage</label><label class="chk"><input type="checkbox" id="pbs" ${p.bestseller ? 'checked' : ''}> Best seller</label><label class="chk"><input type="checkbox" id="pna" ${p.new_arrival ? 'checked' : ''}> New arrival</label><label class="chk"><input type="checkbox" id="pa" ${p.active ? 'checked' : ''}> Visible in the store</label></div></div>
     <div class="acts">${id ? '<button class="btn ghost" id="pdel" style="margin-right:auto;color:var(--bad)">Delete</button>' : ''}<button class="btn ghost" id="pcancel">Cancel</button><button class="btn" id="psave">Save product</button></div>`, true);
     const fillCats = () => { const st = $('#pst').value; $('#pc').innerHTML = '<option value="">None</option>' + cats.filter((c) => c.store === st).map((c) => `<option value="${c.id}" ${c.id === p.category_id ? 'selected' : ''}>${e(c.name)}</option>`).join(''); };
     fillCats(); $('#pst').addEventListener('change', () => { p.category_id = null; fillCats(); });
-    const collect = () => { Object.assign(p, { name: $('#pn').value, store: $('#pst').value, category_id: $('#pc').value || null, price: $('#pp').value, compare_price: $('#pcp').value, brand: $('#pb').value, sku: $('#psku').value, emoji: $('#pe').value, description: $('#pd').value, size_label: $('#psl').value, featured: $('#pf').checked ? 1 : 0, bestseller: $('#pbs').checked ? 1 : 0, new_arrival: $('#pna').checked ? 1 : 0, active: $('#pa').checked ? 1 : 0 }); if (!variants.length) p.stock = $('#pstock').value; };
+    const collect = () => { Object.assign(p, { barcode: $('#pbc').value, subcategory: $('#psub').value, cost_price: $('#pcost').value, min_stock: $('#pmin').value, unit: $('#punit').value, tax: $('#ptax').value, weight_kg: $('#pwt').value, name: $('#pn').value, store: $('#pst').value, category_id: $('#pc').value || null, price: $('#pp').value, compare_price: $('#pcp').value, brand: $('#pb').value, sku: $('#psku').value, emoji: $('#pe').value, description: $('#pd').value, size_label: $('#psl').value, featured: $('#pf').checked ? 1 : 0, bestseller: $('#pbs').checked ? 1 : 0, new_arrival: $('#pna').checked ? 1 : 0, active: $('#pa').checked ? 1 : 0 }); if (!variants.length) p.stock = $('#pstock').value; };
     $$('[data-v]', modal).forEach((i) => i.addEventListener('input', () => { variants[i.dataset.v][i.dataset.k] = i.value; }));
     $$('[data-rmv]', modal).forEach((b) => b.addEventListener('click', () => { collect(); variants.splice(b.dataset.rmv, 1); draw(); }));
-    $$('[data-rmimg]', modal).forEach((b) => b.addEventListener('click', () => { collect(); images.splice(b.dataset.rmimg, 1); draw(); }));
     $('#vadd').addEventListener('click', () => { collect(); variants.push({ size: '', color: '', stock: 0 }); draw(); });
-    $('#padd').addEventListener('click', () => { const u = $('#purl').value.trim(); if (!/^https:\/\//.test(u)) return toast('Image links must start with https://', 'bad'); collect(); images.push(u); draw(); });
-    $('#pfile').addEventListener('change', guard(async () => {
-      const f = $('#pfile').files[0]; if (!f) return; if (f.size > 2_000_000) return toast('That image is over 2 MB.', 'bad');
-      const data = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
-      const up = await api('/api/admin/upload', { body: { data } }); collect(); images.push(up.url); draw();
-    }));
+    photoBox($('#pbox'), { images, max: 8, upload: (blob, pr) => sendImage('/api/admin/upload', blob, pr) });
     $('#pcancel').addEventListener('click', closeModal);
     const del = $('#pdel'); if (del) del.addEventListener('click', guard(async () => { if (!confirm('Delete this product? Products that have orders are hidden instead.')) return; const r = await api('/api/admin/products/' + id, { method: 'DELETE' }); toast(r.archived ? 'Product hidden (it has orders)' : 'Product deleted'); closeModal(); route(); }));
     $('#psave').addEventListener('click', guard(async () => {
