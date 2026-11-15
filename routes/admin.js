@@ -52,6 +52,7 @@ router.post('/setup', A.limiter('setup', 5, 3600000), ah(async (req, res) => {
 router.use(A.requireAdmin);
 router.use('/vendors', require('./vendors-admin'));
 router.use('/wholesale', require('./wholesale-admin'));
+router.use('/catalog', require('./catalog-io')('admin'));
 
 // Activity log: every change an admin makes (not reads) is written down with who, what and from where. Passwords are never recorded.
 router.use((req, res, next) => {
@@ -146,7 +147,7 @@ router.post('/products', ah(async (req, res) => {
       await uniqueSlug(p.name), p.store, p.category_id, p.name, p.brand, p.description, p.price, p.compare, p.variants.length ? 0 : p.stock, p.sku, p.emoji, JSON.stringify(p.images), p.size_label, p.featured, p.bestseller, p.new_arrival, p.active, now());
     const pid = Number(r.lastInsertRowid);
     if (p.store === PC.PHARMACY_STORE) await run("UPDATE products SET pharm_status='pending' WHERE id=?", pid);
-    await saveVariants(pid, p.variants);
+    await saveVariants(pid, p.variants); await CAT.saveExtras(pid, p.extra);
     return pid;
   });
   res.json({ ok: true, id });
@@ -162,7 +163,7 @@ router.put('/products/:id', ah(async (req, res) => {
     if (cur.is_pharmacy || p.store === PC.PHARMACY_STORE) await run("UPDATE products SET pharm_status='pending', pharm_approved_by='', pharm_approved_at=NULL WHERE id=? AND pharm_status='approved'", id);
     await run('UPDATE products SET store=?,category_id=?,name=?,brand=?,description=?,price=?,compare_price=?,stock=?,sku=?,emoji=?,images=?,size_label=?,featured=?,bestseller=?,new_arrival=?,active=? WHERE id=?',
       p.store, p.category_id, p.name, p.brand, p.description, p.price, p.compare, p.variants.length ? 0 : p.stock, p.sku, p.emoji, JSON.stringify(p.images), p.size_label, p.featured, p.bestseller, p.new_arrival, p.active, id);
-    await saveVariants(id, p.variants);
+    await saveVariants(id, p.variants); await CAT.saveExtras(id, p.extra);
   });
   res.json({ ok: true });
 }));

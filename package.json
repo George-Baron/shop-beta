@@ -35,11 +35,13 @@
     "check:storage": "node scripts/check-storage.js",
     "lb": "node scripts/dev-lb.js",
     "load:local": "node load/run-staging.js",
-    "test:assistant": "node --disable-warning=ExperimentalWarning test/assistant.js"
+    "test:assistant": "node --disable-warning=ExperimentalWarning test/assistant.js",
+    "test:catalog": "node --disable-warning=ExperimentalWarning test/catalog.js"
   },
   "dependencies": {
     "compression": "^1.8.2",
     "express": "^4.21.2",
+    "fflate": "^0.8.3",
     "leaflet": "^1.9.4",
     "pg": "^8.23.1"
   }
