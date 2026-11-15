@@ -88,7 +88,7 @@ app.get('/health', async (req, res) => {
 /* ---------- API ---------- */
 // Request bodies are small by default. The photo upload is the one exception, and it reads its larger body only AFTER the admin check (see routes/admin.js).
 const smallJson = express.json({ limit: '100kb', verify: (req, res, buf) => { req.rawBody = buf; } });
-app.use('/api', (req, res, next) => (req.path === '/admin/upload' || req.path === '/partner/upload' || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) ? next() : smallJson(req, res, next)));
+app.use('/api', (req, res, next) => (req.path === '/admin/upload' || req.path === '/partner/upload' || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) || /^\/admin\/dropship\/(suppliers\/\d+\/documents|import\/(preview|commit))$/.test(req.path) ? next() : smallJson(req, res, next)));
 app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin) {

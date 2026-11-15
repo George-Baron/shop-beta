@@ -19,7 +19,7 @@ const { fail, str, int, isEmail, parseImages, getSettings, dayStart } = S;
 const router = express.Router();
 
 // Anything the public catalogue shows (products, categories, departments, settings, review approvals) clears the caches: here at once, on other instances within seconds.
-const CATALOGUE_WRITE = /^\/(products|categories|stores|settings|reviews|partners|riders|vendors)(\/|$)/;
+const CATALOGUE_WRITE = /^\/(products|categories|stores|settings|reviews|partners|riders|vendors|dropship)(\/|$)/;
 router.use((req, res, next) => {
   if (req.method === 'GET' || !CATALOGUE_WRITE.test(req.path)) return next();
   cache.clear();                                  // before the change, so nobody re-fills the cache from the old data meanwhile
@@ -63,6 +63,7 @@ router.use((req, res, next) => {
   });
   next();
 });
+router.use('/dropship', require('./dropship-admin')); // after the activity log on purpose, so supplier changes are recorded
 router.get('/audit', ah(async (req, res) => res.json({ log: await all('SELECT id, user_name, method, path, status, detail, ip, created FROM audit_log ORDER BY id DESC LIMIT 300') })));
 
 /* ---------- dashboard ---------- */

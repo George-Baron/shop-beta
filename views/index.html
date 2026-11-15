@@ -1531,7 +1531,7 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['pharmacy', '💊', 'Pharmacy']];
+const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['pharmacy', '💊', 'Pharmacy'], ['dropship', '🚚', 'Dropshipping']];
 async function shell(page, body, unread) {
   root.innerHTML = `<div class="adm"><aside class="side"><div class="side-top"><div><b>🛠 Shop-Beta</b><div class="who">${e(me.email)}</div></div><div><a class="btn ghost sm" href="/" target="_blank" rel="noopener">View store</a> <button class="btn ghost sm" id="lo">Sign out</button></div></div>
   <nav>${NAV.map(([k, ic, t]) => `<a data-nav="${k}" class="${page === k ? 'on' : ''}">${ic} ${t}${k === 'messages' && unread ? ` <span class="dot">${unread}</span>` : ''}</a>`).join('')}</nav></aside><main class="main" id="mn">${body}</main></div>`;
@@ -1987,6 +1987,66 @@ views.pharmacy = async () => {
   const ret = (sel, status) => onAll(sel, 'click', async (el) => { const resolution = prompt('What was decided? (refund, replacement, or why refused)'); if (!resolution) return; await P('/returns/' + (el.dataset.ra || el.dataset.rj), { method: 'PUT', body: { status, resolution } }); route(); });
   ret('[data-ra]', 'approved'); ret('[data-rj]', 'rejected');
 };
+
+/* ---------------- dropshipping (admin) ---------------- */
+const dstate = { tab: 'suppliers', sstatus: '', sq: '' };
+let dmeta = null;
+const DS = (p, o) => api('/api/admin/dropship' + p, o);
+const dsdate = (t) => (t ? new Date(t * 1000).toLocaleDateString('en-NG') : '');
+const ETAB = [['suppliers', 'Suppliers']];
+views.dropship = async () => {
+  if (!dmeta) dmeta = await DS('/meta');
+  let body = '';
+  if (dstate.tab === 'suppliers') {
+    const { suppliers } = await DS('/suppliers?' + new URLSearchParams({ status: dstate.sstatus, q: dstate.sq }));
+    body = `<div class="tbar"><input id="dsq" placeholder="Search suppliers" value="${e(dstate.sq)}"><select id="dsst"><option value="">All</option><option value="active" ${dstate.sstatus === 'active' ? 'selected' : ''}>Active</option><option value="paused" ${dstate.sstatus === 'paused' ? 'selected' : ''}>Paused</option></select><button class="btn sm" id="dsnew">+ Add supplier</button></div>
+    <div class="panel"><div class="tw"><table class="t"><tr><th>Supplier</th><th>Country</th><th>Currency</th><th>Processing</th><th>Orders</th><th>Rating</th><th>Status</th></tr>${suppliers.map((s) => `<tr class="click" data-sup="${s.id}"><td><b>${e(s.name)}</b><div class="mu2">${e(s.contact_name)}${s.email ? ' · ' + e(s.email) : ''}</div></td><td>${e(s.country_name)}</td><td>${e(s.currency)}</td><td>${s.processing_days} days</td><td>${s.orders}</td><td>${s.rating == null ? '<span class="mu2">not rated</span>' : '★ ' + s.rating}</td><td><span class="pill ${s.status === 'active' ? 'ok' : 'bad'}">${e(s.status)}</span></td></tr>`).join('') || '<tr><td colspan="7" class="mu">No suppliers yet. Press “Add supplier” to onboard your first one.</td></tr>'}</table></div>
+    <p class="mu2">A paused supplier's products are hidden from customers until you make the supplier active again.</p></div>`;
+  }
+  mn(hd('🚚 Dropshipping') + `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">${ETAB.map(([k, t]) => `<button class="btn ${dstate.tab === k ? '' : 'ghost'} sm" data-dt="${k}">${t}</button>`).join('')}</div>` + body);
+  onAll('[data-dt]', 'click', (el) => { dstate.tab = el.dataset.dt; return views.dropship(); });
+  on('#dsq', 'change', () => { dstate.sq = $('#dsq').value; return views.dropship(); });
+  on('#dsst', 'change', () => { dstate.sstatus = $('#dsst').value; return views.dropship(); });
+  on('#dsnew', 'click', () => supplierForm(0));
+  onAll('[data-sup]', 'click', (el) => supplierForm(el.dataset.sup));
+};
+const dsOpts = (list, sel, label = (x) => x.name) => list.map((x) => `<option value="${e(x.code)}" ${x.code === sel ? 'selected' : ''}>${e(label(x))}</option>`).join('');
+async function supplierForm(id) {
+  const d = id ? await DS('/suppliers/' + id) : { supplier: { name: '', country: '', currency: '', contact_name: '', email: '', whatsapp: '', address: '', payment_terms: '', payment_days: 0, processing_days: 3, shipping_methods: [], margin_type: null, margin_value: null, notes: '', status: 'active' }, performance: null, events: [], documents: [] };
+  const s = d.supplier, perf = d.performance;
+  openModal(`<h2>${id ? e(s.name) : 'Add a supplier'}</h2>
+   <div class="fgrid"><label class="f">Supplier name<input id="sn" maxlength="100" value="${e(s.name)}"></label>
+   <label class="f">Country<select id="sc"><option value="">Choose…</option>${dsOpts(dmeta.countries, s.country)}</select></label>
+   <label class="f">Contact person<input id="sct" maxlength="80" value="${e(s.contact_name)}"></label><label class="f">Email<input id="se" type="email" value="${e(s.email)}"></label>
+   <label class="f">WhatsApp (with country code)<input id="sw" value="${e(s.whatsapp)}" placeholder="+86 138 0000 0000"></label>
+   <label class="f">Invoices us in (currency)<select id="scu"><option value="">Choose…</option>${dsOpts(dmeta.currencies, s.currency, (x) => x.code + ' · ' + x.name)}</select></label>
+   <label class="f full">Address<input id="sa" maxlength="300" value="${e(s.address)}"></label>
+   <label class="f">Payment terms<input id="spt" maxlength="60" value="${e(s.payment_terms)}" placeholder="e.g. Prepaid, Net 14"></label>
+   <label class="f">Days we have to pay (0 = prepaid)<input id="spd" type="number" min="0" max="365" value="${e(s.payment_days)}"></label>
+   <label class="f">Average processing days<input id="sp" type="number" min="0" max="120" value="${e(s.processing_days)}"></label>
+   <div class="f"><span>Shipping methods</span><div style="display:flex;gap:12px;flex-wrap:wrap;padding-top:6px">${[['air', 'Air'], ['sea', 'Sea'], ['courier', 'Courier'], ['local', 'Local delivery']].map(([k, t]) => `<label class="chk"><input type="checkbox" class="sm" value="${k}" ${s.shipping_methods.includes(k) ? 'checked' : ''}> ${t}</label>`).join('')}</div></div>
+   <label class="f">Margin rule for this supplier<select id="smt"><option value="">Use the shop default</option><option value="percent" ${s.margin_type === 'percent' ? 'selected' : ''}>Percentage on landed cost</option><option value="fixed" ${s.margin_type === 'fixed' ? 'selected' : ''}>Fixed amount (₦)</option></select></label>
+   <label class="f">Margin value<input id="smv" type="number" min="0" step="0.5" value="${s.margin_value == null ? '' : e(s.margin_value)}"></label>
+   <label class="f full">Notes (private)<textarea id="snt" rows="3" maxlength="2000">${e(s.notes)}</textarea></label>
+   <label class="f">Status<select id="sst"><option value="active" ${s.status === 'active' ? 'selected' : ''}>Active</option><option value="paused" ${s.status === 'paused' ? 'selected' : ''}>Paused (hides their products)</option></select></label></div>
+   <div class="acts"><button class="btn ghost" id="sx">Close</button><button class="btn" id="ssv">${id ? 'Save changes' : 'Add supplier'}</button></div>
+   ${id ? `<h3 style="margin-top:16px">Documents <span class="mu2">stored privately, only admins can open them</span></h3>
+   ${d.documents.map((x) => `<div style="display:flex;gap:8px;align-items:center;padding:3px 0"><span class="pill">${e(x.kind)}</span><a href="/api/admin/dropship/suppliers/${id}/documents/${x.id}">${e(x.file_name)}</a><span class="mu2">${dsdate(x.created)} · ${Math.round(x.bytes / 1024)} KB</span><button class="btn ghost sm" data-ddel="${x.id}">Remove</button></div>`).join('') || '<p class="mu2">No documents yet.</p>'}
+   <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap"><select id="dk"><option value="registration">Business registration</option><option value="agreement">Contract / agreement</option><option value="other">Other</option></select><input type="file" id="df" accept=".pdf,.jpg,.jpeg,.png,.docx"><button class="btn sm" id="dup">Upload</button></div>
+   <h3 style="margin-top:16px">Performance</h3>
+   <p>${perf.orders} orders · ${perf.late} late${perf.on_time_pct == null ? '' : ' (' + perf.on_time_pct + '% on time)'} · ${perf.cancellations} cancelled · ${perf.defects} defects · ${perf.rating == null ? 'not rated yet' : '★ ' + perf.rating + ' from ' + perf.ratings + ' rating(s)'}</p>
+   <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><select id="ek"><option value="order">Order placed</option><option value="late">Late delivery</option><option value="cancellation">Cancellation</option><option value="defect">Defect</option><option value="rating">Rating (1-5)</option></select><input id="ev" type="number" min="1" max="500" value="1" style="width:80px" title="How many, or the stars for a rating"><input id="en" placeholder="Note or order number" maxlength="300" style="flex:1;min-width:160px"><button class="btn sm" id="eadd">Record</button></div>
+   ${d.events.slice(0, 8).map((x) => `<div class="mu2">${dsdate(x.created)} · ${e(x.kind)}${x.rating ? ' ' + x.rating + '★' : ''} ${e(x.ref)} ${e(x.note)} · ${e(x.created_by)}</div>`).join('')}` : ''}`, true);
+  const body = () => ({ name: $('#sn').value, country: $('#sc').value, contact_name: $('#sct').value, email: $('#se').value, whatsapp: $('#sw').value, currency: $('#scu').value, address: $('#sa').value, payment_terms: $('#spt').value, payment_days: $('#spd').value,
+    processing_days: $('#sp').value, shipping_methods: $$('.sm').filter((c) => c.checked).map((c) => c.value), margin_type: $('#smt').value, margin_value: $('#smv').value, notes: $('#snt').value, status: $('#sst').value });
+  $('#sx').addEventListener('click', () => { closeModal(); views.dropship(); });
+  $('#ssv').addEventListener('click', guard(async () => { if (id) await DS('/suppliers/' + id, { method: 'PUT', body: body() }); else await DS('/suppliers', { body: body() }); toast('Saved'); closeModal(); views.dropship(); }));
+  if (!id) return;
+  const again = () => supplierForm(id);
+  $('#dup').addEventListener('click', guard(async () => { const f = $('#df').files[0]; if (!f) return toast('Choose a file first', 'bad'); if (f.size > 8e6) return toast('That file is over 8 MB', 'bad'); await DS(`/suppliers/${id}/documents`, { body: { kind: $('#dk').value, name: f.name, data: await readFile(f) } }); toast('Uploaded'); again(); }));
+  $$('[data-ddel]').forEach((b) => b.addEventListener('click', guard(async () => { if (!confirm('Remove this document?')) return; await DS(`/suppliers/${id}/documents/${b.dataset.ddel}`, { method: 'DELETE' }); again(); })));
+  $('#eadd').addEventListener('click', guard(async () => { const k = $('#ek').value; await DS(`/suppliers/${id}/events`, { body: k === 'rating' ? { kind: k, rating: $('#ev').value, note: $('#en').value } : { kind: k, count: $('#ev').value, ref: $('#en').value } }); toast('Recorded'); again(); }));
+}
 
 /* ---------------- boot ---------------- */
 async function boot() {
