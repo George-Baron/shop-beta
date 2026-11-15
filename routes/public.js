@@ -10,6 +10,7 @@ const D = require('../lib/delivery');
 const geo = require('../lib/geo');
 const A = require('../lib/auth');
 const V = require('../lib/vendors');
+const AS = require('../lib/assistant');
 const { fail, str, int, isEmail, parseImages, card, RATING_JOIN, getSettings, esc } = S_;
 
 const router = express.Router();
@@ -31,7 +32,7 @@ async function buildConfig() {
   const S = await getSettings();
   const stores = await all(`SELECT * FROM stores s WHERE active=1 AND ${PC.storeVisibleSql('s')} ORDER BY sort, slug`);
   const slugs = new Set(stores.map((s) => s.slug));
-  const settings = { ...S }; delete settings.demo_seeded; delete settings.pod_enabled; delete settings.paystack_enabled;
+  const settings = { ...S }; delete settings.demo_seeded; delete settings.pod_enabled; delete settings.paystack_enabled; delete settings.assistant_notes;
   if (!PC.enabled()) for (const k of Object.keys(settings)) if (k.startsWith('pharm_')) delete settings[k];
   const categories = (await all('SELECT id, store, slug, name, icon FROM categories ORDER BY sort, id')).filter((c) => slugs.has(c.store));
   const zones = (await all('SELECT state, fee, eta, pod FROM zones ORDER BY sort, state')).map((z) => ({ ...z, pod: z.pod && S.pod_enabled === '1' ? 1 : 0 }));
@@ -40,6 +41,7 @@ async function buildConfig() {
     categories,
     zones,
     pharmacy: PC.enabled(),
+    assistant: AS.enabled(S),
     payments: { paystack: S.paystack_enabled === '1' && (S_.paystackLive() || S_.demoAllowed()), pod: S.pod_enabled === '1', demo: !S_.paystackLive() && S_.demoAllowed() },
   };
 }
@@ -414,6 +416,12 @@ router.post('/wishlist/:id', A.requireUser, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 router.delete('/wishlist/:id', A.requireUser, ah(async (req, res) => { await run('DELETE FROM wishlist WHERE user_id=? AND product_id=?', req.user.id, int(req.params.id)); res.json({ ok: true }); }));
+
+/* ================= support assistant ================= */
+router.post('/assistant/chat', A.limiter('assistant', 20, 600000), ah(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(await AS.chat(req.body && req.body.messages));
+}));
 
 /* ================= contact & newsletter ================= */
 router.post('/contact', A.limiter('contact', 6, 3600000), ah(async (req, res) => {

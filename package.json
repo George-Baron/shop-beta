@@ -34,7 +34,8 @@
     "test:multi": "node --disable-warning=ExperimentalWarning test/two-instances.js",
     "check:storage": "node scripts/check-storage.js",
     "lb": "node scripts/dev-lb.js",
-    "load:local": "node load/run-staging.js"
+    "load:local": "node load/run-staging.js",
+    "test:assistant": "node --disable-warning=ExperimentalWarning test/assistant.js"
   },
   "dependencies": {
     "compression": "^1.8.2",

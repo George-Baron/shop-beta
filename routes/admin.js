@@ -298,7 +298,7 @@ const TEXT_KEYS = ['store_name', 'tagline', 'announcement', 'contact_phone', 'ad
 const URL_KEYS = ['logo_url', 'instagram', 'facebook', 'x_twitter', 'tiktok'];
 router.get('/settings', ah(async (req, res) => {
   const settings = await getSettings(); delete settings.demo_seeded;
-  res.json({ settings, zones: await all('SELECT state, fee, eta, pod FROM zones ORDER BY sort, state'), paystack: { live: S.paystackLive() } });
+  res.json({ settings, zones: await all('SELECT state, fee, eta, pod FROM zones ORDER BY sort, state'), paystack: { live: S.paystackLive() }, assistant: { key: require('../lib/assistant').enabled({ assistant_enabled: '1' }) } });
 }));
 router.put('/settings', ah(async (req, res) => {
   const b = req.body || {}, s = b.settings || {}, out = {};
@@ -313,7 +313,9 @@ router.put('/settings', ah(async (req, res) => {
   for (const [k, lo, hi, d] of [['max_distance_km', 1, 500, 60], ['per_km_fee', 0, 5000, 0], ['free_km', 0, 500, 0], ['prep_minutes', 0, 600, 20], ['open_hour', 0, 23, 8], ['cutoff_hour', 1, 24, 20]]) if (k in s) out[k] = String(Math.min(hi, Math.max(lo, int(s[k], d))));
   if ('return_days' in s) out.return_days = String(Math.min(365, Math.max(0, int(s.return_days))));
   if ('express_multiplier' in s) { const m = Number(s.express_multiplier); out.express_multiplier = String(Number.isFinite(m) ? Math.min(5, Math.max(1, m)) : 1.5); }
-  for (const k of ['pod_enabled', 'paystack_enabled', 'pod_confirm_required']) if (k in s) out[k] = s[k] === '1' || s[k] === true ? '1' : '0';
+  if ('assistant_notes' in s) out.assistant_notes = str(s.assistant_notes, 1500);
+  if ('assistant_daily_cap' in s) out.assistant_daily_cap = String(Math.min(20000, Math.max(10, int(s.assistant_daily_cap, 500))));
+  for (const k of ['pod_enabled', 'paystack_enabled', 'pod_confirm_required', 'assistant_enabled']) if (k in s) out[k] = s[k] === '1' || s[k] === true ? '1' : '0';
   await tx(async () => {
     for (const [k, v] of Object.entries(out)) await run('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', k, v);
     for (const z of (Array.isArray(b.zones) ? b.zones : []).slice(0, 60)) await run('UPDATE zones SET fee=?, eta=?, pod=? WHERE state=?', Math.max(0, int(z.fee)), str(z.eta, 30), z.pod ? 1 : 0, str(z.state, 60));
