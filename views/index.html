@@ -109,6 +109,7 @@ section.blk{padding:30px 0}.sec-head{display:flex;align-items:baseline;justify-c
 .slogo{width:54px;height:54px;border-radius:12px;background:var(--surface-2);display:grid;place-items:center;font-size:26px;overflow:hidden;flex:none}.slogo img{width:100%;height:100%;object-fit:cover}
 .sban{height:150px;border-radius:16px;background:linear-gradient(135deg,var(--accent),var(--surface-2));background-size:cover;background-position:center;margin-bottom:-34px}
 .shead{display:flex;gap:16px;align-items:flex-end;padding:0 18px}.shead .slogo{width:84px;height:84px;font-size:40px;border:3px solid var(--surface)}
+.faqg h2{margin:1.4em 0 .4em;font-size:19px}.faqi{border:1px solid var(--border);border-radius:12px;margin:8px 0;background:var(--surface,#fff)}.faqi summary{cursor:pointer;padding:12px 14px;font-weight:600;list-style:none;display:flex;justify-content:space-between;gap:10px}.faqi summary::-webkit-details-marker{display:none}.faqi summary::after{content:'+';font-size:20px;line-height:1;color:var(--muted)}.faqi[open] summary::after{content:'−'}.faqa{padding:0 14px 14px;color:var(--muted);line-height:1.55}
 /* support assistant */
 .ai-btn{position:fixed;left:16px;bottom:16px;z-index:60;border:0;border-radius:999px;background:var(--brand,#f26a21);color:#fff;font:700 14px inherit;padding:13px 18px;box-shadow:0 6px 18px rgba(0,0,0,.25);cursor:pointer}
 .ai-panel{position:fixed;left:16px;bottom:16px;z-index:75;width:360px;max-width:calc(100vw - 32px);height:520px;max-height:calc(100vh - 32px);background:var(--card,#fff);color:var(--text,#16181d);border:1px solid var(--border);border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.3);display:none;flex-direction:column;overflow:hidden}
@@ -561,7 +562,7 @@ function staticPage(main, name, cfg) {
   const s = cfg.settings;
   const P = {
     about: ['About us', `<p>${e(s.store_name)} brings fashion, groceries, beauty, electronics, health and kitchen essentials together in one friendly Nigerian online store.</p><p>We work with trusted suppliers, check every order before it leaves us, and deliver across all 36 states and the FCT.</p><h2>Why shop with us</h2><ul><li>Genuine products with honest prices</li><li>Pay by card, bank transfer, USSD, or pay on delivery</li><li>Fast support on WhatsApp</li></ul>`],
-    faq: ['Frequently asked questions', `<h2>How do I pay?</h2><p>Pay securely online with Paystack (cards, bank transfer, USSD) or choose pay on delivery where available.</p><h2>How long does delivery take?</h2><p>Lagos: 1–2 days. Other states: 2–8 days depending on location. You will see the estimate at checkout.</p><h2>Can I return an item?</h2><p>Yes, within ${e(s.return_days)} days if it is unused and in its original packaging. See Shipping &amp; Returns.</p><h2>How do I track my order?</h2><p>Use <a href="/track" data-link>Track an order</a> with your order number and email.</p>`],
+    faq: ['Frequently asked questions', faqHtml(s)],
     shipping: ['Shipping & Returns', `<h2>Delivery</h2><p>We deliver nationwide. Fees depend on your state and are shown at checkout. Orders over ${naira(s.free_shipping_threshold)} ship free (standard delivery). Express and store pickup options are available in most areas.</p><h2>Returns</h2><p>You can return unused items within ${e(s.return_days)} days of delivery. Contact us on WhatsApp or by email with your order number. Refunds go to your original payment method or bank account within 5–7 working days after we receive the item.</p><h2>Items we cannot take back</h2><p>Opened personal-care and healthcare products, perishable foods, and custom orders, unless faulty.</p>`],
     privacy: ['Privacy policy', `<p>We collect only what is needed to process your order and improve our service: your name, contact details, delivery address and order history. Payments are handled by Paystack; we never see or store your card details.</p><p>We do not sell your data. You can ask us to delete your account at any time by emailing ${e(s.contact_email)}.</p><h2>Cookies</h2><p>We use cookies to keep you signed in, remember your cart and understand site usage.</p>`],
     terms: ['Terms of service', `<p>By placing an order you agree to provide accurate information and to pay the total shown at checkout. Prices and stock can change without notice; if an item becomes unavailable we will contact you and refund any payment. Delivery estimates are not guarantees. Our liability is limited to the value of the order.</p>`],
@@ -569,8 +570,92 @@ function staticPage(main, name, cfg) {
   };
   const pg = P[name]; if (!pg) { main.innerHTML = '<div class="wrap empty"><div class="em">🧭</div><h2>Page not found</h2></div>'; return ''; }
   main.innerHTML = `<div class="wrap page"><div class="prose"><h1>${e(pg[0])}</h1>${pg[1]}</div></div>`;
+  faqWire();
   const f = $('#cform'); if (f) f.addEventListener('submit', async (ev) => { ev.preventDefault(); const b = Object.fromEntries(new FormData(f)); try { await api('/api/contact', { body: b }); f.reset(); toast('Message sent. We will reply soon.'); } catch (er) { toast(er.message, 'bad'); } });
   return pg[0];
+}
+
+
+/* ---------- FAQ ---------- */
+function faqHtml(s) {
+  const rd = e(s.return_days || '7'), free = Number(s.free_shipping_threshold) > 0 ? naira(Number(s.free_shipping_threshold)) : '';
+  const call = [s.contact_phone && 'call ' + e(s.contact_phone), s.whatsapp && 'WhatsApp us', s.contact_email && 'email ' + e(s.contact_email)].filter(Boolean).join(', ') || 'use the Contact page';
+  const G = [
+    ['Shopping and ordering', [
+      ['How do I place an order?', 'Open a product, choose the size or colour if asked, and press <b>Add to cart</b>. Open your cart, check the items and press <b>Checkout</b>. Enter your name, phone, email and delivery address, choose how to pay, and place the order. You get an order number on screen and by email.'],
+      ['Do I need an account to buy?', 'No. You can check out as a guest. An account lets you see all your orders in one place, save addresses and keep a wishlist.'],
+      ['Can I buy from more than one store in one order?', 'Yes. Partner stores sell on our site, and you can put items from several stores in the same cart and pay once. Your cart and order show the items grouped by store, and each store prepares its own items.'],
+      ['How do I find a particular store?', 'Open <a href="/stores" data-link>Partner stores</a>, or type the store name in the search box. When you search for a product, you can pick which store you want to buy from.'],
+      ['Is the price on the page the final price?', 'The price you see is the item price. Delivery is added at checkout, and you see the full total before you pay. Orders above ' + (free || 'the free-delivery amount') + ' ship free on standard delivery where this applies.'],
+      ['An item is sold out. Will it come back?', 'Open the product page and check again later, or message us and we will tell you if more is expected. Stock changes during the day.'],
+      ['Can I change or cancel my order?', 'If the order is still pending and unpaid, open it from <a href="/track" data-link>Track an order</a> and press Cancel. After payment or once we start preparing it, ' + call + ' with your order number and we will see what is possible.'],
+      ['I put in the wrong address. What now?', 'Contact us straight away with your order number. If the order has not left yet we can correct it. Once the rider is on the way we may not be able to.'],
+      ['Do you have a discount or coupon?', 'We run offers from time to time. Watch the banner at the top of the store and the Deals page. Enter a coupon code in the cart before you pay. A code works only while the offer runs and only once the order value meets its rules.'],
+    ]],
+    ['Paying', [
+      ['How can I pay?', 'Online with Paystack (debit card, bank transfer or USSD)' + (s.pod_enabled === '1' ? ', or pay on delivery where it is offered for your area' : '') + '. The checkout shows only the options that work for your order.'],
+      ['Is online payment safe?', 'Card and bank details are entered on Paystack, not on our site, so we never see or store your card number. Never send a card number, PIN or password to anyone, including us, in a chat or message.'],
+      ['I paid, but my order still shows unpaid.', 'Wait a few minutes, then open <a href="/track" data-link>Track an order</a> and press the re-check button. If it still shows unpaid, ' + call + ' with your order number and the payment time. Do not pay again until we confirm.'],
+      ['My payment failed but my bank debited me.', 'This is usually reversed by your bank within a few days. Contact us with your order number and the transfer or card details, such as the time and amount, and we will check the payment on our side.'],
+      ['How does pay on delivery work?', 'Where it is offered, you choose Pay on delivery at checkout. We may call you to confirm the order before it is prepared, so keep your phone on. You pay the rider when the goods are in your hands.'],
+      ['Will I get a receipt?', 'Yes. Your order page shows the items and amounts, and a confirmation email goes to the address you gave. Keep your order number.'],
+    ]],
+    ['Delivery', [
+      ['How long does delivery take?', 'It depends on where you are. Lagos is usually 1 to 2 days and other states 2 to 8 days. The checkout shows the estimate for your address before you pay. Orders placed after the daily cut-off go out the next morning.'],
+      ['How much is delivery?', 'The fee depends on your state, and sometimes on the distance when you drop a pin on the map. The checkout shows the exact amount. ' + (free ? 'Standard delivery is free on orders above ' + free + '.' : '')],
+      ['Can I pick up my order myself?', 'Where store pickup is offered, choose Pickup at checkout. We tell you when the order is ready and where to collect it. Bring your order number.'],
+      ['What is the map pin at checkout for?', 'Search your address and drop the pin where the rider should come. It lets us work out the distance and delivery time, and helps the rider find you. You can follow the rider while the order is on the way.'],
+      ['What is the delivery code?', 'For home delivery you get a 6-digit code on your order page. Give it to the rider only when the goods are in your hands. This protects you, because the order is only marked delivered with your code. Never read it out earlier or send it to anyone.'],
+      ['The rider cannot find me.', 'Keep your phone on and call the rider or us. A clear landmark in your address and the map pin help a lot.'],
+      ['I was not at home. What happens?', 'The rider will try to reach you. If you cannot be reached, the order goes back to us and ' + call + ' to arrange another delivery. Extra delivery charges may apply.'],
+      ['Do you deliver everywhere in Nigeria?', 'We deliver to the states listed at checkout. If your state or area is not available, the checkout tells you, and you may be able to choose pickup instead.'],
+    ]],
+    ['Tracking', [
+      ['How do I track my order?', 'Open <a href="/track" data-link>Track an order</a> and enter your order number and the email you used. If you are signed in, you can also open your orders under Account. You see each stage, the promised delivery time and, while the rider is on the way, their position.'],
+      ['I did not get an order email.', 'Check your spam or promotions folder. You can still see the order on the Track page with your order number. If you never saw an order number, ' + call + '.'],
+      ['What do the order stages mean?', '<b>Pending</b>: received, waiting for payment or confirmation. <b>Confirmed</b>: accepted and being prepared. <b>Shipped</b>: with the rider. <b>Delivered</b>: handed over with your code. <b>Cancelled</b> or <b>Refunded</b>: closed.'],
+    ]],
+    ['Returns and refunds', [
+      ['Can I return an item?', 'Yes, within ' + rd + ' days of delivery if it is unused and in its original packaging. ' + call.replace(/^./, (c) => c.toUpperCase()) + ' with your order number and a short reason, and send a photo if the item is damaged or wrong.'],
+      ['What can I not return?', 'Opened personal-care and health products, perishable foods and custom orders cannot be taken back unless they are faulty. See <a href="/page/shipping" data-link>Shipping &amp; Returns</a>.'],
+      ['I received a damaged or wrong item.', 'We are sorry. Contact us as soon as you can with your order number and clear photos. Do not discard the packaging. We will arrange a replacement or refund after we check.'],
+      ['When will I get my refund?', 'After we receive and check the returned item, the refund goes to your original payment method or bank account, usually within 5 to 7 working days. Your bank may take a little longer to show it.'],
+    ]],
+    ['Products and quality', [
+      ['Are the products original?', 'We work with trusted suppliers and approved partner stores. Every partner store is checked before it can sell on our site. If you ever doubt an item, contact us with your order number and photos.'],
+      ['Where do I see the size or product details?', 'Open the product page. You find the description, sizes or colours, price, stock and customer reviews there. Choose your options before adding to the cart.'],
+      ['Can I read reviews from other buyers?', 'Yes, they are on each product page. After you receive an item you can add your own review to help others.'],
+      ['Do you sell medicines?', cfg.pharmacy ? 'Some health products and medicines are sold through approved, licensed pharmacies. Prescription-only items need a valid prescription and extra checks.' : 'Medicines are not sold on the site yet. For health questions please ask a doctor or pharmacist.'],
+    ]],
+    ['Your account', [
+      ['How do I create an account?', 'Press the person icon at the top, choose Register, and enter your details. Then you can see your orders and keep a wishlist.'],
+      ['I forgot my password.', 'On the sign-in page, press <a href="/forgot" data-link>Forgot password</a> and enter your email. We send a link to set a new password. Check spam if it does not arrive.'],
+      ['How do I update my phone number or address?', 'Sign in, open Account, then your profile or saved addresses, and change them there.'],
+    ]],
+    ['Selling and wholesale', [
+      ['Can I sell on your site?', 'Yes. Open <a href="/sell" data-link>Sell with us</a>, fill in your store details and registration number. We check each application over a few weeks. Once approved, you get your own store page and can list products in up to 3 departments. You are paid for delivered orders, less our commission.'],
+      ['Can I buy in bulk at wholesale prices?', 'Yes. Open <a href="/wholesale" data-link>Wholesale</a>, sign in and apply with your business details and registration number. After approval you see wholesale prices, choose quantities, and request a quotation. We send a proforma invoice showing the total value of goods, logistics fee and service fee. You approve it and pay before we ship.'],
+      ['Is wholesale stock the same as the partner stores?', 'No. Wholesale comes from our own stock only, never from partner stores.'],
+    ]],
+    ['Contact and trust', [
+      ['How do I reach you?', 'You can ' + call + ', or send a message from the <a href="/page/contact" data-link>Contact page</a>. Please include your order number so we can help faster.'],
+      ['How do you use my personal details?', 'Only to process and deliver your order and to help you. See our <a href="/page/privacy" data-link>privacy policy</a>. We do not sell your details.'],
+      ['How do I know a message is really from you?', 'We never ask for your card number, PIN, password or delivery code by phone, SMS or chat. If someone asks for these, do not share them, and tell us.'],
+    ]],
+  ];
+  return `<p>Quick answers to common questions. Search, or open a topic. Still stuck? ${call.replace(/^./, (c) => c.toUpperCase())}.</p>
+   <input id="faqq" type="search" placeholder="Search questions, for example refund, delivery, code" aria-label="Search the questions" style="max-width:460px;margin:8px 0 14px">
+   <p id="faqn" class="mu hide">No match. Try another word, or contact us.</p>
+   ${G.map(([h, qs]) => `<section class="faqg"><h2>${e(h)}</h2>${qs.map(([q, a]) => `<details class="faqi"><summary>${e(q)}</summary><div class="faqa">${a}</div></details>`).join('')}</section>`).join('')}`;
+}
+function faqWire() {
+  const i = $('#faqq'); if (!i) return;
+  i.addEventListener('input', () => {
+    const t = i.value.trim().toLowerCase(); let shown = 0;
+    $$('.faqi').forEach((d) => { const hit = !t || d.textContent.toLowerCase().includes(t); d.style.display = hit ? '' : 'none'; if (hit) shown++; if (t && hit) d.open = true; else if (!t) d.open = false; });
+    $$('.faqg').forEach((g) => { g.style.display = [...$$('.faqi', g)].some((d) => d.style.display !== 'none') ? '' : 'none'; });
+    $('#faqn').classList.toggle('hide', shown > 0);
+  });
 }
 
 /* ===== home.js ===== */
