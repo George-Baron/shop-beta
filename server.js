@@ -88,7 +88,7 @@ app.get('/health', async (req, res) => {
 /* ---------- API ---------- */
 // Request bodies are small by default. The photo upload is the one exception, and it reads its larger body only AFTER the admin check (see routes/admin.js).
 const smallJson = express.json({ limit: '100kb', verify: (req, res, buf) => { req.rawBody = buf; } });
-app.use('/api', (req, res, next) => (req.path === '/admin/upload' || req.path === '/partner/upload' || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) ? next() : smallJson(req, res, next)));
+app.use('/api', (req, res, next) => (req.path === '/admin/upload' || req.path === '/partner/upload' || (req.method === 'POST' && /^\/admin\/catalog\/(parse|validate|commit)$/.test(req.path)) || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) ? next() : smallJson(req, res, next)));
 app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin) {
@@ -246,6 +246,7 @@ let server;
     const hasAdmin = await get("SELECT 1 x FROM users WHERE role='admin'").catch(() => null);
     console.log(`Admin dashboard:   ${BASE_URL}/admin${hasAdmin ? '' : '   (open it now to create your admin account)'}`);
     console.log(S.paystackLive() ? 'Paystack: LIVE keys are set.' : 'Paystack: no PAYSTACK_SECRET_KEY set, so online payment runs in demo mode (no real money).');
+    console.log(require('./lib/storage').DRIVER === 'supabase' ? 'Photos: saved in Supabase Storage (permanent).' : 'Photos: saved on THIS server\'s disk. They are lost when the server restarts. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.');
     if (!process.env.RESEND_API_KEY) console.log('Email: RESEND_API_KEY not set, so emails are stored in Admin > Marketing > Email outbox instead of being sent.');
     if (process.env.WORKER_ENABLED !== '0') worker.start(); // set WORKER_ENABLED=0 on web instances when you run `npm run worker` separately
   });

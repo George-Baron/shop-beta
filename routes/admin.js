@@ -52,6 +52,7 @@ router.post('/setup', A.limiter('setup', 5, 3600000), ah(async (req, res) => {
 router.use(A.requireAdmin);
 router.use('/vendors', require('./vendors-admin'));
 router.use('/wholesale', require('./wholesale-admin'));
+router.use('/catalog', require('./catalog-admin'));
 
 // Activity log: every change an admin makes (not reads) is written down with who, what and from where. Passwords are never recorded.
 router.use((req, res, next) => {
@@ -139,12 +140,18 @@ router.get('/products/:id', ah(async (req, res) => {
 }));
 
 const { okImage, readProduct, saveVariants, uniqueSlug } = CAT;
+const EXT_COLS = ['barcode', 'subcategory', 'cost_price', 'min_stock', 'unit', 'tax_pct', 'weight_kg'];
+async function saveExt(id, ext) {
+  const ks = EXT_COLS.filter((k) => ext && ext[k] !== undefined);
+  if (ks.length) await run(`UPDATE products SET ${ks.map((k) => k + '=?').join(',')} WHERE id=?`, ...ks.map((k) => ext[k]), id);
+}
 router.post('/products', ah(async (req, res) => {
   const p = await readProduct(req.body || {});
   const id = await tx(async () => {
     const r = await run('INSERT INTO products (slug,store,category_id,name,brand,description,price,compare_price,stock,sku,emoji,images,size_label,featured,bestseller,new_arrival,active,created) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       await uniqueSlug(p.name), p.store, p.category_id, p.name, p.brand, p.description, p.price, p.compare, p.variants.length ? 0 : p.stock, p.sku, p.emoji, JSON.stringify(p.images), p.size_label, p.featured, p.bestseller, p.new_arrival, p.active, now());
     const pid = Number(r.lastInsertRowid);
+    await saveExt(pid, p.ext);
     if (p.store === PC.PHARMACY_STORE) await run("UPDATE products SET pharm_status='pending' WHERE id=?", pid);
     await saveVariants(pid, p.variants);
     return pid;
@@ -156,12 +163,13 @@ router.put('/products/:id', ah(async (req, res) => {
   const cur = await get('SELECT is_pharmacy FROM products WHERE id=?', id);
   if (!cur) fail(404, 'Product not found.');
   if (cur.is_pharmacy && !PC.enabled() && req.body && req.body.active) fail(400, 'The pharmacy department is switched off. Medicines cannot be listed until it is enabled.');
-  const p = await readProduct(req.body || {});
+  const p = await readProduct({ ...(req.body || {}), id });
   await tx(async () => {
     // any edit to a pharmacy product sends it back to our superintendent pharmacist for re-approval
     if (cur.is_pharmacy || p.store === PC.PHARMACY_STORE) await run("UPDATE products SET pharm_status='pending', pharm_approved_by='', pharm_approved_at=NULL WHERE id=? AND pharm_status='approved'", id);
     await run('UPDATE products SET store=?,category_id=?,name=?,brand=?,description=?,price=?,compare_price=?,stock=?,sku=?,emoji=?,images=?,size_label=?,featured=?,bestseller=?,new_arrival=?,active=? WHERE id=?',
       p.store, p.category_id, p.name, p.brand, p.description, p.price, p.compare, p.variants.length ? 0 : p.stock, p.sku, p.emoji, JSON.stringify(p.images), p.size_label, p.featured, p.bestseller, p.new_arrival, p.active, id);
+    await saveExt(id, p.ext);
     await saveVariants(id, p.variants);
   });
   res.json({ ok: true });
