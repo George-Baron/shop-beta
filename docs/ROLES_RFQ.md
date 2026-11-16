@@ -25,3 +25,9 @@ Bell in the storefront header and in the admin menu. Order status changes, partn
 
 ## Not yet built
 Phase 4 reports (sales, stock, partner and wholesale performance exports).
+
+## Integration notes (after reconciling with main and the warehouse)
+- Migration is `013_staff_rfq.sql` (012 is the warehouse). New module `warehouse` and roles Warehouse Manager, Inventory Officer, Dispatch Officer; see docs/WAREHOUSE.md.
+- RFQ stock checks and the product matcher read **wholesale warehouse stock**, never the retail `products.stock`.
+- `lib/xlsx.js` (fflate) is used for RFQ Excel files; the catalogue import uses `exceljs`. Two spreadsheet libraries: worth merging into one later.
+- The partner-side catalogue import and its import-notification to staff were part of the old copy of the import code and are not on main; add them when partner imports are built.

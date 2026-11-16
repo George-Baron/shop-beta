@@ -1811,8 +1811,8 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['staff', '👤', 'Employees & roles'], ['notifications', '🔔', 'Notifications']];
-const NAVMOD = { dashboard: 'any', notifications: 'any', orders: 'orders', products: 'catalog', catalogio: 'catalog', categories: 'catalog', reviews: 'catalog', customers: 'customers', messages: 'customers', coupons: 'marketing', marketing: 'marketing', deliveries: 'delivery', partners: 'delivery', vendors: 'partners', wholesale: 'wholesale', rfq: 'rfq' };
+const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['staff', '👤', 'Employees & roles'], ['notifications', '🔔', 'Notifications']];
+const NAVMOD = { dashboard: 'any', notifications: 'any', orders: 'orders', products: 'catalog', catalogio: 'catalog', categories: 'catalog', reviews: 'catalog', customers: 'customers', messages: 'customers', coupons: 'marketing', marketing: 'marketing', deliveries: 'delivery', partners: 'delivery', vendors: 'partners', wholesale: 'wholesale', warehouse: 'warehouse', rfq: 'rfq' };
 const can = (m, w) => { const p = (me && me.perms) || []; return p.includes('*') || p.includes(m + (w ? ':edit' : ':view')); };
 const visible = (k) => (me && me.role === 'admin') || (NAVMOD[k] === 'any') || (NAVMOD[k] && can(NAVMOD[k], false));
 async function shell(page, body, unread) {
@@ -2461,6 +2461,85 @@ views.wholesale = async () => {
   on('#wpo', 'change', () => { wstate.only = $('#wpo').checked ? '1' : ''; return views.wholesale(); });
   onAll('[data-wsave]', 'click', async (el) => { const id = el.dataset.wsave, g = (k) => $(`[data-wp="${id}"][data-k="${k}"]`, $('#mn')).value; await api('/api/admin/wholesale/products/' + id, { method: 'PUT', body: { wholesale_price: g('p'), wholesale_min_qty: g('m') } }); toast('Saved'); });
   on('#ssave', 'click', async () => { await api('/api/admin/wholesale/settings', { method: 'PUT', body: { wholesale_service_pct: $('#sp').value, wholesale_valid_days: $('#sv').value, wholesale_pay_days: $('#sy').value, wholesale_eval_days: $('#se').value, wholesale_bank_details: $('#sb').value } }); toast('Saved'); });
+};
+
+/* ---------------- wholesale warehouse (admin) ---------------- */
+// Wholesale stock is separate from the shop's retail stock. Everyone with the "warehouse" permission can look; only those who can edit see the buttons that change stock.
+const whs = { tab: 'stock', q: '', low: '', only: '', lines: [], ref: '', note: '', opening: false, key: '', rel: '', aq: '' };
+const wdt = (t) => (t ? new Date(t * 1000).toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
+const MVT = { opening: 'Opening stock', receipt: 'Received', adjustment: 'Adjustment', damaged: 'Damaged', expired: 'Expired', return: 'Customer return', transfer_in: 'Transfer in', transfer_out: 'Transfer out', reserve: 'Set aside for a quote', release: 'Released back', dispatch: 'Dispatched', migration: 'Moved from retail' };
+const newKey = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2));
+const csvCell = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+views.warehouse = async () => {
+  const edit = can('warehouse', true), A = '/api/admin/warehouse';
+  const tabs = [['stock', 'Stock'], ...(edit ? [['receive', 'Receive stock']] : []), ['moves', 'Movements'], ...(edit ? [['log', 'Activity']] : [])];
+  if (!tabs.some(([k]) => k === whs.tab)) whs.tab = 'stock';
+  let body = '';
+  if (whs.tab === 'stock') {
+    const { stock } = await api(A + '/stock?' + new URLSearchParams({ q: whs.q, low: whs.low, only: whs.only, limit: 300 }));
+    const held = stock.filter((s) => Number(s.on_hand) > 0).length;
+    body = `${!held && !whs.q && !whs.only && !whs.low ? `<div class="panel"><b>No wholesale stock has been entered yet.</b><p class="mu2" style="margin:6px 0 0">Wholesale buyers only see products that have stock here. ${edit ? 'Open <b>Receive stock</b>, tick <i>Opening stock</i> and enter what is in the warehouse today.' : 'Ask the warehouse manager to enter the opening stock.'}</p></div>` : ''}
+    <div class="tbar"><input id="whq" placeholder="Search name or SKU" value="${e(whs.q)}"><label style="display:flex;gap:6px;align-items:center;width:auto"><input type="checkbox" style="width:auto" id="who" ${whs.only ? 'checked' : ''}> only products in the warehouse</label><label style="display:flex;gap:6px;align-items:center;width:auto"><input type="checkbox" style="width:auto" id="whl" ${whs.low ? 'checked' : ''}> low stock only</label><button class="btn ghost sm" id="whcsv">Download CSV</button></div>
+    <div class="panel"><div class="tw"><table class="t"><tr><th>Product</th><th>Department</th><th>On hand</th><th>Set aside</th><th>Available</th><th>Reorder at</th><th class="mu2">Retail shop</th>${edit ? '<th></th>' : ''}</tr>${stock.map((s) => `<tr><td><b>${e(s.name)}</b>${s.sku ? `<div class="mu2">${e(s.sku)}</div>` : ''}</td><td>${e(s.store)}</td><td>${Number(s.on_hand)}</td><td>${Number(s.reserved) || '-'}</td><td><b>${Number(s.available)}</b> ${s.low ? '<span class="pill bad">low</span>' : ''}</td><td>${edit ? `<input type="number" min="0" style="width:80px" data-rl="${s.id}" value="${Number(s.reorder_level)}">` : Number(s.reorder_level) || '-'}</td><td class="mu2">${Number(s.retail_stock)}</td>${edit ? `<td><button class="btn ghost sm" data-adj="${s.id}" data-name="${e(s.name)}" data-oh="${Number(s.on_hand)}" data-av="${Number(s.available)}">Adjust</button></td>` : ''}</tr>`).join('') || `<tr><td colspan="${edit ? 8 : 7}" class="mu">Nothing found.</td></tr>`}</table></div>${stock.length >= 300 ? '<p class="mu2">Showing the first 300. Search to narrow it down.</p>' : ''}<p class="mu2">"Set aside" is stock held for quotes the buyer has approved. "Retail shop" is the separate stock of the online store, shown for reference only.</p></div>`;
+    whs.rows = stock;
+  } else if (whs.tab === 'receive') {
+    body = `<div class="panel" style="max-width:900px"><h3 style="margin-top:0">Receive stock into the wholesale warehouse</h3>
+    <div class="row c2"><label>Delivery note / supplier reference<input id="wrf" maxlength="60" value="${e(whs.ref)}" placeholder="e.g. SUP-2217"></label><label>Note<input id="wnt" maxlength="200" value="${e(whs.note)}" placeholder="optional"></label></div>
+    <label style="display:flex;gap:8px;align-items:center;width:auto"><input type="checkbox" style="width:auto" id="wop" ${whs.opening ? 'checked' : ''}> This is opening stock (what is in the warehouse today)</label>
+    <div class="tbar" style="margin-top:10px"><input id="wsq" placeholder="Search a product by name or SKU, then press Enter"><button class="btn ghost sm" id="wsgo">Search</button></div><div id="wsr"></div>
+    <div class="tw"><table class="t"><tr><th>Product</th><th style="width:130px">Quantity received</th><th></th></tr>${whs.lines.map((l, i) => `<tr><td>${e(l.name)}</td><td><input type="number" min="1" step="1" style="width:110px" data-lq="${i}" value="${l.qty || ''}"></td><td><button class="btn ghost sm" data-lx="${i}">Remove</button></td></tr>`).join('') || '<tr><td colspan="3" class="mu">Search for products above and add them here.</td></tr>'}</table></div>
+    <div style="margin-top:12px"><button class="btn" id="wgo" ${whs.lines.length ? '' : 'disabled'}>Save ${whs.lines.length || ''} line${whs.lines.length === 1 ? '' : 's'} into stock</button></div>
+    <p class="mu2">Each save gets a receipt number (GRN). Pressing the button twice, or a slow connection, will not add the stock twice.</p></div>`;
+  } else if (whs.tab === 'moves') {
+    const { movements } = await api(A + '/movements?' + new URLSearchParams({ related: whs.rel, limit: 200 }));
+    body = `<div class="tbar"><input id="wrel" placeholder="Filter by quote or receipt number, e.g. WQ-… or GRN-…" value="${e(whs.rel)}" style="min-width:300px"></div><div class="panel"><div class="tw"><table class="t"><tr><th>Ref</th><th>When</th><th>Product</th><th>What</th><th>Qty</th><th>On hand</th><th>Set aside</th><th>Linked to</th><th>Reason / by</th></tr>${movements.map((m) => `<tr><td class="mu2">${e(m.ref)}</td><td>${wdt(m.created)}</td><td>${e(m.name)}</td><td>${e(MVT[m.type] || m.type)}</td><td>${Number(m.delta_on_hand) < 0 || Number(m.delta_reserved) < 0 ? '−' : '+'}${Number(m.qty)}</td><td>${Number(m.prev_on_hand)} → ${Number(m.new_on_hand)}</td><td>${Number(m.prev_reserved)} → ${Number(m.new_reserved)}</td><td>${e(m.related_ref)}</td><td>${e(m.reason)}${m.reason ? '<br>' : ''}<span class="mu2">${e(m.by)}</span></td></tr>`).join('') || '<tr><td colspan="9" class="mu">No movements yet.</td></tr>'}</table></div></div>`;
+  } else {
+    const { activity } = await api(A + '/activity?limit=200');
+    body = `<div class="panel"><div class="tw"><table class="t"><tr><th>When</th><th>Who</th><th>What</th><th>Detail</th></tr>${activity.map((a) => `<tr><td>${wdt(a.created)}</td><td>${e(a.actor)}</td><td>${e(a.action)}${a.entity_ref ? ` <span class="mu2">${e(a.entity_ref)}</span>` : ''}</td><td>${e(a.detail)}</td></tr>`).join('') || '<tr><td colspan="4" class="mu">Nothing recorded yet.</td></tr>'}</table></div><p class="mu2">Stock changes, receipts and wholesale price changes. Who gets warehouse access is set under Employees & roles.</p></div>`;
+  }
+  mn(hd('Wholesale warehouse') + `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">${tabs.map(([k, t]) => `<button class="btn ${whs.tab === k ? '' : 'ghost'} sm" data-whtab="${k}">${t}</button>`).join('')}</div>` + body);
+  onAll('[data-whtab]', 'click', (el) => { whs.tab = el.dataset.whtab; return views.warehouse(); });
+  on('#whq', 'change', () => { whs.q = $('#whq').value; return views.warehouse(); });
+  on('#who', 'change', () => { whs.only = $('#who').checked ? '1' : ''; return views.warehouse(); });
+  on('#whl', 'change', () => { whs.low = $('#whl').checked ? '1' : ''; return views.warehouse(); });
+  on('#whcsv', 'click', () => {
+    const rows = [['Product', 'SKU', 'Department', 'On hand', 'Set aside', 'Available', 'Reorder at']].concat((whs.rows || []).map((s) => [s.name, s.sku, s.store, s.on_hand, s.reserved, s.available, s.reorder_level]));
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv' })); a.download = 'wholesale-stock-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+  onAll('[data-rl]', 'change', async (el) => { await api(`${A}/stock/${el.dataset.rl}/reorder-level`, { method: 'PUT', body: { level: el.value } }); toast('Saved'); });
+  onAll('[data-adj]', 'click', (el) => {
+    const id = el.dataset.adj;
+    openModal(`<h3 style="margin-top:0">Adjust: ${e(el.dataset.name)}</h3><p class="mu2">On hand ${Number(el.dataset.oh)} · available ${Number(el.dataset.av)}. Every adjustment is recorded with your name and the reason.</p>
+    <label>What happened<select id="ak"><option value="adjustment">Stock count correction (add or remove)</option><option value="damaged">Damaged (remove)</option><option value="expired">Expired (remove)</option><option value="return">Returned by a customer (add)</option></select></label>
+    <label id="aql">Quantity <span class="mu2" id="aqh">(use a minus sign to remove, e.g. -3)</span><input id="aq" type="number" step="1"></label>
+    <label>Reason (required)<input id="ar" maxlength="300" placeholder="e.g. monthly count, wet cartons"></label>
+    <button class="btn" id="asv">Save adjustment</button> <button class="btn ghost" id="acl">Cancel</button>`);
+    const key = newKey(), kind = $('#ak');
+    kind.addEventListener('change', () => { $('#aqh').textContent = kind.value === 'adjustment' ? '(use a minus sign to remove, e.g. -3)' : '(a positive number)'; });
+    $('#acl').addEventListener('click', closeModal);
+    $('#asv').addEventListener('click', guard(async () => { await api(A + '/stock/adjust', { body: { productId: id, kind: kind.value, qty: $('#aq').value, reason: $('#ar').value, key } }); closeModal(); toast('Saved'); views.warehouse(); }));
+  });
+  on('#wrel', 'change', () => { whs.rel = $('#wrel').value.trim(); return views.warehouse(); });
+  if (whs.tab === 'receive') {
+    const keep = () => { whs.ref = $('#wrf').value; whs.note = $('#wnt').value; whs.opening = $('#wop').checked; $$('[data-lq]', $('#mn')).forEach((i) => { whs.lines[Number(i.dataset.lq)].qty = i.value; }); };
+    const find = async () => {
+      const q = $('#wsq').value.trim(); if (!q) return;
+      const { stock } = await api(A + '/stock?' + new URLSearchParams({ q, limit: 8 }));
+      $('#wsr').innerHTML = stock.length ? `<div class="panel" style="padding:8px">${stock.map((s) => `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:4px 0"><span>${e(s.name)} <span class="mu2">${s.sku ? e(s.sku) + ' · ' : ''}on hand ${Number(s.on_hand)}</span></span><button class="btn sm" data-add="${s.id}" data-name="${e(s.name)}">Add</button></div>`).join('')}</div>` : '<p class="mu">No product found.</p>';
+      $$('[data-add]', $('#wsr')).forEach((b) => b.addEventListener('click', () => { keep(); if (!whs.lines.some((l) => String(l.id) === b.dataset.add)) whs.lines.push({ id: b.dataset.add, name: b.dataset.name, qty: '' }); views.warehouse(); }));
+    };
+    $('#wsq').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); guard(find)(); } });
+    on('#wsgo', 'click', find);
+    onAll('[data-lx]', 'click', (el) => { keep(); whs.lines.splice(Number(el.dataset.lx), 1); return views.warehouse(); });
+    on('#wgo', 'click', async () => {
+      keep();
+      const items = whs.lines.map((l) => ({ productId: Number(l.id), qty: Number(l.qty) }));
+      if (items.some((i) => !Number.isInteger(i.qty) || i.qty < 1)) throw new Error('Enter a whole quantity of 1 or more on every line.');
+      if (!whs.key) whs.key = newKey();                       // the same key is reused on a retry, so the stock is never added twice
+      const r = await api(A + '/stock/receipt', { body: { items, reference: whs.ref, note: whs.note, opening: whs.opening, key: whs.key } });
+      toast('Received · ' + r.grn); Object.assign(whs, { lines: [], ref: '', note: '', opening: false, key: '', tab: 'stock' }); views.warehouse();
+    });
+  }
 };
 
 const vstate = { tab: 'stores', status: '' };

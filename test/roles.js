@@ -24,7 +24,9 @@ const call = async (method, url, body, cookie, raw) => {
 };
 const login = async (email, password) => { const r = await call('POST', '/api/auth/login', { email, password }); assert.strictEqual(r.s, 200, 'login ' + email + ' ' + r.t); return r.c; };
 const PW = 'Wholesale-Test-Pass-2026!';
-const stockOf = async (id) => Number((await q('SELECT stock FROM products WHERE id=$1', [id]))[0].stock);
+// Wholesale stock lives in the warehouse (separate from retail products.stock).
+const stockOf = async (id) => { const r = (await q('SELECT on_hand - reserved AS a FROM wholesale_stock_balances WHERE product_id=$1', [id]))[0]; return r ? Number(r.a) : 0; };
+const setAvail = async (ids, n) => { const wh = (await q("SELECT id FROM wholesale_warehouses WHERE code='MAIN'"))[0].id; for (const id of ids) await q('INSERT INTO wholesale_stock_balances (product_id,warehouse_id,on_hand,reserved,updated) VALUES ($1,$2,$3,0,1) ON CONFLICT (product_id,warehouse_id) DO UPDATE SET on_hand = wholesale_stock_balances.reserved + $3', [id, wh, n]); };
 const appBody = (o = {}) => ({ business_name: 'Ada Provisions Ltd', contact_name: 'Ada Obi', phone: '08031234567', address: '5 Trade Fair Road', state: 'Lagos', city: 'Ojo', reg_no: 'RC445566', business_type: 'Retailer', buys: 'Rice, beans and cooking oil for my shops', est_monthly: '₦2m', ...o });
 
 const X = require('../lib/xlsx');
@@ -103,7 +105,7 @@ const X = require('../lib/xlsx');
   /* ---------------- RFQ ---------------- */
   console.log('\nRequests for quotation');
   const prods = await q("SELECT id, name, price, stock FROM products WHERE vendor_id IS NULL AND is_pharmacy=0 AND NOT EXISTS (SELECT 1 FROM variants v WHERE v.product_id=products.id) ORDER BY id LIMIT 3");
-  assert.ok(prods.length >= 2); await q('UPDATE products SET stock=500 WHERE id = ANY($1)', [prods.map((x) => x.id)]); const [P1, P2] = prods; await q("UPDATE products SET barcode='BC-P1' WHERE id=$1", [P1.id]);
+  assert.ok(prods.length >= 2); await setAvail(prods.map((x) => x.id), 500); const [P1, P2] = prods; await q("UPDATE products SET barcode='BC-P1' WHERE id=$1", [P1.id]);
   const mkBuyer = async (key, approve = true) => {
     assert.strictEqual((await call('POST', '/api/auth/register', { name: key + ' Buyer', email: key + '@buyer.com', phone: '0803123' + String(Math.floor(1000 + Math.random() * 8999)), password: PW })).s, 200);
     const c = await login(key + '@buyer.com', PW); assert.strictEqual((await call('POST', '/api/wholesale/apply', { business_name: key + ' Traders', contact_name: key + ' Buyer', phone: '08031234567', address: '5 Trade Road', state: 'Lagos', city: 'Ojo', reg_no: 'RC' + key, business_type: 'Retailer', buys: 'Food items', est_monthly: '₦2m' }, c)).s, 200);
@@ -174,10 +176,10 @@ const X = require('../lib/xlsx');
     const E = (m, u, b) => call(m, '/api/admin/rfq' + u, b, emp.wsale.c);
     await q('UPDATE rfq_items SET product_id=NULL WHERE id=$1', [lines[1].id]); let c = await E('POST', `/${ref}/convert`); assert.strictEqual(c.s, 409); assert.ok(/not matched/.test(c.j.error), c.t);
     await q('UPDATE rfq_items SET product_id=$1 WHERE id=$2', [P2.id, lines[1].id]);
-    const before = Number((await q('SELECT stock FROM products WHERE id=$1', [P1.id]))[0].stock);
+    const before = await stockOf(P1.id);
     c = await E('POST', `/${ref}/convert`); assert.strictEqual(c.s, 200, c.t); const sref = c.j.sales_ref; assert.ok(/^WQ-/.test(sref));
     const wq = (await q('SELECT status, total, goods_total FROM wholesale_quotes WHERE ref=$1', [sref]))[0]; assert.strictEqual(wq.status, 'accepted'); assert.strictEqual(Number(wq.total), (await E('GET', '/' + ref)).j.request.quote.total);
-    assert.strictEqual(Number((await q('SELECT stock FROM products WHERE id=$1', [P1.id]))[0].stock), before - 40, 'goods are set aside'); assert.strictEqual((await E('POST', `/${ref}/convert`)).s, 409, 'only once');
+    assert.strictEqual(await stockOf(P1.id), before - 40, 'goods are set aside'); assert.strictEqual((await E('POST', `/${ref}/convert`)).s, 409, 'only once');
     assert.strictEqual((await B('GET', '/' + ref)).j.request.sales_ref, sref); assert.strictEqual((await B('GET', '/' + ref)).j.request.status, 'converted');
     const W = (m, u, b) => A(m, '/api/admin/wholesale' + u, b);
     assert.strictEqual((await W('POST', `/quotes/${sref}/transfer`, { reference: 'GTB-RFQ-1' })).s, 200); assert.strictEqual((await W('POST', `/quotes/${sref}/ship`, { carrier: 'Our truck' })).s, 200); assert.strictEqual((await W('POST', `/quotes/${sref}/deliver`, {})).s, 200);
