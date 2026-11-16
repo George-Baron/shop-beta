@@ -46,6 +46,8 @@ router.post('/review/products/:pid', ah(async (req, res) => {
   if (decision === 'rejected' && !note) fail(400, 'Please tell the store why, so they can fix it.');
   const r = await run("UPDATE products SET listing=?, listing_note=? WHERE id=? AND vendor_id IS NOT NULL", decision, decision === 'rejected' ? note : '', int(req.params.pid));
   if (!r.changes) fail(404, 'Product not found.');
+  const pr = await get('SELECT name, vendor_id FROM products WHERE id=?', int(req.params.pid));
+  if (pr) await require('../lib/notify').toVendor(pr.vendor_id, { type: 'product', title: decision === 'approved' ? `Approved: ${pr.name}` : `Needs changes: ${pr.name}`, body: decision === 'rejected' ? note : 'It is now live in the shop.', link: '/partner', email: true });
   res.json({ ok: true });
 }));
 

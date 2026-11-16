@@ -37,12 +37,14 @@
     "lb": "node scripts/dev-lb.js",
     "load:local": "node load/run-staging.js",
     "test:assistant": "node --disable-warning=ExperimentalWarning test/assistant.js",
+    "test:roles": "node --disable-warning=ExperimentalWarning test/roles.js",
     "test:catalog": "node --disable-warning=ExperimentalWarning test/catalog-io.js"
   },
   "dependencies": {
     "compression": "^1.8.2",
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
+    "fflate": "^0.8.3",
     "leaflet": "^1.9.4",
     "pg": "^8.23.1"
   },

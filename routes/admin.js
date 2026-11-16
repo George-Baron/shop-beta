@@ -49,10 +49,7 @@ router.post('/setup', A.limiter('setup', 5, 3600000), ah(async (req, res) => {
   res.json({ user: A.publicUser(await get('SELECT * FROM users WHERE id=?', Number(r.lastInsertRowid))) });
 }));
 
-router.use(A.requireAdmin);
-router.use('/vendors', require('./vendors-admin'));
-router.use('/wholesale', require('./wholesale-admin'));
-router.use('/catalog', require('./catalog-admin'));
+router.use(A.requireBackoffice, require('../lib/staff').gate);
 
 // Activity log: every change an admin makes (not reads) is written down with who, what and from where. Passwords are never recorded.
 router.use((req, res, next) => {
@@ -64,6 +61,14 @@ router.use((req, res, next) => {
   });
   next();
 });
+// Sub-areas (mounted after the activity log above, so their changes are recorded too).
+router.post('/announce', ah(async (req, res) => { const b = req.body || {}; res.json({ ok: true, ...(await require('../lib/notify').announce(b.audience, b, req.user.name)) }); }));
+router.use('/staff', A.requireAdmin, require('./staff-admin'));
+router.use('/vendors', require('./vendors-admin'));
+router.use('/wholesale', require('./wholesale-admin'));
+router.use('/catalog', require('./catalog-admin'));
+router.use('/rfq', require('./rfq-admin'));
+router.use('/warehouse', require('./warehouse'));
 router.get('/audit', ah(async (req, res) => res.json({ log: await all('SELECT id, user_name, method, path, status, detail, ip, created FROM audit_log ORDER BY id DESC LIMIT 300') })));
 
 /* ---------- dashboard ---------- */

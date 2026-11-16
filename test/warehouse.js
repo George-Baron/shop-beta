@@ -30,50 +30,53 @@ const PW = 'Warehouse-Test-Pass-2026!';
   srv.stdout.on('data', (d) => { log += d; }); srv.stderr.on('data', (d) => { log += d; });
   for (let i = 0; i < 200; i++) { try { await fetch(`http://127.0.0.1:${PORT}/health`); break; } catch { await sleep(100); } }
   const admin = await login('owner@example.com', 'Str0ng-Owner-Pass!');
-  const A = (m, u, b) => call(m, '/api/warehouse' + u, b, admin);
+  const A = (m, u, b) => call(m, '/api/admin/warehouse' + u, b, admin);
   const P = (await q("SELECT id, stock FROM products WHERE vendor_id IS NULL AND is_pharmacy=0 AND stock >= 20 ORDER BY id LIMIT 2"));
   assert.ok(P.length === 2); const [P1, P2] = P; const retail1 = Number(P1.stock);
   const bal = async (id) => (await q('SELECT on_hand, reserved FROM wholesale_stock_balances WHERE product_id=$1', [id]))[0] || { on_hand: 0, reserved: 0 };
-  let staff, inv;
+  let staff, inv, shopper;
+  const ST = (m, u, b) => call(m, '/api/admin/staff' + u, b, admin);
+  const roleId = async (name) => (await ST('GET', '')).j.roles.find((r) => r.name === name).id;
+  const mk = async (key, role) => { const r = await ST('POST', '', { name: key + ' Staff', email: key + '@example.com', password: PW, role_id: await roleId(role) }); assert.strictEqual(r.s, 200, r.t); return { id: r.j.id, c: await login(key + '@example.com', PW) }; };
 
-  console.log('\nRoles');
-  await test('no sign-in or a normal customer cannot use the warehouse; roles are checked on the server', async () => {
-    assert.strictEqual((await call('GET', '/api/warehouse/stock')).s, 401);
-    await call('POST', '/api/auth/register', { name: 'Ngozi Staff', email: 'ngozi@example.com', phone: '08030000001', password: PW });
-    await call('POST', '/api/auth/register', { name: 'Ife Inventory', email: 'ife@example.com', phone: '08030000002', password: PW });
-    staff = await login('ngozi@example.com', PW); inv = await login('ife@example.com', PW);
-    assert.strictEqual((await call('GET', '/api/warehouse/stock', undefined, staff)).s, 403);
-    assert.strictEqual((await call('GET', '/api/warehouse/staff', undefined, staff)).s, 403);
+  console.log('\nRoles (shared Employees & roles system)');
+  await test('the warehouse roles exist; nobody without a role, and no normal customer, can use the warehouse', async () => {
+    const names = (await ST('GET', '')).j.roles.map((r) => r.name);
+    for (const n of ['Warehouse Manager', 'Inventory Officer', 'Dispatch Officer']) assert.ok(names.includes(n), n);
+    assert.strictEqual((await call('GET', '/api/admin/warehouse/stock')).s, 401);
+    await call('POST', '/api/auth/register', { name: 'Ngozi Shopper', email: 'ngozi@example.com', phone: '08030000001', password: PW });
+    shopper = await login('ngozi@example.com', PW);
+    const r = await call('GET', '/api/admin/warehouse/stock', undefined, shopper); assert.ok(r.s === 401 || r.s === 403, 'a shopper is refused: ' + r.s);
   });
-  await test('only the administrator grants roles; each role gets only its own permissions', async () => {
-    assert.strictEqual((await A('POST', '/staff', { email: 'ngozi@example.com', role: 'dispatch_officer' })).s, 200);
-    assert.strictEqual((await A('POST', '/staff', { email: 'ife@example.com', role: 'inventory_officer' })).s, 200);
-    assert.strictEqual((await A('POST', '/staff', { email: 'ife@example.com', role: 'ceo' })).s, 400);
-    assert.strictEqual((await call('POST', '/api/warehouse/staff', { email: 'ife@example.com', role: 'warehouse_manager' }, inv)).s, 403, 'a staff member cannot promote themselves');
-    assert.strictEqual((await call('GET', '/api/warehouse/stock', undefined, staff)).s, 200, 'dispatch can view');
-    assert.strictEqual((await call('POST', '/api/warehouse/stock/receipt', { items: [{ productId: P1.id, qty: 5 }] }, staff)).s, 403, 'dispatch cannot receive stock');
-    assert.strictEqual((await call('GET', '/api/warehouse/activity', undefined, inv)).s, 403);
+  await test('each role gets only its own permissions, checked on the server', async () => {
+    staff = await mk('dispatch', 'Dispatch Officer'); inv = await mk('inv', 'Inventory Officer'); const sales = await mk('sales', 'Sales Representative');
+    assert.strictEqual((await call('GET', '/api/admin/warehouse/stock', undefined, staff.c)).s, 200, 'dispatch can view');
+    assert.strictEqual((await call('POST', '/api/admin/warehouse/stock/receipt', { items: [{ productId: P1.id, qty: 5 }] }, staff.c)).s, 403, 'dispatch cannot receive stock');
+    assert.strictEqual((await call('GET', '/api/admin/warehouse/activity', undefined, staff.c)).s, 403, 'dispatch cannot read the activity log');
+    assert.strictEqual((await call('GET', '/api/admin/warehouse/stock', undefined, sales.c)).s, 403, 'a sales rep has no warehouse access');
+    assert.strictEqual((await call('GET', '/api/admin/warehouse/activity', undefined, inv.c)).s, 200, 'edit includes the activity log');
+    assert.strictEqual((await call('POST', '/api/admin/staff', { name: 'X', email: 'x@example.com', role_id: 1 }, inv.c)).s, 403, 'staff cannot create staff or promote themselves');
   });
 
   console.log('\nSeparate, audited stock');
   await test('receiving stock raises wholesale stock only; retail stock is untouched; every line is a movement', async () => {
-    const r = await call('POST', '/api/warehouse/stock/receipt', { items: [{ productId: P1.id, qty: 100 }, { productId: P2.id, qty: 40 }], reference: 'SUP-1', opening: true }, inv);
+    const r = await call('POST', '/api/admin/warehouse/stock/receipt', { items: [{ productId: P1.id, qty: 100 }, { productId: P2.id, qty: 40 }], reference: 'SUP-1', opening: true }, inv.c);
     assert.strictEqual(r.s, 200, r.t); assert.match(r.j.grn, /^GRN-\d{4}-\d{6}$/);
     assert.strictEqual(Number((await bal(P1.id)).on_hand), 100);
     assert.strictEqual(Number((await q('SELECT stock FROM products WHERE id=$1', [P1.id]))[0].stock), retail1, 'retail stock unchanged');
     const mv = (await A('GET', '/movements?productId=' + P1.id)).j.movements;
-    assert.strictEqual(mv.length, 1); assert.strictEqual(mv[0].prev_on_hand, 0); assert.strictEqual(mv[0].new_on_hand, 100); assert.strictEqual(mv[0].by, 'Ife Inventory'); assert.strictEqual(mv[0].related_ref, r.j.grn);
+    assert.strictEqual(mv.length, 1); assert.strictEqual(mv[0].prev_on_hand, 0); assert.strictEqual(mv[0].new_on_hand, 100); assert.strictEqual(mv[0].by, 'inv Staff'); assert.strictEqual(mv[0].related_ref, r.j.grn);
   });
   await test('a retried receipt with the same key is applied once', async () => {
     const body = { items: [{ productId: P2.id, qty: 10 }], key: 'k-' + tag };
-    const a = await call('POST', '/api/warehouse/stock/receipt', body, inv), b = await call('POST', '/api/warehouse/stock/receipt', body, inv);
+    const a = await call('POST', '/api/admin/warehouse/stock/receipt', body, inv.c), b = await call('POST', '/api/admin/warehouse/stock/receipt', body, inv.c);
     assert.strictEqual(a.s, 200); assert.strictEqual(b.s, 200); assert.strictEqual(b.j.duplicate, true);
     assert.strictEqual(Number((await bal(P2.id)).on_hand), 50);
-    const both = await Promise.all([1, 2, 3].map(() => call('POST', '/api/warehouse/stock/receipt', { items: [{ productId: P2.id, qty: 1 }], key: 'race-' + tag }, inv)));
+    const both = await Promise.all([1, 2, 3].map(() => call('POST', '/api/admin/warehouse/stock/receipt', { items: [{ productId: P2.id, qty: 1 }], key: 'race-' + tag }, inv.c)));
     assert.ok(both.every((x) => x.s === 200)); assert.strictEqual(Number((await bal(P2.id)).on_hand), 51, 'three concurrent identical requests, one change');
   });
   await test('adjustments need a reason, cannot go below zero or below what is reserved', async () => {
-    const adj = (b) => call('POST', '/api/warehouse/stock/adjust', b, inv);
+    const adj = (b) => call('POST', '/api/admin/warehouse/stock/adjust', b, inv.c);
     assert.strictEqual((await adj({ productId: P2.id, qty: -1, reason: '' })).s, 400);
     assert.strictEqual((await adj({ productId: P2.id, qty: -9999, reason: 'count' })).s, 409);
     assert.strictEqual((await adj({ productId: P2.id, qty: -1, reason: 'stocktake' })).s, 200);
@@ -99,12 +102,11 @@ const PW = 'Warehouse-Test-Pass-2026!';
     const refs = (await q("SELECT ref FROM wholesale_stock_movements WHERE ref LIKE 'MV-2%' ORDER BY id")).map((x) => x.ref);
     assert.strictEqual(new Set(refs).size, refs.length);
   });
-  await test('staff changes are in the activity log; the administrator can revoke a role', async () => {
+  await test('warehouse changes are in the activity log; changing someone to a non-warehouse role removes access at once', async () => {
     const acts = (await A('GET', '/activity')).j.activity.map((x) => x.action);
-    assert.ok(acts.includes('stock.receipt') || acts.includes('stock.opening')); assert.ok(acts.includes('staff.grant'));
-    const st = (await A('GET', '/staff')).j.staff.find((x) => x.email === 'ngozi@example.com');
-    assert.strictEqual((await A('DELETE', '/staff/' + st.id)).s, 200);
-    assert.strictEqual((await call('GET', '/api/warehouse/stock', undefined, staff)).s, 403);
+    assert.ok(acts.includes('stock.receipt') || acts.includes('stock.opening'));
+    assert.strictEqual((await ST('PUT', '/' + staff.id, { role_id: await roleId('Sales Representative') })).s, 200);
+    const r = await call('GET', '/api/admin/warehouse/stock', undefined, staff.c); assert.ok(r.s === 401 || r.s === 403, 'access gone: ' + r.s);
   });
 
   srv.kill(); await pg(`DROP DATABASE IF EXISTS ${DB} WITH (FORCE)`);

@@ -9,6 +9,7 @@ const queue = require('../lib/queue');
 const D = require('../lib/delivery');
 const geo = require('../lib/geo');
 const A = require('../lib/auth');
+const Staff = require('../lib/staff');
 const V = require('../lib/vendors');
 const AS = require('../lib/assistant');
 const { fail, str, int, isEmail, parseImages, card, RATING_JOIN, getSettings, esc } = S_;
@@ -345,13 +346,15 @@ router.post('/auth/login', ah(async (req, res) => {
   // connection can lock out only himself, never you.
   const ip = req.clientIp, kIp = 'login-fail-ip:' + ip, kAcc = `login-fail:${email}:${ip}`;
   if ((await A.over(kIp, 40)) || (await A.over(kAcc, 8))) fail(429, 'Too many sign-in attempts. Please wait 15 minutes and try again.');
-  const u = await get('SELECT * FROM users WHERE email=?', email);
+  const u = await get('SELECT * FROM users WHERE email=? OR (role IN (\'staff\',\'admin\') AND username=?)', email, email);
   const good = u ? await A.checkPassword(pw, u.password) : await A.burn(pw);
-  if (!u || !good) { await A.hit(kIp, 1e9, 900000); await A.hit(kAcc, 1e9, 900000); fail(401, 'That email and password do not match.'); }
-  if (u.active === 0) fail(403, 'This account has been switched off. Please contact the store.');
+  const backoffice = u && (u.role === 'admin' || u.role === 'staff');
+  if (!u || !good) { await A.hit(kIp, 1e9, 900000); await A.hit(kAcc, 1e9, 900000); if (backoffice) await Staff.logLogin(u, email, false, req); fail(401, 'That email and password do not match.'); }
+  if (u.active === 0) { if (backoffice) await Staff.logLogin(u, email, false, req); fail(403, 'This account has been switched off. Please contact the store.'); }
+  if (backoffice) await Staff.logLogin(u, email, true, req);
   if (req.sessionToken) await run('DELETE FROM sessions WHERE id=?', A.sha(req.sessionToken));
   await A.startSession(req, res, u.id, u.role);
-  res.json({ user: A.publicUser(u) });
+  res.json({ user: await Staff.decorate(A.publicUser(u), u) });
 }));
 router.post('/auth/logout', ah(async (req, res) => { await A.endSession(req, res); res.json({ ok: true }); }));
 router.post('/auth/forgot', A.limiter('forgot', 6, 3600000), ah(async (req, res) => {
@@ -378,7 +381,7 @@ router.post('/auth/reset', A.limiter('reset', 15, 3600000), ah(async (req, res) 
   await A.startSession(req, res, r.user_id);
   res.json({ user: A.publicUser(await get('SELECT * FROM users WHERE id=?', r.user_id)) });
 }));
-router.get('/me', (req, res) => res.json({ user: req.user ? A.publicUser(req.user) : null }));
+router.get('/me', ah(async (req, res) => res.json({ user: req.user ? await Staff.decorate(A.publicUser(req.user), req.user) : null })));
 router.put('/me', A.requireUser, ah(async (req, res) => {
   const b = req.body || {}, name = str(b.name, 80), phone = str(b.phone, 30);
   if (!name) fail(400, 'Please enter your name.');
