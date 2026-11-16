@@ -154,8 +154,9 @@ router.post('/products', ah(async (req, res) => {
 }));
 router.put('/products/:id', ah(async (req, res) => {
   const id = int(req.params.id);
-  const cur = await get('SELECT is_pharmacy FROM products WHERE id=?', id);
+  const cur = await get('SELECT is_pharmacy, fulfilment FROM products WHERE id=?', id);
   if (!cur) fail(404, 'Product not found.');
+  if (cur.fulfilment === 'dropship') fail(400, 'This is a dropship product. Edit it under Dropshipping > Products, where the price is calculated and reviewed.');
   if (cur.is_pharmacy && !PC.enabled() && req.body && req.body.active) fail(400, 'The pharmacy department is switched off. Medicines cannot be listed until it is enabled.');
   const p = await readProduct(req.body || {});
   await tx(async () => {

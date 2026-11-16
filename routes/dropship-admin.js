@@ -6,6 +6,9 @@ const S = require('../lib/shop');
 const A = require('../lib/auth');
 const SUP = require('../lib/suppliers');
 const C = require('../lib/countries');
+const D = require('../lib/dropship');
+const IMP = require('../lib/dropship-import');
+const { all } = require('../lib/db');
 const { fail, str, int } = S;
 
 const router = express.Router();
@@ -39,5 +42,30 @@ router.get('/suppliers/:id/documents/:doc', ah(async (req, res) => {
   res.set({ 'Content-Type': f.mime, 'Content-Disposition': `attachment; filename="${f.name.replace(/"/g, '')}"`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'" }).send(f.buf);
 }));
 router.delete('/suppliers/:id/documents/:doc', ah(async (req, res) => { await SUP.removeDocument(req.params.id, req.params.doc); res.json({ ok: true }); }));
+
+/* ---------- settings, exchange rates, category margins ---------- */
+router.get('/settings', ah(async (req, res) => res.json({ settings: await D.settings(), rates: await D.listRates(), category_margins: await D.categoryMargins(),
+  categories: await all('SELECT id, store, name FROM categories ORDER BY store, sort, name') })));
+router.put('/settings', ah(async (req, res) => res.json({ ok: true, settings: await D.saveSettings(req.body || {}) })));
+router.put('/rates/:currency', ah(async (req, res) => { await D.setRate(req.user, req.params.currency, req.body && req.body.ngn_per_unit); res.json({ ok: true, ...(await D.listRates()) }); }));
+router.put('/category-margins/:id', ah(async (req, res) => { await D.setCategoryMargin(req.params.id, str(req.body && req.body.margin_type, 10), req.body && req.body.margin_value); res.json({ ok: true }); }));
+
+/* ---------- dropship products ---------- */
+router.get('/products', ah(async (req, res) => res.json({ products: await D.list({ listing: req.query.listing, supplier_id: req.query.supplier_id, q: req.query.q }) })));
+router.post('/products', ah(async (req, res) => res.json({ ok: true, id: await D.create(req.user, req.body || {}) })));
+// Works out the price for what is on the form without saving anything, so the admin sees cost, fees, break-even and profit while typing.
+router.post('/price-preview', ah(async (req, res) => {
+  const { d, sup } = await D.parse({ name: 'preview', store: (await all('SELECT slug FROM stores WHERE slug <> ? LIMIT 1', 'pharmacy'))[0].slug, supplier_sku: 'x', ...(req.body || {}) });
+  const ctx = await D.context(), manual = d.price_mode === 'manual' && d.price > 0;
+  res.json({ pricing: D.calcFor(ctx, d, sup, d.category_id, manual ? d.price : null) });
+}));
+router.get('/products/:id', ah(async (req, res) => res.json(await D.detail(req.params.id))));
+router.put('/products/:id', ah(async (req, res) => { await D.update(req.user, req.params.id, req.body || {}); res.json({ ok: true, ...(await D.detail(req.params.id)) }); }));
+router.post('/products/:id/reprice', ah(async (req, res) => { await D.reprice(req.params.id); res.json({ ok: true, ...(await D.detail(req.params.id)) }); }));
+router.post('/products/:id/review', ah(async (req, res) => { await D.review(req.user, req.params.id, req.body && req.body.decision, req.body && req.body.note); res.json({ ok: true, ...(await D.detail(req.params.id)) }); }));
+
+/* ---------- catalogue import (the larger body is only read after the admin check; see server.js) ---------- */
+router.post('/import/preview', A.limiter('dsimport', 40, 3600000), express.json({ limit: '6mb' }), ah(async (req, res) => res.json(await IMP.preview(req.body || {}))));
+router.post('/import/commit', A.limiter('dscommit', 20, 3600000), express.json({ limit: '6mb' }), ah(async (req, res) => res.json({ ok: true, ...(await IMP.commit(req.user, req.body || {})) })));
 
 module.exports = router;

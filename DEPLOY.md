@@ -237,6 +237,8 @@ Use the Paystack **test** key and your `onrender.com` or real domain. Tick each 
 | `BACKUP_ENABLED` | on in production | `0` turns the nightly backup off (not advised) |
 | `BACKUP_MAX_AGE_HOURS` | 30 | Admin warns when the last good backup is older |
 | `SUPABASE_BUCKET`, `SUPABASE_BACKUP_BUCKET` | `product-images`, `backups` | bucket names |
+| `SUPABASE_SUPPLIER_BUCKET` | `supplier-docs` | **private** bucket for supplier registration and agreement files (dropshipping). Create it before using Admin > Dropshipping > documents |
+| `DROPSHIP_ORDERS_ENABLED` | off | `1` lets customers order dropship items. Leave off until the dropship order flow (step 4) is built, or they could pay for goods nobody will order from the supplier |
 | `LOG_LEVEL`, `LOG_FORMAT`, `SLOW_REQUEST_MS` | info, json, 1500 | logging |
 | `TZ_OFFSET_HOURS` | 1 | Nigeria time for "today" |
 | `TRUST_PROXY` | on | leave unset behind Render and Cloudflare |
@@ -244,7 +246,7 @@ Use the Paystack **test** key and your `onrender.com` or real domain. Tick each 
 | `CACHE_DISABLED`, `CACHE_MAX_ENTRIES`, `CACHE_POLL_MS` | | in-memory cache tuning |
 | `GEO_PROVIDER` | geoapify | map provider |
 
-**Never set in production:** `ALLOW_DEMO_PAYMENTS`, `ALLOW_LOCAL_UPLOADS`, `RATE_LIMIT_MULTIPLIER`, `JOB_BACKOFF_SECONDS`, `PAYSTACK_API_URL`, `RESEND_API_URL`, `GEO_API_URL`, `GEO_DOWN_PAUSE_MS`, `STORAGE_DRIVER=local` (these exist for tests). `npm run preflight` flags the risky ones.
+**Never set in production:** `ALLOW_DEMO_PAYMENTS`, `ALLOW_LOCAL_UPLOADS`, `RATE_LIMIT_MULTIPLIER`, `JOB_BACKOFF_SECONDS`, `PAYSTACK_API_URL`, `RESEND_API_URL`, `GEO_API_URL`, `GEO_DOWN_PAUSE_MS`, `ALLOW_PRIVATE_IMAGE_HOSTS`, `STORAGE_DRIVER=local` (these exist for tests). `npm run preflight` flags the risky ones.
 
 ---
 

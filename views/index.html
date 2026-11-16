@@ -472,6 +472,12 @@ async function shopView(main, u, cfg) {
 }
 
 /* ================= product ================= */
+// Dropship items: say honestly where it ships from and how long it takes (processing + shipping + a safety margin). Nothing about the supplier or cost.
+const dropshipNote = (p) => {
+  const d = p.dropship; if (!d) return '';
+  const t = d.eta && (d.eta.NG || d.eta.ALL);
+  return `<div class="panel" style="margin:10px 0;padding:10px 12px;font-size:14px">🌍 <b>Ships from ${e(d.ships_from_name)}</b>${t ? `<br>Estimated delivery: <b>${t.min}–${t.max} days</b> after you order` : '<br>Delivery time shown at checkout'}${d.orderable ? '' : '<br><span class="mu">Not available to order just yet.</span>'}</div>`;
+};
 async function productView(main, slug, cfg) {
   const d = await api('/api/products/' + encodeURIComponent(slug)); const p = d.product;
   recent(p.id);
@@ -494,6 +500,7 @@ async function productView(main, slug, cfg) {
      ${sizes.length ? `<div class="opt-label">${e(p.size_label || 'Size')}</div><div class="chips" id="osize">${sizes.map((s) => `<button class="chip ${sel.size === s ? 'on' : ''}" data-size="${e(s)}">${e(s)}</button>`).join('')}</div>` : ''}
      ${colors.length ? `<div class="opt-label">Colour</div><div class="chips" id="ocolor">${colors.map((s) => `<button class="chip ${sel.color === s ? 'on' : ''}" data-color="${e(s)}">${e(s)}</button>`).join('')}</div>` : ''}
      <p class="stock" id="stock" style="margin:14px 0 0"></p>
+     ${dropshipNote(p)}
      <div class="buy"><div class="qty"><button id="qm" aria-label="Decrease">−</button><span id="qv">1</span><button id="qp" aria-label="Increase">+</button></div>
        <button class="btn lg" id="addbtn">Add to cart</button><button class="btn ghost lg" data-wish="${p.id}" id="wbtn">${wish.has(p.id) ? '♥ Saved' : '♡ Save'}</button></div>
      <div class="note">🚚 Delivery fee depends on your state, and is free over ${naira(cfg.settings.free_shipping_threshold)}. 💳 Pay by card, transfer or pay on delivery.</div>
@@ -507,7 +514,7 @@ async function productView(main, slug, cfg) {
     const s = stockOf(), el = $('#stock'); const need = hasVar && (!find());
     el.className = 'stock ' + (need ? '' : s <= 0 ? 'out' : s <= 5 ? 'low' : 'in');
     el.textContent = need ? 'Select your options' : s <= 0 ? 'Out of stock' : s <= 5 ? `Only ${s} left!` : 'In stock';
-    $('#addbtn').disabled = need || s <= 0; $('#qv').textContent = sel.qty;
+    $('#addbtn').disabled = need || s <= 0 || !!(p.dropship && !p.dropship.orderable); $('#qv').textContent = sel.qty;
     if (!need && sel.qty > s) { sel.qty = Math.max(1, s); $('#qv').textContent = sel.qty; }
   };
   main.addEventListener('click', (ev) => {
@@ -1989,11 +1996,11 @@ views.pharmacy = async () => {
 };
 
 /* ---------------- dropshipping (admin) ---------------- */
-const dstate = { tab: 'suppliers', sstatus: '', sq: '' };
+const dstate = { tab: 'suppliers', sstatus: '', sq: '', plist: 'pending', pq: '', psup: '' };
 let dmeta = null;
 const DS = (p, o) => api('/api/admin/dropship' + p, o);
 const dsdate = (t) => (t ? new Date(t * 1000).toLocaleDateString('en-NG') : '');
-const ETAB = [['suppliers', 'Suppliers']];
+const ETAB = [['suppliers', 'Suppliers'], ['products', 'Products'], ['settings', 'Settings & rates']];
 views.dropship = async () => {
   if (!dmeta) dmeta = await DS('/meta');
   let body = '';
@@ -2003,11 +2010,20 @@ views.dropship = async () => {
     <div class="panel"><div class="tw"><table class="t"><tr><th>Supplier</th><th>Country</th><th>Currency</th><th>Processing</th><th>Orders</th><th>Rating</th><th>Status</th></tr>${suppliers.map((s) => `<tr class="click" data-sup="${s.id}"><td><b>${e(s.name)}</b><div class="mu2">${e(s.contact_name)}${s.email ? ' · ' + e(s.email) : ''}</div></td><td>${e(s.country_name)}</td><td>${e(s.currency)}</td><td>${s.processing_days} days</td><td>${s.orders}</td><td>${s.rating == null ? '<span class="mu2">not rated</span>' : '★ ' + s.rating}</td><td><span class="pill ${s.status === 'active' ? 'ok' : 'bad'}">${e(s.status)}</span></td></tr>`).join('') || '<tr><td colspan="7" class="mu">No suppliers yet. Press “Add supplier” to onboard your first one.</td></tr>'}</table></div>
     <p class="mu2">A paused supplier's products are hidden from customers until you make the supplier active again.</p></div>`;
   }
+  if (dstate.tab === 'products') body = await dsProducts();
+  if (dstate.tab === 'settings') body = await dsSettings();
   mn(hd('🚚 Dropshipping') + `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">${ETAB.map(([k, t]) => `<button class="btn ${dstate.tab === k ? '' : 'ghost'} sm" data-dt="${k}">${t}</button>`).join('')}</div>` + body);
   onAll('[data-dt]', 'click', (el) => { dstate.tab = el.dataset.dt; return views.dropship(); });
   on('#dsq', 'change', () => { dstate.sq = $('#dsq').value; return views.dropship(); });
   on('#dsst', 'change', () => { dstate.sstatus = $('#dsst').value; return views.dropship(); });
   on('#dsnew', 'click', () => supplierForm(0));
+  on('#dpq', 'change', () => { dstate.pq = $('#dpq').value; return views.dropship(); });
+  on('#dpl', 'change', () => { dstate.plist = $('#dpl').value; return views.dropship(); });
+  on('#dps', 'change', () => { dstate.psup = $('#dps').value; return views.dropship(); });
+  on('#dpnew', 'click', () => productDS(0));
+  on('#dpimp', 'click', () => importWizard());
+  onAll('[data-dp]', 'click', (el) => productDS(el.dataset.dp));
+  if (dstate.tab === 'settings') dsSettingsWire();
   onAll('[data-sup]', 'click', (el) => supplierForm(el.dataset.sup));
 };
 const dsOpts = (list, sel, label = (x) => x.name) => list.map((x) => `<option value="${e(x.code)}" ${x.code === sel ? 'selected' : ''}>${e(label(x))}</option>`).join('');
@@ -2046,6 +2062,136 @@ async function supplierForm(id) {
   $('#dup').addEventListener('click', guard(async () => { const f = $('#df').files[0]; if (!f) return toast('Choose a file first', 'bad'); if (f.size > 8e6) return toast('That file is over 8 MB', 'bad'); await DS(`/suppliers/${id}/documents`, { body: { kind: $('#dk').value, name: f.name, data: await readFile(f) } }); toast('Uploaded'); again(); }));
   $$('[data-ddel]').forEach((b) => b.addEventListener('click', guard(async () => { if (!confirm('Remove this document?')) return; await DS(`/suppliers/${id}/documents/${b.dataset.ddel}`, { method: 'DELETE' }); again(); })));
   $('#eadd').addEventListener('click', guard(async () => { const k = $('#ek').value; await DS(`/suppliers/${id}/events`, { body: k === 'rating' ? { kind: k, rating: $('#ev').value, note: $('#en').value } : { kind: k, count: $('#ev').value, ref: $('#en').value } }); toast('Recorded'); again(); }));
+}
+
+/* ---- dropship products, import, settings ---- */
+const naira0 = (n) => (n == null ? '—' : '₦' + Math.round(n).toLocaleString('en-NG'));
+const LST = { pending: ['Needs review', 'warn'], approved: ['Live', 'ok'], rejected: ['Rejected', 'bad'] };
+async function dsProducts() {
+  const { products } = await DS('/products?' + new URLSearchParams({ listing: dstate.plist, q: dstate.pq, supplier_id: dstate.psup }));
+  const { suppliers } = await DS('/suppliers');
+  return `<div class="tbar"><input id="dpq" placeholder="Search name or supplier code" value="${e(dstate.pq)}"><select id="dpl"><option value="">All</option>${Object.entries(LST).map(([k, v]) => `<option value="${k}" ${dstate.plist === k ? 'selected' : ''}>${v[0]}</option>`).join('')}</select>
+   <select id="dps"><option value="">All suppliers</option>${suppliers.map((s) => `<option value="${s.id}" ${String(dstate.psup) === String(s.id) ? 'selected' : ''}>${e(s.name)}</option>`).join('')}</select>
+   <button class="btn ghost sm" id="dpimp">⬆ Import catalogue</button><button class="btn sm" id="dpnew">+ Add product</button></div>
+  <div class="panel"><div class="tw"><table class="t"><tr><th>Product</th><th>Supplier</th><th>Price</th><th>Break-even</th><th>Profit / sale</th><th>Status</th></tr>${products.map((p) => `<tr class="click" data-dp="${p.id}"><td><b>${e(p.name)}</b><div class="mu2">${e(p.supplier_sku)}${p.photos_pending ? ' · photos copying…' : p.images.length ? '' : ' · no photo'}${p.has_ship_times ? '' : ' · no shipping times'}</div></td><td>${e(p.supplier_name)}<div class="mu2">${e(p.supplier_currency)} ${Number(p.cost).toLocaleString()}</div></td><td>${naira0(p.price)}</td><td>${naira0(p.break_even)}</td>
+   <td>${p.profit == null ? '<span class="pill bad">needs a rate</span>' : `<span class="${p.below_break_even ? 'bad' : ''}">${naira0(p.profit)}</span> <span class="mu2">${p.margin_pct == null ? '' : p.margin_pct + '%'}</span>`}</td>
+   <td><span class="pill ${LST[p.listing][1]}">${LST[p.listing][0]}</span>${p.supplier_status === 'paused' ? ' <span class="pill bad">supplier paused</span>' : ''}${p.active ? '' : ' <span class="pill">hidden</span>'}</td></tr>`).join('') || '<tr><td colspan="6" class="mu">No dropship products yet. Import a supplier catalogue or add one by hand.</td></tr>'}</table></div>
+   <p class="mu2">Nothing here is visible to customers until you approve it. Customers never see the supplier, supplier code, cost or margin.</p></div>`;
+}
+async function productDS(id) {
+  const [{ suppliers }, cats] = await Promise.all([DS('/suppliers'), api('/api/admin/categories')]);
+  const d = id ? await DS('/products/' + id) : null;
+  const p = d ? d.product : { supplier_id: dstate.psup || (suppliers[0] && suppliers[0].id) || '', supplier_sku: '', supplier_url: '', name: '', store: cfgStores.find((s) => s.slug !== 'pharmacy').slug, category_id: '', brand: '', description: '', images: [], cost: '', ship_cost: 0, supplier_stock: '', processing_days: '', ship_times: {}, weight_kg: '', length_cm: '', width_cm: '', height_cm: '', hs_code: '', origin_country: '', ships_from: '', duty_pct: '', tax_pct: '', margin_type: '', margin_value: '', price_mode: 'auto', price: '', active: 1, listing: 'new' };
+  if (!suppliers.length) return toast('Add a supplier first', 'bad');
+  let images = [...p.images];
+  const T = p.ship_times || {}, nt = T.NG || T.ALL || {}, v = (x) => (x == null ? '' : e(x));
+  openModal(`<h2>${id ? e(p.name) : 'Add a dropship product'} ${id ? `<span class="pill ${LST[p.listing][1]}">${LST[p.listing][0]}</span>` : ''}</h2>${p.listing_note ? `<p class="mu2">Reviewer note: ${e(p.listing_note)}</p>` : ''}
+  <div class="fgrid"><label class="f">Supplier<select id="xs">${suppliers.map((s) => `<option value="${s.id}" data-cur="${s.currency}" ${Number(s.id) === Number(p.supplier_id) ? 'selected' : ''}>${e(s.name)} (${s.currency})</option>`).join('')}</select></label>
+   <label class="f">Supplier SKU / code<input id="xk" maxlength="60" value="${v(p.supplier_sku)}"></label>
+   <label class="f full">Product name<input id="xn" maxlength="140" value="${v(p.name)}"></label>
+   <label class="f">Department<select id="xst">${cfgStores.filter((s) => s.slug !== 'pharmacy').map((s) => `<option value="${e(s.slug)}" ${s.slug === p.store ? 'selected' : ''}>${e(s.name)}</option>`).join('')}</select></label>
+   <label class="f">Category<select id="xc"></select></label><label class="f">Brand<input id="xb" maxlength="60" value="${v(p.brand)}"></label><label class="f">Supplier's product link<input id="xu" value="${v(p.supplier_url)}" placeholder="https://"></label>
+   <label class="f full">Description<textarea id="xd" rows="3" maxlength="4000">${v(p.description)}</textarea></label></div>
+  <div id="ximgs" style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0"></div><input type="file" id="xf" accept="image/png,image/jpeg,image/webp,image/gif"> <span class="mu2">${d && d.product.photos_pending ? 'Supplier photos are still being copied…' : ''}</span>
+  <h3 style="margin-top:14px">Cost and delivery</h3><div class="fgrid">
+   <label class="f">Supplier cost per unit <span id="xcur"></span><input id="xcost" type="number" min="0" step="0.01" value="${v(p.cost)}"></label><label class="f">Shipping per unit (their currency)<input id="xship" type="number" min="0" step="0.01" value="${v(p.ship_cost)}"></label>
+   <label class="f">Supplier stock (blank = unknown)<input id="xstk" type="number" min="0" value="${v(p.supplier_stock)}"></label><label class="f">Processing days (blank = supplier's average)<input id="xpd" type="number" min="0" max="120" value="${v(p.processing_days)}"></label>
+   <label class="f">Shipping to Nigeria: min days<input id="xtmin" type="number" min="0" value="${v(nt.min)}"></label><label class="f">max days<input id="xtmax" type="number" min="0" value="${v(nt.max)}"></label>
+   <label class="f">Ships from (blank = supplier's country)<select id="xsf"><option value="">Supplier's country</option>${dsOpts(dmeta.countries, p.ships_from)}</select></label><label class="f">Country of origin<select id="xor"><option value="">—</option>${dsOpts(dmeta.countries, p.origin_country)}</select></label>
+   <label class="f">HS code<input id="xhs" maxlength="20" value="${v(p.hs_code)}" placeholder="8518.30"></label><label class="f">Weight (kg)<input id="xw" type="number" min="0" step="0.001" value="${v(p.weight_kg)}"></label>
+   <label class="f">Length × width × height (cm)<span style="display:flex;gap:4px"><input id="xl" type="number" min="0" step="0.1" value="${v(p.length_cm)}"><input id="xwd" type="number" min="0" step="0.1" value="${v(p.width_cm)}"><input id="xh" type="number" min="0" step="0.1" value="${v(p.height_cm)}"></span></label></div>
+  <h3 style="margin-top:14px">Price</h3><div class="fgrid">
+   <label class="f">Duty % (blank = shop default${d ? ' ' + d.defaults.duty_pct + '%' : ''})<input id="xduty" type="number" min="0" step="0.1" value="${v(p.duty_pct)}"></label><label class="f">Tax / VAT % (blank = default${d ? ' ' + d.defaults.tax_pct + '%' : ''})<input id="xtax" type="number" min="0" step="0.1" value="${v(p.tax_pct)}"></label>
+   <label class="f">Margin for this product<select id="xmt"><option value="">Use category / supplier / shop rule</option><option value="percent" ${p.margin_type === 'percent' ? 'selected' : ''}>Percentage on landed cost</option><option value="fixed" ${p.margin_type === 'fixed' ? 'selected' : ''}>Fixed ₦ amount</option></select></label><label class="f">Margin value<input id="xmv" type="number" min="0" step="0.5" value="${v(p.margin_value)}"></label>
+   <label class="f">Selling price<select id="xpm"><option value="auto" ${p.price_mode !== 'manual' ? 'selected' : ''}>Calculated automatically</option><option value="manual" ${p.price_mode === 'manual' ? 'selected' : ''}>I will set it</option></select></label><label class="f">My price (₦)<input id="xprice" type="number" min="1" value="${p.price_mode === 'manual' ? v(p.price) : ''}"></label></div>
+  <div class="panel" id="xcalc" style="margin-top:8px"></div>
+  <label class="chk" style="margin:8px 0"><input type="checkbox" id="xact" ${p.active ? 'checked' : ''}> Visible when approved</label>
+  <div class="acts"><button class="btn ghost" id="xclose">Close</button>${id ? `<button class="btn ghost" id="xrej">Reject…</button>` : ''}<button class="btn" id="xsave">${id ? 'Save changes' : 'Add product'}</button>${id && p.listing !== 'approved' ? '<button class="btn" id="xok">Approve &amp; publish</button>' : ''}</div>
+  <div id="xchecks" class="mu2" style="margin-top:6px">${d && p.listing !== 'approved' ? d.checks.map((c) => '• ' + e(c)).join('<br>') : ''}</div>`, true);
+  const drawCats = () => { const st = $('#xst').value; $('#xc').innerHTML = '<option value="">—</option>' + cats.categories.filter((c) => c.store === st).map((c) => `<option value="${c.id}" ${Number(c.id) === Number(p.category_id) ? 'selected' : ''}>${e(c.name)}</option>`).join(''); };
+  const drawImgs = () => { $('#ximgs').innerHTML = images.map((u, i) => `<span style="position:relative"><img src="${e(u)}" style="width:56px;height:56px;object-fit:cover;border-radius:6px"><button class="btn ghost sm" data-xi="${i}" style="position:absolute;top:-6px;right:-6px;padding:0 5px">×</button></span>`).join(''); $$('[data-xi]').forEach((b) => b.addEventListener('click', () => { images.splice(Number(b.dataset.xi), 1); drawImgs(); })); };
+  const body = () => {
+    const times = {}; if ($('#xtmin').value !== '' && $('#xtmax').value !== '') times.NG = { min: Number($('#xtmin').value), max: Number($('#xtmax').value) };
+    const keep = { ...T }; delete keep.NG; return { supplier_id: $('#xs').value, supplier_sku: $('#xk').value, name: $('#xn').value, store: $('#xst').value, category_id: $('#xc').value, brand: $('#xb').value, supplier_url: $('#xu').value, description: $('#xd').value, images,
+      cost: $('#xcost').value, ship_cost: $('#xship').value, supplier_stock: $('#xstk').value, processing_days: $('#xpd').value, ship_times: { ...keep, ...times }, ships_from: $('#xsf').value, origin_country: $('#xor').value, hs_code: $('#xhs').value,
+      weight_kg: $('#xw').value, length_cm: $('#xl').value, width_cm: $('#xwd').value, height_cm: $('#xh').value, duty_pct: $('#xduty').value, tax_pct: $('#xtax').value, margin_type: $('#xmt').value, margin_value: $('#xmv').value,
+      price_mode: $('#xpm').value, price: $('#xprice').value, active: $('#xact').checked }; };
+  let tm = null;
+  const calc = () => { clearTimeout(tm); tm = setTimeout(async () => {
+    $('#xcur').textContent = '(' + $('#xs').selectedOptions[0].dataset.cur + ')'; const b = body();
+    if (!(Number(b.cost) > 0)) { $('#xcalc').innerHTML = '<span class="mu2">Enter the supplier cost to see the price.</span>'; return; }
+    try { const { pricing: c } = await DS('/price-preview', { body: { supplier_id: b.supplier_id, cost: b.cost, ship_cost: b.ship_cost, duty_pct: b.duty_pct, tax_pct: b.tax_pct, margin_type: b.margin_type, margin_value: b.margin_value, category_id: b.category_id, price_mode: b.price_mode, price: b.price } });
+      $('#xcalc').innerHTML = `<table class="t"><tr><td>Goods</td><td>${naira0(c.goods)}</td><td>Shipping</td><td>${naira0(c.shipping)}</td></tr><tr><td>Duty (est.)</td><td>${naira0(c.duty)}</td><td>Tax (est.)</td><td>${naira0(c.tax)}</td></tr>
+       <tr><td><b>Landed cost</b></td><td><b>${naira0(c.landed)}</b></td><td>Payment fee</td><td>${naira0(c.fee)}</td></tr><tr><td>Margin rule</td><td>${c.margin_rule.type === 'fixed' ? naira0(c.margin_rule.value) : c.margin_rule.value + '%'} <span class="mu2">(${c.margin_source})</span></td><td>Calculated price</td><td><b>${naira0(c.calculated_price)}</b></td></tr>
+       <tr><td>Break-even price</td><td>${naira0(c.break_even)}</td><td>Price charged</td><td><b>${naira0(c.price)}</b></td></tr></table><p style="margin:6px 0 0"><b class="${c.below_break_even ? 'bad' : ''}">Profit per sale: ${naira0(c.profit)}</b> (${c.margin_pct}% of price, ${c.markup_pct}% on landed cost) <span class="mu2">· rate ${c.rate} ₦ per ${c.currency}</span>${c.below_break_even ? '<br><b class="bad">This price loses money.</b>' : ''}</p>
+       <p class="mu2" style="margin:4px 0 0">Duty and tax are estimates. Check them with your clearing agent.</p>`; } catch (err) { $('#xcalc').innerHTML = `<span class="bad">${e(err.message)}</span>`; } }, 250); };
+  drawCats(); drawImgs(); calc();
+  $('#xst').addEventListener('change', drawCats);
+  $$('#xs,#xcost,#xship,#xduty,#xtax,#xmt,#xmv,#xpm,#xprice,#xc').forEach((el) => { el.addEventListener('input', calc); el.addEventListener('change', calc); });
+  $('#xf').addEventListener('change', guard(async () => { const f = $('#xf').files[0]; if (!f) return; if (f.size > 2e6) return toast('Photo is over 2 MB', 'bad'); images.push((await api('/api/admin/upload', { body: { data: await readFile(f) } })).url); drawImgs(); }));
+  $('#xclose').addEventListener('click', () => { closeModal(); views.dropship(); });
+  const save = async () => { if (id) await DS('/products/' + id, { method: 'PUT', body: body() }); else id = (await DS('/products', { body: body() })).id; };
+  $('#xsave').addEventListener('click', guard(async () => { await save(); toast('Saved'); closeModal(); views.dropship(); }));
+  const ok = $('#xok'); if (ok) ok.addEventListener('click', guard(async () => { await save(); await DS(`/products/${id}/review`, { body: { decision: 'approved' } }); toast('Approved. It is now live.'); closeModal(); views.dropship(); }));
+  const rej = $('#xrej'); if (rej) rej.addEventListener('click', guard(async () => { const note = prompt('Why is it being rejected? (the next person will see this)'); if (!note) return; await DS(`/products/${id}/review`, { body: { decision: 'rejected', note } }); toast('Rejected'); closeModal(); views.dropship(); }));
+}
+async function dsSettings() {
+  const { settings: s, rates, category_margins: cm, categories } = await DS('/settings');
+  const row = (k, label, step = '0.1') => `<label class="f">${label}<input data-set="${k}" type="number" step="${step}" min="0" value="${e(s[k])}"></label>`;
+  const cmap = Object.fromEntries(cm.map((m) => [m.category_id, m]));
+  return `<div class="panel"><h3>Pricing defaults</h3><div class="fgrid"><label class="f">Default margin<select data-set="margin_type"><option value="percent" ${s.margin_type === 'percent' ? 'selected' : ''}>Percentage on landed cost</option><option value="fixed" ${s.margin_type === 'fixed' ? 'selected' : ''}>Fixed ₦ amount</option></select></label>${row('margin_value', 'Margin value')}
+   ${row('duty_pct', 'Default import duty %')}${row('tax_pct', 'Default tax / VAT %')}${row('fee_pct', 'Payment fee %')}${row('fee_flat', 'Flat payment fee ₦', '1')}${row('fee_flat_from', 'Flat fee applies from ₦', '1')}${row('fee_cap', 'Payment fee cap ₦', '1')}${row('round_to', 'Round prices up to ₦', '1')}${row('eta_buffer_days', 'Delivery safety buffer (days)', '1')}</div>
+   <p class="mu2">The duty and tax figures are placeholders until you confirm them with your clearing agent. A product, its category or its supplier can have its own margin. Order of priority: product, category, supplier, then this default.</p><button class="btn sm" id="dssave">Save defaults</button></div>
+  <div class="panel"><h3>Exchange rates <span class="mu2">Naira for 1 unit of the currency. Prices never move by themselves when you change a rate.</span></h3>
+   ${rates.missing.length ? `<p class="bad">Needs a rate: ${rates.missing.map(e).join(', ')}</p>` : ''}
+   <div class="tw"><table class="t"><tr><th>Currency</th><th>₦ per 1</th><th>Updated</th><th></th></tr>${rates.rates.map((r) => `<tr><td>${e(r.currency)} <span class="mu2">${e(r.name)}</span></td><td><input type="number" min="0" step="0.0001" value="${r.ngn_per_unit}" data-rate="${r.currency}" style="width:130px"></td><td class="mu2">${dsdate(r.updated)} ${e(r.updated_by)}</td><td><button class="btn ghost sm" data-rsave="${r.currency}">Save</button></td></tr>`).join('')}</table></div>
+   <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><select id="rnewc"><option value="">Add a currency…</option>${[...rates.missing.map((c) => ({ code: c, name: 'used by a supplier' })), ...dmeta.currencies.filter((c) => c.code !== 'NGN' && !rates.missing.includes(c.code))].map((c) => `<option value="${c.code}">${c.code} · ${e(c.name)}</option>`).join('')}</select><input id="rnewv" type="number" min="0" step="0.0001" placeholder="₦ per 1" style="width:130px"><button class="btn sm" id="rnew">Save rate</button></div></div>
+  <div class="panel"><h3>Margin by category</h3><div class="tw"><table class="t"><tr><th>Category</th><th>Rule</th><th>Value</th><th></th></tr>${categories.map((c) => { const m = cmap[c.id] || {}; return `<tr><td>${e(c.name)} <span class="mu2">${e(c.store)}</span></td><td><select data-cmt="${c.id}"><option value="">Not set</option><option value="percent" ${m.margin_type === 'percent' ? 'selected' : ''}>%</option><option value="fixed" ${m.margin_type === 'fixed' ? 'selected' : ''}>₦</option></select></td><td><input type="number" min="0" step="0.5" data-cmv="${c.id}" value="${m.margin_value == null ? '' : m.margin_value}" style="width:90px"></td><td><button class="btn ghost sm" data-cmsave="${c.id}">Save</button></td></tr>`; }).join('')}</table></div></div>`;
+}
+function dsSettingsWire() {
+  on('#dssave', 'click', guard(async () => { const b = {}; $$('[data-set]').forEach((el) => { b[el.dataset.set] = el.value; }); await DS('/settings', { method: 'PUT', body: b }); toast('Saved'); }));
+  onAll('[data-rsave]', 'click', guard(async (el) => { await DS('/rates/' + el.dataset.rsave, { method: 'PUT', body: { ngn_per_unit: $(`[data-rate="${el.dataset.rsave}"]`).value } }); toast('Rate saved'); views.dropship(); }));
+  on('#rnew', 'click', guard(async () => { if (!$('#rnewc').value) return toast('Choose a currency', 'bad'); await DS('/rates/' + $('#rnewc').value, { method: 'PUT', body: { ngn_per_unit: $('#rnewv').value } }); toast('Rate saved'); views.dropship(); }));
+  onAll('[data-cmsave]', 'click', guard(async (el) => { const id = el.dataset.cmsave; await DS('/category-margins/' + id, { method: 'PUT', body: { margin_type: $(`[data-cmt="${id}"]`).value, margin_value: $(`[data-cmv="${id}"]`).value } }); toast('Saved'); }));
+}
+const FLABEL = { sku: 'Supplier SKU', name: 'Product name', cost: 'Cost per unit', ship_cost: 'Shipping cost', stock: 'Stock', processing_days: 'Processing days', weight: 'Weight', length: 'Length', width: 'Width', height: 'Height', hs_code: 'HS code', origin: 'Country of origin', description: 'Description', brand: 'Brand', category: 'Category', images: 'Photo links', url: 'Supplier link' };
+const VERDICT = { new: ['New', 'ok'], duplicate: ['Already imported', ''], possible_duplicate: ['Same name exists', 'warn'], in_file_duplicate: ['Repeated in file', ''], error: ['Problem', 'bad'] };
+async function importWizard() {
+  const { suppliers } = await DS('/suppliers'); if (!suppliers.length) return toast('Add a supplier first', 'bad');
+  const st = { text: '', data: '', filename: '', mapping: null, prev: null };
+  openModal(`<h2>Import a supplier catalogue</h2><div class="fgrid"><label class="f">Supplier<select id="isup">${suppliers.map((s) => `<option value="${s.id}">${e(s.name)} (${s.currency})</option>`).join('')}</select></label>
+   <label class="f">Department<select id="ist"><option value="">Choose the department…</option>${cfgStores.filter((s) => s.slug !== 'pharmacy').map((s) => `<option value="${e(s.slug)}">${e(s.name)}</option>`).join('')}</select></label></div>
+   <p class="mu2" style="margin:8px 0 4px">Upload a CSV or Excel (.xlsx) file, or paste rows copied from a spreadsheet. The first row must be the column names. Up to 2,000 products at a time.</p>
+   <input type="file" id="ifile" accept=".csv,.tsv,.txt,.xlsx"><textarea id="itext" rows="5" placeholder="…or paste here" style="width:100%;margin-top:6px"></textarea>
+   <div class="acts"><button class="btn ghost" id="iclose">Close</button><button class="btn" id="iprev">Preview</button></div><div id="iout"></div>`, true);
+  const payload = () => ({ supplier_id: $('#isup').value, store: $('#ist').value, text: st.data ? undefined : $('#itext').value, data: st.data || undefined, filename: st.filename, mapping: st.mapping || undefined,
+    weight_unit: st.prev ? ($('#iwu') ? $('#iwu').value : st.prev.weight_unit) : undefined });
+  $('#iclose').addEventListener('click', () => { closeModal(); views.dropship(); });
+  $('#ifile').addEventListener('change', guard(async () => { const f = $('#ifile').files[0]; st.mapping = null; if (!f) { st.data = ''; return; } if (f.size > 4e6) { $('#ifile').value = ''; return toast('That file is over 4 MB', 'bad'); } st.data = await readFile(f); st.filename = f.name; $('#itext').value = ''; }));
+  $('#itext').addEventListener('input', () => { st.data = ''; st.mapping = null; });
+  const draw = () => {
+    const p = st.prev, o = $('#iout');
+    const maprow = `<h3 style="margin-top:12px">Columns</h3><div class="fgrid">${Object.keys(FLABEL).map((f) => `<label class="f">${FLABEL[f]}${['sku', 'name', 'cost'].includes(f) ? ' *' : ''}<select data-map="${f}"><option value="">— not in my file —</option>${p.headers.map((h, i) => `<option value="${i}" ${Number(p.mapping[f]) === i && p.mapping[f] !== undefined ? 'selected' : ''}>${e(h)}</option>`).join('')}</select></label>`).join('')}
+      <label class="f">Weights are in<select id="iwu"><option value="kg" ${p.weight_unit === 'kg' ? 'selected' : ''}>kilograms</option><option value="g" ${p.weight_unit === 'g' ? 'selected' : ''}>grams</option></select></label></div>`;
+    if (!p.summary) { o.innerHTML = maprow + `<p class="bad">${e(p.note || '')}</p><button class="btn" id="irepr">Preview again</button>`; }
+    else { const s = p.summary;
+      o.innerHTML = maprow + `<h3 style="margin-top:12px">Preview <span class="mu2">nothing is saved yet</span></h3><p>${s.total} rows: <b>${s.new || 0} new</b> · ${s.duplicate || 0} already imported · ${s.possible_duplicate || 0} same name · ${s.in_file_duplicate || 0} repeated · <b class="${s.error ? 'bad' : ''}">${s.error || 0} with problems</b></p>
+      ${p.no_rate ? `<p class="bad">There is no exchange rate for ${e(p.no_rate)}. Add one in Settings first, then import.</p>` : ''}
+      <div class="tw" style="max-height:240px;overflow:auto"><table class="t"><tr><th>Row</th><th>SKU</th><th>Name</th><th>Cost</th><th>Result</th><th></th></tr>${p.rows.map((r) => `<tr><td>${r.row}</td><td>${e(r.supplier_sku)}</td><td>${e(r.name)}</td><td>${r.cost == null ? '' : r.cost}</td><td><span class="pill ${VERDICT[r.status][1]}">${VERDICT[r.status][0]}</span> ${r.errors.length ? `<span class="mu2">${e(r.errors.join('; '))}</span>` : ''}</td><td>${r.status === 'possible_duplicate' ? `<label class="chk"><input type="checkbox" data-pos="${r.row}"> import anyway</label>` : ''}</td></tr>`).join('')}</table></div>${p.shown < s.total ? `<p class="mu2">Showing the first ${p.shown} rows. All rows are checked when you import.</p>` : ''}
+      <div class="fgrid" style="margin-top:8px"><label class="f">Shipping to Nigeria: min days (for all new products)<input id="ismin" type="number" min="0" placeholder="e.g. 7"></label><label class="f">max days<input id="ismax" type="number" min="0" placeholder="e.g. 14"></label>
+       <label class="f">If a supplier code already exists<select id="idup"><option value="skip">Leave it alone</option><option value="update">Update cost, stock and sizes (the live price is NOT changed)</option></select></label></div>
+      <div class="acts"><button class="btn" id="icommit" ${p.no_rate || !(s.new || s.possible_duplicate || s.duplicate) ? 'disabled' : ''}>Import ${s.new || 0} new products</button></div><p class="mu2">New products start as “Needs review”. Photos are copied into your own storage in the background.</p>`; }
+    $$('[data-map]').forEach((sel) => sel.addEventListener('change', () => { st.mapping = {}; $$('[data-map]').forEach((x) => { if (x.value !== '') st.mapping[x.dataset.map] = Number(x.value); }); run(); }));
+    const bind = (sel, ev, fn) => { const el = $(sel); if (el) el.addEventListener(ev, fn); }; // the wizard is in the modal, outside #mn, so the page-level on() cannot reach it
+    bind('#irepr', 'click', () => run()); bind('#iwu', 'change', () => run());
+    bind('#icommit', 'click', guard(async () => { const pos = $$('[data-pos]').filter((c) => c.checked).map((c) => Number(c.dataset.pos));
+      const b = { ...payload(), mapping: st.prev.mapping, import_possible: pos, on_duplicate: $('#idup').value }; if ($('#ismin').value !== '' && $('#ismax').value !== '') { b.ship_min = $('#ismin').value; b.ship_max = $('#ismax').value; }
+      const r = await DS('/import/commit', { body: b }); toast(`Imported ${r.created} new, updated ${r.updated}, skipped ${r.skipped}`);
+      $('#iout').innerHTML = `<h3>Done</h3><p><b>${r.created}</b> products created (waiting for your review), ${r.updated} updated, ${r.skipped} skipped, ${r.errors} with problems. ${r.images_queued ? r.images_queued + ' products are having their photos copied now.' : ''}${r.needs_reprice ? `<br><b>${r.needs_reprice}</b> products have a new cost. Open them to check their price.` : ''}${r.created && r.no_ship_times ? '<br>These have no shipping times yet. Add them before approving.' : ''}</p>${r.problems.length ? `<p class="mu2">${r.problems.slice(0, 10).map((x) => `Row ${x.row}: ${e(x.message)}`).join('<br>')}</p>` : ''}<div class="acts"><button class="btn" id="idone">Review the new products</button></div>`;
+      bind('#idone', 'click', () => { dstate.tab = 'products'; dstate.plist = 'pending'; closeModal(); views.dropship(); }); }));
+  };
+  const run = guard(async () => { st.prev = await DS('/import/preview', { body: payload() }); st.mapping = st.prev.mapping; draw(); });
+  $('#iprev').addEventListener('click', () => { if (!st.data && !$('#itext').value.trim()) return toast('Choose a file or paste your rows first', 'bad'); if (!$('#ist').value) return toast('Choose the department first', 'bad'); st.mapping = null; run(); });
 }
 
 /* ---------------- boot ---------------- */

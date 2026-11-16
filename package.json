@@ -29,6 +29,7 @@
     "db:down": "docker compose down",
     "test:wholesale": "node --disable-warning=ExperimentalWarning test/wholesale.js",
     "test:vendors": "node --disable-warning=ExperimentalWarning test/vendors.js",
+    "test:dropship:unit": "node --disable-warning=ExperimentalWarning test/dropship-unit.js",
     "test:dropship": "node --disable-warning=ExperimentalWarning test/dropship.js",
     "test:pharmacy": "node --disable-warning=ExperimentalWarning test/pharmacy.js",
     "test:cache": "node --disable-warning=ExperimentalWarning test/cache.js",

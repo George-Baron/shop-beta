@@ -164,7 +164,7 @@ async function buildProduct(slug) {
   const dist = [5, 4, 3, 2, 1].map((s) => ({ stars: s, n: reviews.filter((r) => r.rating === s).length }));
   const related = (await all(`${PRODUCT_SELECT} WHERE p.active=1 AND ${PC.visibleSql('p')} AND p.store=? AND p.id<>? ORDER BY (p.category_id IS NOT DISTINCT FROM ?::bigint) DESC, p.sold DESC LIMIT 5`, p.store, p.id, p.category_id)).map(card);
   return {
-    product: { ...card(p), store: p.store, category: p.category || '', category_slug: p.category_slug || '', description: p.description, sku: p.sku, size_label: p.size_label, images: parseImages(p.images), variants, reviews, dist },
+    product: { ...card(p), ...(p.fulfilment === 'dropship' ? { dropship: await require('../lib/dropship').publicInfo(p.id) } : {}), store: p.store, category: p.category || '', category_slug: p.category_slug || '', description: p.description, sku: p.sku, size_label: p.size_label, images: parseImages(p.images), variants, reviews, dist },
     related,
   };
 }
