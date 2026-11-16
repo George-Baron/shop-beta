@@ -88,7 +88,7 @@ app.get('/health', async (req, res) => {
 /* ---------- API ---------- */
 // Request bodies are small by default. The photo upload is the one exception, and it reads its larger body only AFTER the admin check (see routes/admin.js).
 const smallJson = express.json({ limit: '100kb', verify: (req, res, buf) => { req.rawBody = buf; } });
-app.use('/api', (req, res, next) => (req.path === '/admin/upload' || req.path === '/partner/upload' || (req.method === 'POST' && /^\/admin\/catalog\/(parse|validate|commit)$/.test(req.path)) || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) ? next() : smallJson(req, res, next)));
+app.use('/api', (req, res, next) => (req.path === '/admin/upload' || req.path === '/partner/upload' || (req.method === 'POST' && /^\/admin\/catalog\/(parse|validate|commit)$/.test(req.path)) || /^\/(wholesale|admin)\/rfq\/(parse|[A-Z0-9-]+\/files)$/.test(req.path) || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) ? next() : smallJson(req, res, next)));
 app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin) {
@@ -98,6 +98,7 @@ app.use('/api', (req, res, next) => {
   next();
 });
 app.use('/api', A.loadUser);
+app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/admin/pharmacy', require('./routes/pharmacy-admin'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/pharmacy', require('./routes/pharmacy'));
@@ -240,6 +241,7 @@ let server;
 (async () => {
   await migrate();      // creates or updates the tables (safe to run on every start, and by two instances at once)
   await seed();
+  await require('./lib/staff').seedRoles();
   await bootstrapAdmin();
   cache.watch(); // notice edits made on other instances
   server = app.listen(PORT, process.env.HOST || '0.0.0.0', async () => {

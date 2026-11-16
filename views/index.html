@@ -262,6 +262,9 @@ body.is-admin .box{position:absolute;left:0;top:0;width:100%;box-shadow:none}
 body.is-admin .acts,body.is-admin .nop{display:none!important}}
 
 
+.rtrk{list-style:none;display:flex;gap:6px;flex-wrap:wrap;padding:0;margin:0 0 12px;font-size:12.5px}.rtrk li{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;background:var(--surface-2,#eee);color:var(--muted,#666)}.rtrk li span{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:var(--border);font-weight:800;font-size:11px}.rtrk .done{color:var(--text)}.rtrk .done span{background:var(--accent);color:var(--accent-ink)}.rtrk .now{background:var(--accent-soft);color:var(--text);font-weight:800;outline:2px solid var(--accent)}
+.ntf{display:block;padding:12px 14px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;text-decoration:none;color:inherit}.ntf.new{border-color:var(--accent);background:var(--accent-soft)}
+body.is-admin .ntfa{display:block;padding:10px 12px;border-bottom:1px solid var(--border);text-decoration:none;color:inherit}body.is-admin .ntfa.new{background:var(--accent-soft)}body.is-admin .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}body.is-admin .pm td{vertical-align:top}
 </style>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🛍%3C/text%3E%3C/svg%3E">
 </head>
@@ -786,6 +789,7 @@ async function view(main, seg, u, cfg) {
   if (name === 'pharmacist') return pharmacistPage(main);
   if (name === 'partner') return partnerPortal(main);
   if (name === 'wholesale') return wholesalePage(main);
+  if (name === 'notifications') return notificationsPage(main);
   return '';
 }
 
@@ -1307,7 +1311,7 @@ async function route() {
     else if (seg[0] === 'store' && seg[1]) title = await storeView(main, seg[1], u, cfg);
     else if (seg[0] === 'sell' && seg.length === 1) title = await sellView(main, cfg);
     else if (seg[0] === 'page' && seg[1]) title = staticPage(main, seg[1], cfg);
-    else if (['checkout', 'order', 'account', 'login', 'register', 'wishlist', 'track', 'forgot', 'rider', 'pharmacist', 'partner', 'wholesale'].includes(seg[0])) { title = await view(main, seg, u, cfg); }
+    else if (['checkout', 'order', 'account', 'login', 'register', 'wishlist', 'track', 'forgot', 'rider', 'pharmacist', 'partner', 'wholesale', 'notifications'].includes(seg[0])) { title = await view(main, seg, u, cfg); refreshBell(); }
     else main.innerHTML = `<div class="wrap empty"><div class="em">🧭</div><h2>Page not found</h2><p><a class="btn" href="/" data-link>Back to the store</a></p></div>`;
     document.title = (title ? title + ' · ' : '') + cfg.settings.store_name;
     syncHeader(); $('#main').focus({ preventScroll: true });
@@ -1481,6 +1485,102 @@ function proformaHtml(q, biz) {
    <p class="mu" style="font-size:12px;margin:14px 0 0">Payment is made in full before shipment. This is a proforma invoice, not a tax receipt.</p></div>`;
 }
 
+/* ---------------- requests for quotation (wholesale buyers) ---------------- */
+const RFQ_PILL = { draft: '', submitted: 'info', received: 'info', review: 'info', sourcing: 'info', quote_prepared: 'info', quote_sent: 'ok', accepted: 'ok', converted: 'ok', completed: 'ok', rejected: 'bad', expired: 'bad' };
+const rfqPill = (st, label) => `<span class="pill ${RFQ_PILL[st] || ''}">${e(label || st)}</span>`;
+async function rfqPage(main, account, arg, draw, W) {
+  const run = (fn) => async (ev) => { try { await fn(ev); } catch (x) { toast(x.message, 'bad'); } };
+  const wcrumb = (t) => { const c = $('.crumbs', main); if (c) c.insertAdjacentHTML('beforeend', ' › ' + e(t)); };
+  const money = (n) => (n == null ? '' : naira(n));
+  if (!arg) {
+    const { requests, summary: s } = await W('/rfq');
+    draw(`<div class="card" style="margin-bottom:14px"><p style="margin-top:0">Need products that are not on the wholesale list, or in large quantities? Send us a request for quotation. Our commercial team sources, prices and sends you a quotation to accept.</p>
+      <a class="btn" href="/wholesale/rfq/new" data-link>+ New request</a> <a class="btn ghost" href="/api/wholesale/rfq/template.xlsx">Excel template</a> <a class="btn ghost" href="/wholesale" data-link>Wholesale price list</a></div>
+      <div class="cio-k" style="margin-bottom:14px">${[['Submitted', s.total], ['Waiting for us', s.pending], ['Quotations to answer', s.quotations], ['Accepted', s.accepted], ['Rejected', s.rejected], ['Expired', s.expired]].map(([l, v]) => `<div><b>${v || 0}</b>${l}</div>`).join('')}</div>
+      <div class="card"><h3 style="margin-top:0">Your requests</h3>${requests.length ? `<div style="overflow-x:auto"><table class="wtab"><tr><th>Request</th><th>Status</th><th>Products</th><th>Sent</th><th>Quotation</th></tr>${requests.map((r) => `<tr><td><a href="/wholesale/rfq/${e(r.ref)}" data-link><b>${e(r.ref)}</b></a></td><td>${rfqPill(r.status, r.label)}</td><td>${r.items}</td><td>${wdate(r.submitted_at) || 'Draft'}</td><td>${r.total ? naira(r.total) + (r.valid_until ? ` <span class="mu2">until ${wdate(r.valid_until)}</span>` : '') : ''}</td></tr>`).join('')}</table></div>` : '<p class="mu">No requests yet.</p>'}</div>`);
+    wcrumb('Requests for quotation'); return 'Requests for quotation';
+  }
+  let rq = null;
+  if (arg !== 'new') { rq = (await W('/rfq/' + encodeURIComponent(arg))).request; if (rq.status !== 'draft') return rfqDetail(main, rq, draw, W); }
+  /* ----- the form (new request or an open draft) ----- */
+  let ref = rq ? rq.ref : null, files = rq ? rq.files.slice() : [];
+  const blank = () => ({ name: '', qty: '', brand: '', packaging: '', barcode: '', target_price: '', description: '' });
+  let items = rq && rq.items.length ? rq.items.map((i) => ({ name: i.name, qty: i.qty, brand: i.brand, packaging: i.packaging, barcode: i.barcode, target_price: i.target_price == null ? '' : i.target_price, description: i.description })) : [blank(), blank(), blank()];
+  const row = (i, n) => `<tr data-r="${n}"><td data-l="Product"><input data-k="name" value="${e(i.name)}" maxlength="140" placeholder="Product name" aria-label="Product name, line ${n + 1}"></td><td data-l="Quantity"><input data-k="qty" inputmode="numeric" value="${e(i.qty)}" style="width:84px" aria-label="Quantity, line ${n + 1}"></td><td data-l="Brand"><input data-k="brand" value="${e(i.brand)}" maxlength="60"></td><td data-l="Packaging"><input data-k="packaging" value="${e(i.packaging)}" maxlength="80" placeholder="Carton, 50kg bag…"></td><td data-l="Barcode"><input data-k="barcode" value="${e(i.barcode)}" maxlength="40"></td><td data-l="Target price (₦)"><input data-k="target_price" inputmode="numeric" value="${e(i.target_price)}" style="width:100px"></td><td data-l="Details"><input data-k="description" value="${e(i.description)}" maxlength="600" placeholder="Size, grade, spec"></td><td><button type="button" class="btn ghost sm" data-del="${n}" aria-label="Remove line ${n + 1}">✕</button></td></tr>`;
+  const paintFiles = () => { const el = $('#rfiles'); if (el) el.innerHTML = files.map((f) => `<div style="display:flex;gap:8px;align-items:center;padding:3px 0"><a href="/api/wholesale/rfq/${e(ref)}/files/${f.id}">📎 ${e(f.name)}</a><span class="mu2">${Math.round(f.size / 1024)} KB</span><button type="button" class="btn ghost sm" data-rf="${f.id}">Remove</button></div>`).join('') || '<p class="mu2" style="margin:0">No files attached.</p>'; $$('[data-rf]').forEach((b) => b.addEventListener('click', run(async () => { await W(`/rfq/${ref}/files/${b.dataset.rf}`, { method: 'DELETE' }); files = files.filter((f) => String(f.id) !== b.dataset.rf); paintFiles(); }))); };
+  const grab = () => { $$('#rtb tr[data-r]').forEach((tr) => { const i = items[Number(tr.dataset.r)]; for (const inp of $$('[data-k]', tr)) i[inp.dataset.k] = inp.value; }); };
+  const paintRows = () => { $('#rtb').innerHTML = `<tr><th>Product *</th><th>Qty *</th><th>Brand</th><th>Packaging</th><th>Barcode</th><th>Target price</th><th>Details</th><th></th></tr>` + items.map(row).join(''); $$('[data-del]').forEach((b) => b.addEventListener('click', () => { grab(); items.splice(Number(b.dataset.del), 1); if (!items.length) items.push(blank()); paintRows(); })); $('#rcount').textContent = items.filter((i) => i.name || i.qty).length; };
+  draw(`<div class="card"><h3 style="margin-top:0">${ref ? 'Edit draft ' + e(ref) : 'New request for quotation'}</h3>
+    <p class="mu" style="margin-top:0">List what you need. Product name and quantity are required. The more detail you give (brand, packaging, target price) the faster we can quote. <span id="rcount">0</span> product(s) listed.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><button type="button" class="btn ghost sm" id="radd">+ Add a line</button><label class="btn ghost sm" style="cursor:pointer">Upload Excel/CSV<input type="file" id="rxl" accept=".xlsx,.csv" hidden></label><a class="btn ghost sm" href="/api/wholesale/rfq/template.xlsx">Download template</a></div>
+    <div class="cio-tw" style="max-height:none"><table class="cio-tb" id="rtb"></table></div>
+    <h4 style="margin:16px 0 4px">Delivery</h4>${field('rloc', 'Delivery location', { req: 1, max: 300, val: rq ? rq.delivery_location : account.address })}<div class="row c2">${field('rdate', 'Date you need the goods', { type: 'date', val: rq ? rq.required_date : '' })}${field('rphone', 'Contact phone', { type: 'tel', val: rq ? rq.phone : account.phone })}</div>
+    <label class="f">Notes for our team<textarea id="rcom" rows="3" maxlength="2000">${e(rq ? rq.comments : '')}</textarea></label>
+    <h4 style="margin:16px 0 4px">Supporting documents</h4><p class="mu2" style="margin-top:0">PDF, Excel, CSV, Word, PNG or JPG, up to 5 MB each, 5 files.</p><div id="rfiles"></div><label class="btn ghost sm" style="cursor:pointer;margin-top:6px">Attach a file<input type="file" id="rfile" accept=".pdf,.xlsx,.xls,.csv,.docx,.png,.jpg,.jpeg" hidden></label>
+    <p class="err hide" id="rerr" role="alert"></p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px"><button class="btn ghost" id="rsave">Save draft</button><button class="btn" id="rsub">Submit request</button>${ref ? '<button class="btn ghost" id="rdel">Delete draft</button>' : ''}</div></div>`);
+  wcrumb(ref ? ref : 'New request'); paintRows(); paintFiles();
+  const body = () => { grab(); return { items: items.filter((i) => i.name || i.qty || i.description || i.barcode), delivery_location: $('#rloc').value, required_date: $('#rdate').value, phone: $('#rphone').value, comments: $('#rcom').value }; };
+  const persist = async () => { const r = ref ? await W('/rfq/' + ref, { method: 'PUT', body: body() }) : await W('/rfq', { body: body() }); if (!ref) { ref = r.ref; history.replaceState(null, '', '/wholesale/rfq/' + ref); } return ref; };
+  const oops = (m) => { const x = $('#rerr'); x.textContent = m; x.classList.remove('hide'); };
+  $('#radd').addEventListener('click', () => { grab(); items.push(blank()); paintRows(); });
+  $('#rtb').addEventListener('input', () => { grab(); $('#rcount').textContent = items.filter((i) => i.name || i.qty).length; });
+  $('#rxl').addEventListener('change', run(async (ev) => {
+    const f = ev.target.files[0]; ev.target.value = ''; if (!f) return; toast('Reading ' + f.name + '…');
+    const r = await fetch('/api/wholesale/rfq/parse?filename=' + encodeURIComponent(f.name), { method: 'POST', body: f, credentials: 'same-origin' }); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'That file could not be read.');
+    grab(); items = items.filter((i) => i.name || i.qty).concat(d.items.map((x) => ({ ...blank(), ...x }))); paintRows(); toast(`${d.items.length} lines added. Check them below.`);
+  }));
+  $('#rfile').addEventListener('change', run(async (ev) => {
+    const f = ev.target.files[0]; ev.target.value = ''; if (!f) return; if (f.size > 5 * 1024 * 1024) throw new Error('That file is over 5 MB.');
+    try { await persist(); } catch (x) { throw new Error('Fill in the product lines first, so the draft can be saved: ' + x.message); }
+    const data = await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => no(new Error('Could not read the file.')); fr.readAsDataURL(f); });
+    const r = await W(`/rfq/${ref}/files`, { body: { name: f.name, data } }); files.push({ id: r.id, name: f.name, size: f.size }); paintFiles(); toast('Attached');
+  }));
+  $('#rsave').addEventListener('click', run(async () => { await persist(); toast('Draft saved'); }));
+  $('#rsub').addEventListener('click', run(async () => { try { await persist(); await W(`/rfq/${ref}/submit`, { body: {} }); } catch (x) { oops(x.message); throw x; } toast('Request sent. We will start on it soon.'); go('/wholesale/rfq/' + ref); }));
+  const del = $('#rdel'); if (del) del.addEventListener('click', run(async () => { if (!confirm('Delete this draft?')) return; await W('/rfq/' + ref, { method: 'DELETE' }); go('/wholesale/rfq'); }));
+  return 'Request for quotation';
+}
+async function rfqDetail(main, rq, draw, W) {
+  const run = (fn) => async (ev) => { try { await fn(ev); } catch (x) { toast(x.message, 'bad'); } };
+  const track = rq.steps.map((s, i) => `<li class="${i < rq.step ? 'done' : i === rq.step ? 'now' : ''}"><span>${i < rq.step ? '✓' : i + 1}</span>${e(s.label)}</li>`).join('');
+  const q = rq.quote, canAnswer = rq.status === 'quote_sent';
+  draw(`<div class="noprint" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">${rfqPill(rq.status, rq.label)} <a class="btn ghost sm" href="/api/wholesale/rfq/${e(rq.ref)}/download.xlsx">Download Excel</a> <button class="btn ghost sm" onclick="window.print()">Print</button>${rq.sales_ref ? ` <a class="btn sm" href="/wholesale/quote/${e(rq.sales_ref)}" data-link>Open order ${e(rq.sales_ref)}</a>` : ''}</div>
+    ${['rejected', 'expired'].includes(rq.status) ? '' : `<ol class="rtrk">${track}</ol>`}
+    ${rq.status === 'rejected' ? `<div class="card" style="border-color:var(--bad)"><b>This request was closed.</b><p style="margin:6px 0 0">${e(rq.reject_reason || '')}</p></div>` : ''}
+    ${rq.status === 'expired' ? '<div class="card" style="border-color:var(--bad)"><b>This quotation has expired.</b><p style="margin:6px 0 0">Ask us for a new one by starting a new request.</p></div>' : ''}
+    <div class="card" style="margin-top:12px"><h3 style="margin-top:0">${e(rq.ref)}</h3><p class="mu" style="margin:0">Deliver to <b>${e(rq.delivery_location)}</b>${rq.required_date ? ` · needed by <b>${e(rq.required_date)}</b>` : ''}${rq.comments ? `<br>${e(rq.comments)}` : ''}</p>
+      <div style="overflow-x:auto;margin-top:10px"><table class="wtab"><tr><th>Product</th><th>Qty</th><th>Brand / packaging</th><th>Your target</th>${q ? '<th>Unit price</th><th>Line total</th>' : ''}</tr>${rq.items.map((i) => `<tr><td><b>${e(i.name)}</b>${i.description ? `<div class="mu2">${e(i.description)}</div>` : ''}${i.item_note ? `<div class="mu2">${e(i.item_note)}</div>` : ''}</td><td>${i.qty}</td><td>${e([i.brand, i.packaging].filter(Boolean).join(' · '))}</td><td>${i.target_price == null ? '' : naira(i.target_price)}</td>${q ? `<td>${i.unit_price == null ? '' : naira(i.unit_price)}</td><td>${i.line_total == null ? '' : naira(i.line_total)}</td>` : ''}</tr>`).join('')}</table></div>
+      ${q ? `<div class="totals" style="margin-top:12px"><div><span>Goods</span><b>${naira(q.goods)}</b></div><div><span>Logistics</span><b>${naira(q.logistics)}</b></div><div><span>Service fee (${q.service_pct}%)</span><b>${naira(q.service)}</b></div><div><span>Total</span><b>${naira(q.total)}</b></div></div><p class="mu" style="font-size:13px">${q.valid_until ? `Valid until <b>${wdate(q.valid_until)}</b>. ` : ''}${e(q.note || '')}${q.shipment_plan ? `<br>Shipment: ${e(q.shipment_plan)}` : ''}</p>` : ''}
+      ${canAnswer ? '<div class="noprint" style="margin-top:10px"><p>If you accept, we turn this into a wholesale order, set the goods aside and send you the invoice to pay.</p><button class="btn" id="racc">Accept quotation</button> <button class="btn ghost" id="rdec">Decline</button></div>' : ''}</div>
+    ${rq.files.length ? `<div class="card noprint" style="margin-top:12px"><h4 style="margin-top:0">Documents</h4>${rq.files.map((f) => `<div><a href="/api/wholesale/rfq/${e(rq.ref)}/files/${f.id}">📎 ${e(f.name)}</a></div>`).join('')}</div>` : ''}
+    <div class="card noprint" style="margin-top:12px"><h4 style="margin-top:0">History</h4>${rq.events.map((x) => `<div style="font-size:13px;padding:2px 0"><span class="mu">${wdate(x.created)}</span> · <b>${e(x.label)}</b>${x.note ? ' · ' + e(x.note) : ''}</div>`).join('')}</div>`);
+  const c = $('.crumbs', main); if (c) c.insertAdjacentHTML('beforeend', ` › <a href="/wholesale/rfq" data-link>Requests</a> › ${e(rq.ref)}`);
+  const acc = $('#racc'); if (acc) acc.addEventListener('click', run(async () => { await W(`/rfq/${rq.ref}/accept`, { body: {} }); toast('Accepted. We will turn it into an order.'); wholesalePage(main); }));
+  const dec = $('#rdec'); if (dec) dec.addEventListener('click', run(async () => { const reason = prompt('Why are you declining? (this helps us quote better next time)'); if (!reason) return; await W(`/rfq/${rq.ref}/decline`, { body: { reason } }); wholesalePage(main); }));
+  return 'Request ' + rq.ref;
+}
+
+/* ---------------- notifications (everyone who is signed in) ---------------- */
+async function refreshBell() {
+  const b = $('#ncount'); if (!b) return;
+  if (!store.user) { b.classList.add('hide'); $('#bellBtn').classList.add('hide'); return; }
+  $('#bellBtn').classList.remove('hide');
+  try { const { unread } = await api('/api/notifications/count'); b.textContent = unread > 99 ? '99+' : unread; b.classList.toggle('hide', !unread); } catch { /* ignore */ }
+}
+async function notificationsPage(main) {
+  if (!store.user) { go('/login?next=/notifications', true); return 'Notifications'; }
+  const draw = async (before) => {
+    const d = await api('/api/notifications?limit=20' + (before ? '&before=' + before : ''));
+    const html = d.notifications.map((n) => `<a class="ntf ${n.read ? '' : 'new'}" href="${e(n.link || '#')}" data-nid="${n.id}" ${n.link && n.link.startsWith('/admin') ? '' : n.link ? 'data-link' : ''}><b>${e(n.title)}</b>${n.body ? `<div class="mu">${e(n.body)}</div>` : ''}<div class="mu2">${new Date(n.created * 1000).toLocaleString('en-NG')}</div></a>`).join('');
+    if (!before) main.innerHTML = `<div class="wrap page" style="max-width:720px"><div style="display:flex;justify-content:space-between;align-items:center"><h1 style="font-size:28px">Notifications</h1><button class="btn ghost sm" id="nall">Mark all as read</button></div><div id="nlist">${html || '<p class="mu">Nothing yet.</p>'}</div>${d.more ? `<button class="btn ghost" id="nmore" data-b="${d.notifications[d.notifications.length - 1].id}">Show older</button>` : ''}</div>`;
+    else { $('#nlist').insertAdjacentHTML('beforeend', html); const m = $('#nmore'); if (d.more) m.dataset.b = d.notifications[d.notifications.length - 1].id; else m.remove(); }
+    $$('[data-nid]').forEach((a) => { if (!a.dataset.w) { a.dataset.w = 1; a.addEventListener('click', () => { api('/api/notifications/read', { body: { id: Number(a.dataset.nid) } }).then(refreshBell).catch(() => {}); }); } });
+    const all = $('#nall'); if (all && !all.dataset.w) { all.dataset.w = 1; all.addEventListener('click', async () => { await api('/api/notifications/read', { body: { all: true } }); $$('.ntf.new').forEach((x) => x.classList.remove('new')); refreshBell(); }); }
+    const more = $('#nmore'); if (more && !more.dataset.w) { more.dataset.w = 1; more.addEventListener('click', () => draw(more.dataset.b)); }
+  };
+  await draw(); return 'Notifications';
+}
+
 async function wholesalePage(main) {
   const parts = location.pathname.split('/').filter(Boolean), ref = parts[1] === 'quote' ? (parts[2] || '').toUpperCase() : '';
   const draw = (inner) => { main.innerHTML = `<div class="wrap page" style="max-width:1000px"><nav class="crumbs noprint"><a href="/" data-link>Home</a> › <a href="/wholesale" data-link>Wholesale</a>${ref ? ' › ' + e(ref) : ''}</nav><h1 style="font-size:28px;margin:0 0 6px" class="noprint">📦 Wholesale</h1>${inner}</div>`; };
@@ -1508,6 +1608,7 @@ async function wholesalePage(main) {
     draw(`<div class="card"><h3 style="margin-top:0">${account.status === 'pending' ? 'Your application is being evaluated' : 'Your wholesale account is ' + e(account.status)}</h3><p>${account.status === 'pending' ? `Thank you, ${e(account.business_name)}. We check your details over a few weeks (planned until ${wdate(account.evaluate_until)}) and will email you. Wholesale prices appear here once you are approved.` : e(account.status_note || 'Please contact us.')}</p></div>`);
     return 'Wholesale';
   }
+  if (parts[1] === 'rfq') return rfqPage(main, account, parts[2] ? decodeURIComponent(parts[2]).toUpperCase() === 'NEW' ? 'new' : decodeURIComponent(parts[2]).toUpperCase() : '', draw, W);
   if (ref) {
     const { quote: q } = await W('/quotes/' + encodeURIComponent(ref));
     const act = {
@@ -1527,7 +1628,8 @@ async function wholesalePage(main) {
     return 'Quotation ' + q.ref;
   }
   const [{ products }, { quotes }] = await Promise.all([W('/catalog'), W('/quotes')]);
-  draw(`<div class="card" style="margin-bottom:14px"><b>${e(account.business_name)}</b> · approved wholesale buyer. Choose quantities (at or above the minimum), tell us where to deliver, and request a quotation. We reply with a proforma invoice.</div>
+  draw(`<div class="card" style="margin-bottom:14px"><b>Need something that is not on this list?</b> <a class="btn sm" href="/wholesale/rfq" data-link>Request a quotation</a></div>
+    <div class="card" style="margin-bottom:14px"><b>${e(account.business_name)}</b> · approved wholesale buyer. Choose quantities (at or above the minimum), tell us where to deliver, and request a quotation. We reply with a proforma invoice.</div>
     ${quotes.length ? `<div class="card" style="margin-bottom:14px"><h4 style="margin-top:0">Your quotations</h4>${quotes.map((x) => `<a href="/wholesale/quote/${e(x.ref)}" data-link style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)"><span><b>${e(x.ref)}</b> · ${wdate(x.created)}</span><span>${naira(x.total)} · ${e(WSTATUS[x.status] || x.status)}</span></a>`).join('')}</div>` : ''}
     <div class="card"><h3 style="margin-top:0">Wholesale price list</h3><input id="wq" placeholder="Filter products" style="max-width:300px;margin-bottom:8px">
      ${products.length ? `<div style="overflow-x:auto"><table class="wtab" id="wt"><tr><th>Product</th><th>Retail</th><th>Wholesale</th><th>Minimum</th><th>In stock</th><th>Quantity</th></tr>${products.map((p) => `<tr data-n="${e(p.name.toLowerCase())}"><td><b>${e(p.name)}</b><div class="mu" style="font-size:12px">${e(p.category || '')}</div></td><td class="mu"><s>${naira(p.retail_price)}</s></td><td><b>${naira(p.price)}</b></td><td>${p.min_qty}</td><td>${p.stock}</td><td><input type="number" min="0" max="${p.stock}" data-pid="${p.id}" data-min="${p.min_qty}" data-price="${p.price}" placeholder="0"></td></tr>`).join('')}</table></div>` : '<p class="mu">No wholesale products are listed yet. Ask us, or check back soon.</p>'}
@@ -1581,6 +1683,7 @@ function shell() {
     <form class="search" id="sform" role="search"><input id="sq" type="search" placeholder="Search products, brands and more…" aria-label="Search" autocomplete="off"><button aria-label="Search">🔍</button></form>
     <div class="icons">
       <button class="ibtn" id="modeBtn" aria-label="Toggle dark mode">🌓</button>
+      <a class="ibtn hide" id="bellBtn" href="/notifications" data-link aria-label="Notifications">🔔<span class="dot hide" id="ncount"></span></a>
       <a class="ibtn" id="acctBtn" href="/account" data-link aria-label="Account">👤</a>
       <a class="ibtn" href="/wishlist" data-link aria-label="Wishlist">♡<span class="dot hide" id="wcount"></span></a>
       <button class="ibtn" id="cartBtn" aria-label="Open cart">🛒<span class="dot hide" id="ccount"></span></button>
@@ -1644,7 +1747,7 @@ onChange(() => { syncHeader(); });
   try {
     cfg = await api('/api/config'); store.cfg = cfg; store.user = cfg.user;
     if (store.user) { try { const d = await api('/api/wishlist'); d.ids.forEach((i) => wish.ids.add(i)); ls.set('sb_wish', [...wish.ids]); } catch { /* optional */ } }
-    app.cfg = cfg; shell(); initCart(cfg); if (cfg.assistant) initAssistant();
+    app.cfg = cfg; shell(); setInterval(() => { if (!document.hidden) refreshBell(); }, 30000); initCart(cfg); if (cfg.assistant) initAssistant();
     if (cfg.settings.ga_id) { const s = document.createElement('script'); s.async = true; s.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(cfg.settings.ga_id); document.head.appendChild(s); window.dataLayer = window.dataLayer || []; window.gtag = function () { window.dataLayer.push(arguments); }; window.gtag('js', new Date()); window.gtag('config', cfg.settings.ga_id); }
     cookieNotice();
     await route();
@@ -1694,24 +1797,27 @@ function setupView(needsCode) {
   });
 }
 function loginForm(msg) {
-  root.innerHTML = `<div class="login"><div class="card"><h1 style="font-size:24px">Shop-Beta Admin</h1><p class="mu">Sign in with your administrator account.</p>
-  <form id="lf" novalidate><label class="f">Email<input id="le" type="email" autocomplete="username" required></label><label class="f">Password<input id="lp" type="password" autocomplete="current-password" required></label>
+  root.innerHTML = `<div class="login"><div class="card"><h1 style="font-size:24px">Shop-Beta Admin</h1><p class="mu">Sign in with your administrator or employee account.</p>
+  <form id="lf" novalidate><label class="f">Email or username<input id="le" type="text" autocomplete="username" required></label><label class="f">Password<input id="lp" type="password" autocomplete="current-password" required></label>
   <p class="err ${msg ? '' : 'hide'}" id="lerr" role="alert">${e(msg || '')}</p><button class="btn block" id="lb">Sign in</button></form><p class="mu2" style="margin-top:12px"><a href="/" style="color:var(--accent);font-weight:700">← Back to the store</a></p></div></div>`;
   $('#lf').addEventListener('submit', async (ev) => {
     ev.preventDefault(); const b = $('#lb'); b.disabled = true;
     try {
       const d = await api('/api/auth/login', { body: { email: $('#le').value, password: $('#lp').value } });
-      if (d.user.role !== 'admin') { await api('/api/auth/logout', { body: {} }); throw new Error('This account is not an administrator.'); }
+      if (d.user.role !== 'admin' && d.user.role !== 'staff') { await api('/api/auth/logout', { body: {} }); throw new Error('This account does not have back-office access.'); }
       me = d.user; boot();
     } catch (err) { const x = $('#lerr'); x.textContent = err.message; x.classList.remove('hide'); b.disabled = false; }
   });
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy']];
+const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['staff', '👤', 'Employees & roles'], ['notifications', '🔔', 'Notifications']];
+const NAVMOD = { dashboard: 'any', notifications: 'any', orders: 'orders', products: 'catalog', catalogio: 'catalog', categories: 'catalog', reviews: 'catalog', customers: 'customers', messages: 'customers', coupons: 'marketing', marketing: 'marketing', deliveries: 'delivery', partners: 'delivery', vendors: 'partners', wholesale: 'wholesale', rfq: 'rfq' };
+const can = (m, w) => { const p = (me && me.perms) || []; return p.includes('*') || p.includes(m + (w ? ':edit' : ':view')); };
+const visible = (k) => (me && me.role === 'admin') || (NAVMOD[k] === 'any') || (NAVMOD[k] && can(NAVMOD[k], false));
 async function shell(page, body, unread) {
-  root.innerHTML = `<div class="adm"><aside class="side"><div class="side-top"><div><b>🛠 Shop-Beta</b><div class="who">${e(me.email)}</div></div><div><a class="btn ghost sm" href="/" target="_blank" rel="noopener">View store</a> <button class="btn ghost sm" id="lo">Sign out</button></div></div>
-  <nav>${NAV.map(([k, ic, t]) => `<a data-nav="${k}" class="${page === k ? 'on' : ''}">${ic} ${t}${k === 'messages' && unread ? ` <span class="dot">${unread}</span>` : ''}</a>`).join('')}</nav></aside><main class="main" id="mn">${body}</main></div>`;
+  root.innerHTML = `<div class="adm"><aside class="side"><div class="side-top"><div><b>🛠 Shop-Beta</b><div class="who">${e(me.email)}${me.staff_role && me.role === 'staff' ? ' · ' + e(me.staff_role) : ''}</div></div><div><a class="btn ghost sm" href="/" target="_blank" rel="noopener">View store</a> <button class="btn ghost sm" id="lo">Sign out</button></div></div>
+  <nav>${NAV.filter(([k]) => visible(k)).map(([k, ic, t]) => `<a data-nav="${k}" class="${page === k ? 'on' : ''}">${ic} ${t}${k === 'messages' && unread ? ` <span class="dot">${unread}</span>` : ''}${k === 'notifications' ? ' <span class="dot hide" id="nbadge"></span>' : ''}</a>`).join('')}</nav></aside><main class="main" id="mn">${body}</main></div>`;
   $('#lo').addEventListener('click', async () => { await api('/api/auth/logout', { body: {} }); me = null; loginView(); });
 }
 root.addEventListener('click', (ev) => { const n = ev.target.closest('[data-nav]'); if (n) location.hash = '#/' + n.dataset.nav; });
@@ -1724,6 +1830,7 @@ async function route() {
   const v = views[page] || views.dashboard;
   const p = views[page] ? page : 'dashboard';
   await shell(p, '<div class="loading-page"></div>', unreadCount);
+  api('/api/notifications/count').then((c) => { const b = $('#nbadge'); if (b) { b.textContent = c.unread; b.classList.toggle('hide', !c.unread); } }).catch(() => {});
   try { await v(p); } catch (err) { if (err.status === 401) { me = null; return loginView('Your session expired. Please sign in again.'); } $('#mn').innerHTML = `<div class="panel"><h3>Something went wrong</h3><p class="mu">${e(err.message)}</p></div>`; }
 }
 window.addEventListener('hashchange', route);
@@ -1795,6 +1902,138 @@ async function orderModal(id) {
     await api('/api/admin/orders/' + id, { method: 'PUT', body: { status: st, note: $('#onote').value } }); toast('Order updated'); closeModal(); route();
   }));
 }
+
+/* ---------------- requests for quotation (back office) ---------------- */
+const RFQ_LABEL = { submitted: 'Submitted', received: 'Received', review: 'Under review', sourcing: 'Sourcing', quote_prepared: 'Quotation prepared', quote_sent: 'Quotation sent', accepted: 'Accepted', rejected: 'Rejected', converted: 'Converted to order', completed: 'Completed', expired: 'Expired' };
+const rstate = { ref: '', status: '', assigned: '', q: '' };
+views.rfq = async () => {
+  if (rstate.ref) return rfqDetailAdmin(rstate.ref);
+  const qs = new URLSearchParams(Object.entries({ status: rstate.status, assigned: rstate.assigned, q: rstate.q }).filter(([, v]) => v));
+  const [{ requests, counts }, { officers }] = await Promise.all([api('/api/admin/rfq?' + qs), api('/api/admin/rfq/officers')]);
+  mn(hd('Requests for quotation') + `<div class="tbar"><select id="rs"><option value="">All statuses</option>${Object.entries(RFQ_LABEL).map(([k, v]) => `<option value="${k}" ${rstate.status === k ? 'selected' : ''}>${v}${counts[k] ? ' (' + counts[k] + ')' : ''}</option>`).join('')}</select>
+    <select id="ra"><option value="">Anyone</option><option value="none" ${rstate.assigned === 'none' ? 'selected' : ''}>Unassigned</option>${officers.map((o) => `<option value="${o.id}" ${String(rstate.assigned) === String(o.id) ? 'selected' : ''}>${e(o.name)}</option>`).join('')}</select><input id="rq" placeholder="Search request or company" value="${e(rstate.q)}"></div>
+    <div class="panel"><div class="tw"><table class="t"><tr><th>Request</th><th>Buyer</th><th>Status</th><th>Products</th><th>Sent</th><th>Assigned to</th><th>Quotation</th></tr>${requests.map((r) => `<tr class="click" data-rf="${e(r.ref)}"><td><b>${e(r.ref)}</b></td><td>${e(r.company)}</td><td><span class="pill ${r.status === 'rejected' || r.status === 'expired' ? 'cancelled' : e(r.status === 'completed' ? 'delivered' : 'processing')}">${e(r.label)}</span></td><td>${r.items}</td><td>${dt(r.submitted_at)}</td><td>${e(r.assigned_name) || '<span class="mu">Unassigned</span>'}</td><td>${r.total ? naira(r.total) : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="mu">No requests match.</td></tr>'}</table></div></div>`);
+  onAll('[data-rf]', 'click', (el) => { rstate.ref = el.dataset.rf; route(); });
+  for (const [id, k] of [['#rs', 'status'], ['#ra', 'assigned']]) on(id, 'change', (ev) => { rstate[k] = ev.target.value; route(); });
+  let t; on('#rq', 'input', (ev) => { clearTimeout(t); t = setTimeout(() => { rstate.q = ev.target.value; route(); }, 400); });
+};
+async function rfqDetailAdmin(ref) {
+  const [{ request: r }, { officers }] = await Promise.all([api('/api/admin/rfq/' + encodeURIComponent(ref)), api('/api/admin/rfq/officers')]);
+  const edit = can('rfq', true), pricing = edit && ['received', 'review', 'sourcing', 'quote_prepared', 'quote_sent'].includes(r.raw_status);
+  const lines = r.items.map((i) => ({ ...i, drop: false, price: i.unit_price == null ? '' : i.unit_price, note: i.item_note || '' }));
+  const q = r.quote || {};
+  const act = [];
+  if (edit) {
+    if (r.raw_status === 'submitted') act.push(['received', 'Mark as received']);
+    if (['submitted', 'received', 'sourcing'].includes(r.raw_status)) act.push(['review', 'Start review']);
+    if (['received', 'review'].includes(r.raw_status)) act.push(['sourcing', 'Supplier sourcing']);
+  }
+  mn(`<div class="hd"><h1><a class="btn ghost sm" id="rback">← All requests</a> ${e(r.ref)}</h1><div><span class="pill ${r.status === 'rejected' || r.status === 'expired' ? 'cancelled' : 'processing'}">${e(r.label)}</span> <a class="btn ghost sm" href="/api/admin/rfq/${e(r.ref)}/download.xlsx">Download Excel</a></div></div>
+    <div class="panel"><div class="grid2"><div><b>${e(r.company)}</b><div class="mu">${e(r.contact_name)} · ${e(r.phone)} · ${e(r.email)}</div><div style="margin-top:6px">Deliver to <b>${e(r.delivery_location)}</b>${r.required_date ? ` · needed by <b>${e(r.required_date)}</b>` : ''}</div>${r.comments ? `<div class="mu" style="margin-top:6px">${e(r.comments)}</div>` : ''}</div>
+      <div>${edit && r.raw_status !== 'draft' ? `<label class="f">Assigned to<select id="rasg"><option value="">Nobody</option>${officers.map((o) => `<option value="${o.id}" ${r.assigned_to === o.id ? 'selected' : ''}>${e(o.name)}</option>`).join('')}</select></label>` : `<div>Assigned to <b>${e(r.assigned_name) || 'nobody'}</b></div>`}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${act.map(([k, t]) => `<button class="btn sm" data-st="${k}">${t}</button>`).join('')}${edit && ['submitted', 'received', 'review', 'sourcing', 'quote_prepared'].includes(r.raw_status) ? '<button class="btn ghost sm" id="rrej">Reject request</button>' : ''}</div></div></div></div>
+    <div class="panel"><h3 style="margin-top:0">Products requested</h3><div class="tw"><table class="t" id="rlines"><tr><th>Product</th><th>Qty</th><th>They want</th><th>Our product</th><th>Unit price (₦)</th><th>Line total</th>${pricing ? '<th>Cannot supply</th>' : ''}</tr>${lines.map((l, n) => `<tr data-n="${n}"><td><b>${e(l.name)}</b>${l.description ? `<div class="mu2">${e(l.description)}</div>` : ''}${l.barcode ? `<div class="mu2">Barcode ${e(l.barcode)}</div>` : ''}</td><td>${l.qty}</td><td class="mu2">${e([l.brand, l.packaging].filter(Boolean).join(' · '))}${l.target_price != null ? '<br>Target ' + naira(l.target_price) : ''}</td>
+      <td>${l.product_id ? `${e(l.match_name || '')} <span class="mu2">${e(l.match_sku || '')} · stock ${l.match_stock}${l.match_stock < l.qty ? ' ⚠' : ''} · list ${naira(l.match_price)}</span>` : '<span class="mu">Not matched</span>'}${pricing ? ` <button class="btn ghost sm" data-m="${n}">${l.product_id ? 'Change' : 'Match'}</button>` : ''}</td>
+      <td>${pricing ? `<input data-p="${n}" inputmode="numeric" value="${e(l.price)}" style="width:110px">` : l.unit_price == null ? '' : naira(l.unit_price)}${pricing ? `<input data-nt="${n}" value="${e(l.note)}" placeholder="Note to buyer" maxlength="200" style="margin-top:4px;width:160px">` : ''}</td><td data-lt="${n}">${l.line_total != null ? naira(l.line_total) : ''}</td>${pricing ? `<td><input type="checkbox" data-dr="${n}"></td>` : ''}</tr>`).join('')}</table></div>
+    ${pricing ? `<div class="grid2" style="margin-top:12px"><div><label class="f">Logistics fee (₦)<input id="rlog" inputmode="numeric" value="${q.logistics || ''}"></label><label class="f">Service fee (%)<input id="rsvc" inputmode="decimal" value="${q.service_pct !== undefined ? q.service_pct : ''}" placeholder="default from wholesale settings"></label><label class="f">Quotation valid for (days)<input id="rvd" inputmode="numeric" value="7"></label></div>
+      <div><label class="f">Note to the buyer<textarea id="rnote" rows="2" maxlength="500">${e(q.note || '')}</textarea></label><label class="f">Shipment plan<textarea id="rship" rows="2" maxlength="500">${e(q.shipment_plan || '')}</textarea></label></div></div>
+      <div class="totals" id="rtot"></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn" id="rsave">Save prices</button>${r.raw_status === 'quote_prepared' ? '<button class="btn" id="rsend">Send quotation to the buyer</button>' : ''}</div>` : q.total ? `<div class="totals" style="margin-top:10px"><div><span>Goods</span><b>${naira(q.goods)}</b></div><div><span>Logistics</span><b>${naira(q.logistics)}</b></div><div><span>Service fee (${q.service_pct}%)</span><b>${naira(q.service)}</b></div><div><span>Total</span><b>${naira(q.total)}</b></div></div>` : ''}
+    ${edit && r.raw_status === 'quote_sent' ? '<p class="mu2">The quotation is with the buyer. Saving new prices above will pull it back for revision.</p>' : ''}
+    ${edit && r.raw_status === 'accepted' ? '<div style="margin-top:12px"><p>The buyer accepted. Every line must be matched to a catalogue product with enough stock before you convert it. For items we do not stock yet, add the product in Products and match it here.</p><button class="btn" id="rconv">Convert to sales order</button></div>' : ''}
+    ${r.sales_ref ? `<p style="margin-top:12px">Sales order <b>${e(r.sales_ref)}</b> · <a href="#/wholesale" id="rtow">open Wholesale</a></p>` : ''}</div>
+    <div class="grid2"><div class="panel"><h3 style="margin-top:0">Documents</h3>${r.files.map((f) => `<div><a href="/api/admin/rfq/${e(r.ref)}/files/${f.id}">📎 ${e(f.name)}</a> <span class="mu2">${Math.round(f.size / 1024)} KB</span></div>`).join('') || '<p class="mu">None attached.</p>'}</div>
+    <div class="panel"><h3 style="margin-top:0">History</h3>${r.events.map((x) => `<div style="font-size:13px;padding:2px 0"><span class="mu">${dt(x.created)}</span> · <b>${e(x.label)}</b>${x.note ? ' · ' + e(x.note) : ''} <span class="mu2">${e(x.by)}</span></div>`).join('')}</div></div>`);
+  const total = () => {
+    const pct = $('#rsvc') && $('#rsvc').value !== '' ? Number($('#rsvc').value) : null; let goods = 0, missing = 0;
+    lines.forEach((l, n) => { const v = l.drop ? null : l.price === '' ? null : Number(String(l.price).replace(/[₦,\s]/g, '')); if (!l.drop && v === null) missing++; const lt = v === null ? 0 : v * l.qty; goods += lt; const c = $(`[data-lt="${n}"]`); if (c) c.textContent = v === null ? '' : naira(lt); });
+    const t = $('#rtot'); if (t) t.innerHTML = `<div><span>Goods</span><b>${naira(goods)}</b></div><div><span>Service fee</span><b>${pct === null ? 'default %' : naira(Math.round(goods * pct / 100))}</b></div>${missing ? `<p class="err" style="margin:6px 0 0">${missing} line${missing === 1 ? '' : 's'} still without a price.</p>` : ''}`;
+  };
+  if (pricing) { total(); $$('[data-p]', $('#mn')).forEach((i) => i.addEventListener('input', () => { lines[Number(i.dataset.p)].price = i.value; total(); })); $$('[data-nt]', $('#mn')).forEach((i) => i.addEventListener('input', () => { lines[Number(i.dataset.nt)].note = i.value; })); $$('[data-dr]', $('#mn')).forEach((i) => i.addEventListener('change', () => { lines[Number(i.dataset.dr)].drop = i.checked; total(); })); on('#rsvc', 'input', total); }
+  on('#rback', 'click', () => { rstate.ref = ''; route(); });
+  on('#rasg', 'change', async (ev) => { await api(`/api/admin/rfq/${r.ref}/assign`, { body: { user_id: ev.target.value ? Number(ev.target.value) : null } }); toast('Assigned'); route(); });
+  onAll('[data-st]', 'click', async (el) => { await api(`/api/admin/rfq/${r.ref}/status`, { body: { status: el.dataset.st } }); route(); });
+  on('#rrej', 'click', async () => { const note = prompt('Why can we not quote this? The buyer will see your answer.'); if (!note) return; await api(`/api/admin/rfq/${r.ref}/status`, { body: { status: 'rejected', note } }); route(); });
+  const saveBody = () => ({ items: lines.map((l) => ({ id: l.id, unit_price: l.price === '' ? null : Number(String(l.price).replace(/[₦,\s]/g, '')), product_id: l.product_id || null, item_note: l.note, drop: l.drop })), logistics_fee: $('#rlog').value ? Number($('#rlog').value.replace(/[₦,\s]/g, '')) : 0, service_pct: $('#rsvc').value, valid_days: Number($('#rvd').value) || 7, quote_note: $('#rnote').value, shipment_plan: $('#rship').value });
+  on('#rsave', 'click', async () => { await api(`/api/admin/rfq/${r.ref}/quote`, { method: 'PUT', body: saveBody() }); toast('Saved'); route(); });
+  on('#rsend', 'click', async () => { if (!confirm('Send this quotation to the buyer now?')) return; await api(`/api/admin/rfq/${r.ref}/send`, { body: {} }); toast('Quotation sent'); route(); });
+  on('#rconv', 'click', async () => { if (!confirm('Create the wholesale order and set the goods aside?')) return; const d = await api(`/api/admin/rfq/${r.ref}/convert`, { body: {} }); toast('Order ' + d.sales_ref + ' created'); route(); });
+  on('#rtow', 'click', () => { rstate.ref = ''; });
+  onAll('[data-m]', 'click', (el) => {
+    const n = Number(el.dataset.m);
+    openModal(`<h3 style="margin-top:0">Match "${e(lines[n].name)}" to one of our products</h3><input id="mq" placeholder="Search name, SKU, barcode or brand" value="${e(lines[n].name.slice(0, 20))}" autofocus><div id="mres" style="margin-top:8px;max-height:320px;overflow:auto"></div><div style="display:flex;gap:8px;margin-top:10px"><button class="btn ghost" id="mclr">No match (we source it)</button><button class="btn ghost" id="mx">Close</button></div>`);
+    const find = async () => { const d = await api('/api/admin/rfq/match?q=' + encodeURIComponent($('#mq').value)); $('#mres').innerHTML = d.products.map((p) => `<div class="click" style="padding:8px;border-bottom:1px solid var(--border);cursor:pointer" data-pp="${p.id}"><b>${e(p.name)}</b> <span class="mu2">${e(p.sku || '')} · stock ${p.stock} · ${naira(p.price)}</span></div>`).join('') || '<p class="mu">Nothing found.</p>'; $$('[data-pp]', modal).forEach((x) => x.addEventListener('click', () => { const p = d.products.find((y) => String(y.id) === x.dataset.pp); Object.assign(lines[n], { product_id: p.id, match_name: p.name, match_sku: p.sku, match_stock: p.stock, match_price: p.price }); closeModal(); persistMatch(); })); };
+    const persistMatch = guard(async () => { await api(`/api/admin/rfq/${r.ref}/quote`, { method: 'PUT', body: { ...saveBody(), finalize: false } }); route(); });
+    let tm; $('#mq').addEventListener('input', () => { clearTimeout(tm); tm = setTimeout(find, 300); }); find();
+    $('#mx').addEventListener('click', closeModal); $('#mclr').addEventListener('click', () => { lines[n].product_id = null; closeModal(); persistMatch(); });
+  });
+}
+
+/* ---------------- employees, roles and permissions (owner only) ---------------- */
+const sstate = { tab: 'staff', days: 30 };
+const permMatrix = (mods, sel) => `<table class="t pm"><tr><th>Area</th><th>View</th><th>Edit</th></tr>${mods.map((m) => `<tr><td><b>${e(m.label)}</b><div class="mu2">${e(m.about)}</div></td><td><input type="checkbox" data-pv="${m.key}" ${sel.includes(m.key + ':view') ? 'checked' : ''}></td><td><input type="checkbox" data-pe="${m.key}" ${sel.includes(m.key + ':edit') ? 'checked' : ''}></td></tr>`).join('')}</table>`;
+const wirePerms = (root) => { $$('[data-pe]', root).forEach((c) => c.addEventListener('change', () => { if (c.checked) $(`[data-pv="${c.dataset.pe}"]`, root).checked = true; })); $$('[data-pv]', root).forEach((c) => c.addEventListener('change', () => { if (!c.checked) $(`[data-pe="${c.dataset.pv}"]`, root).checked = false; })); };
+const readPerms = (root) => [...$$('[data-pv]:checked', root).map((c) => c.dataset.pv + ':view'), ...$$('[data-pe]:checked', root).map((c) => c.dataset.pe + ':edit')];
+const showSecret = (title, pw) => openModal(`<h3 style="margin-top:0">${e(title)}</h3><p>Give this temporary password to the person. It is shown <b>only once</b>.</p><p style="font-size:20px;font-family:monospace;user-select:all;background:var(--surface-2);padding:10px;border-radius:8px">${e(pw)}</p><button class="btn" id="mx">Done</button>`) || $('#mx').addEventListener('click', closeModal);
+views.staff = async () => {
+  const d = await api('/api/admin/staff'), tabs = [['staff', 'Employees'], ['roles', 'Roles & permissions'], ['perf', 'Performance']];
+  let body = '';
+  if (sstate.tab === 'staff') {
+    body = `<div class="panel"><div class="tw"><table class="t"><tr><th>Name</th><th>Sign-in</th><th>Role</th><th>Status</th><th>Last sign-in</th><th></th></tr>${d.staff.map((s) => `<tr><td><b>${e(s.name)}</b></td><td>${e(s.email)}${s.username ? `<div class="mu2">@${e(s.username)}</div>` : ''}</td><td>${e(s.role)}${s.custom_perms ? ' <span class="pill">custom</span>' : ''}</td><td>${s.active ? '<span class="pill delivered">active</span>' : '<span class="pill cancelled">off</span>'}</td><td>${s.last_login ? dt(s.last_login) : '<span class="mu">never</span>'}</td><td><button class="btn ghost sm" data-se="${s.id}">Manage</button></td></tr>`).join('')}</table></div></div>`;
+  } else if (sstate.tab === 'roles') {
+    body = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">${d.roles.map((r) => `<div class="panel" style="margin:0"><h3 style="margin:0">${e(r.name)}</h3><p class="mu" style="margin:4px 0">${e(r.description)}</p><p class="mu2">${r.members} employee${r.members === 1 ? '' : 's'}</p><div style="font-size:12.5px">${d.modules.filter((m) => r.perms.includes(m.key + ':view')).map((m) => `<span class="pill ${r.perms.includes(m.key + ':edit') ? 'delivered' : ''}">${e(m.label)}${r.perms.includes(m.key + ':edit') ? '' : ' (view)'}</span>`).join(' ')}</div><div style="margin-top:8px"><button class="btn ghost sm" data-re="${r.id}">Edit</button>${r.builtin ? '' : ` <button class="btn ghost sm" data-rd="${r.id}">Delete</button>`}</div></div>`).join('')}</div>`;
+  } else {
+    const { performance: pf } = await api('/api/admin/staff/performance?days=' + sstate.days);
+    body = `<div class="tbar"><select id="pd">${[7, 30, 90, 365].map((x) => `<option value="${x}" ${sstate.days === x ? 'selected' : ''}>Last ${x} days</option>`).join('')}</select></div><div class="panel"><div class="tw"><table class="t"><tr><th>Person</th><th>Changes made</th><th>Orders handled</th><th>Products reviewed</th><th>RFQs assigned</th><th>Quotations sent</th><th>RFQs converted</th><th>Sign-ins</th></tr>${pf.map((p) => `<tr><td><b>${e(p.name)}</b><div class="mu2">${e(p.role)}</div></td><td>${p.actions}</td><td>${p.orders_handled}</td><td>${p.products_reviewed}</td><td>${p.rfqs_assigned}</td><td>${p.quotations_sent}</td><td>${p.rfqs_converted}</td><td>${p.logins}</td></tr>`).join('')}</table></div></div>`;
+  }
+  mn(hd('Employees & roles', sstate.tab === 'staff' ? '<button class="btn" id="sadd">+ Add employee</button>' : sstate.tab === 'roles' ? '<button class="btn" id="radd">+ New role</button>' : '') + `<div class="tbar">${tabs.map(([k, t]) => `<button class="btn ${sstate.tab === k ? '' : 'ghost'} sm" data-tab="${k}">${t}</button>`).join('')}</div>` + body);
+  onAll('[data-tab]', 'click', (el) => { sstate.tab = el.dataset.tab; route(); });
+  on('#pd', 'change', (ev) => { sstate.days = Number(ev.target.value); route(); });
+  const roleOpts = (sel) => d.roles.map((r) => `<option value="${r.id}" ${Number(sel) === r.id ? 'selected' : ''}>${e(r.name)}</option>`).join('');
+  on('#sadd', 'click', () => {
+    openModal(`<h3 style="margin-top:0">Add an employee</h3><div class="grid2"><label class="f">Full name<input id="sn" maxlength="80"></label><label class="f">Email<input id="se" type="email"></label><label class="f">Username (optional)<input id="su" maxlength="30" placeholder="ada.obi"></label><label class="f">Phone<input id="sp" maxlength="30"></label></div>
+      <label class="f">Role<select id="sr">${roleOpts()}<option value="super">Super Administrator (full access)</option></select></label><label class="f">Password (leave empty to generate a temporary one)<input id="spw" type="text" autocomplete="off"></label>
+      <label class="chk"><input type="checkbox" id="scu"> Give custom permissions instead of the role's</label><div id="spm" class="hide">${permMatrix(d.modules, [])}</div><p class="err hide" id="serr"></p><div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="sok">Create account</button><button class="btn ghost" id="sx">Cancel</button></div>`, true);
+    wirePerms(modal); $('#scu').addEventListener('change', () => $('#spm').classList.toggle('hide', !$('#scu').checked)); $('#sx').addEventListener('click', closeModal);
+    $('#sok').addEventListener('click', guard(async () => {
+      const sup = $('#sr').value === 'super', b = { name: $('#sn').value, email: $('#se').value, username: $('#su').value, phone: $('#sp').value, password: $('#spw').value || undefined };
+      if (sup) b.super = true; else { b.role_id = Number($('#sr').value); if ($('#scu').checked) b.perms = readPerms($('#spm')); }
+      try { const r = await api('/api/admin/staff', { body: b }); closeModal(); route(); if (r.temp_password) showSecret('Account created', r.temp_password); else toast('Account created'); } catch (x) { const el = $('#serr'); el.textContent = x.message; el.classList.remove('hide'); }
+    }));
+  });
+  onAll('[data-se]', 'click', (el) => {
+    const s = d.staff.find((x) => x.id === Number(el.dataset.se)), selPerms = s.custom_perms || (d.roles.find((r) => r.id === s.role_id) || { perms: [] }).perms;
+    openModal(`<h3 style="margin-top:0">${e(s.name)}</h3><div class="grid2"><label class="f">Full name<input id="sn" value="${e(s.name)}" maxlength="80"></label><label class="f">Username<input id="su" value="${e(s.username)}" maxlength="30"></label><label class="f">Phone<input id="sp" value="${e(s.phone || '')}"></label>
+      ${s.super ? '<div class="f">Role<div><b>Super Administrator</b> (full access)</div></div>' : `<label class="f">Role<select id="sr">${roleOpts(s.role_id)}</select></label>`}</div>
+      <label class="chk"><input type="checkbox" id="sact" ${s.active ? 'checked' : ''}> Account is active (signing in is allowed)</label>
+      ${s.super ? '' : `<label class="chk"><input type="checkbox" id="scu" ${s.custom_perms ? 'checked' : ''}> Custom permissions for this person</label><div id="spm" class="${s.custom_perms ? '' : 'hide'}">${permMatrix(d.modules, selPerms)}</div>`}
+      <p class="err hide" id="serr"></p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn" id="sok">Save</button><button class="btn ghost" id="srp">Reset password</button><button class="btn ghost" id="slg">Sign-in history</button><button class="btn ghost" id="sac">Recent activity</button><button class="btn ghost" id="sx">Close</button></div><div id="sext" style="margin-top:10px;max-height:240px;overflow:auto;font-size:12.5px"></div>`, true);
+    wirePerms(modal); $('#sx').addEventListener('click', closeModal); const cu = $('#scu'); if (cu) cu.addEventListener('change', () => $('#spm').classList.toggle('hide', !cu.checked));
+    $('#sok').addEventListener('click', guard(async () => {
+      const b = { name: $('#sn').value, username: $('#su').value, phone: $('#sp').value, active: $('#sact').checked }; if (!s.super) { b.role_id = Number($('#sr').value); b.perms = $('#scu').checked ? readPerms($('#spm')) : null; }
+      try { await api('/api/admin/staff/' + s.id, { method: 'PUT', body: b }); closeModal(); toast('Saved'); route(); } catch (x) { const el = $('#serr'); el.textContent = x.message; el.classList.remove('hide'); }
+    }));
+    $('#srp').addEventListener('click', guard(async () => { if (!confirm('Reset the password? They are signed out everywhere.')) return; const r = await api(`/api/admin/staff/${s.id}/reset-password`, { body: {} }); showSecret('New temporary password', r.temp_password); }));
+    $('#slg').addEventListener('click', guard(async () => { const r = await api(`/api/admin/staff/${s.id}/logins`); $('#sext').innerHTML = `<table class="t"><tr><th>When</th><th>Result</th><th>From</th></tr>${r.logins.map((l) => `<tr><td>${dt(l.created)}</td><td>${l.ok ? 'Signed in' : '<span style="color:var(--bad)">Failed</span>'}</td><td>${e(l.ip)}<div class="mu2">${e(l.agent.slice(0, 60))}</div></td></tr>`).join('') || '<tr><td colspan="3" class="mu">None yet.</td></tr>'}</table>`; }));
+    $('#sac').addEventListener('click', guard(async () => { const r = await api(`/api/admin/staff/${s.id}/activity`); $('#sext').innerHTML = `<table class="t"><tr><th>When</th><th>What</th></tr>${r.activity.map((a) => `<tr><td>${dt(a.created)}</td><td><b>${e(a.method)}</b> ${e(a.path.replace('/api/admin', ''))} <span class="mu2">${a.status}</span></td></tr>`).join('') || '<tr><td colspan="2" class="mu">Nothing yet.</td></tr>'}</table>`; }));
+  });
+  const roleForm = (r) => {
+    openModal(`<h3 style="margin-top:0">${r ? 'Edit role' : 'New role'}</h3><label class="f">Name<input id="rn" maxlength="60" value="${e(r ? r.name : '')}"></label><label class="f">What this role is for<input id="rd" maxlength="200" value="${e(r ? r.description : '')}"></label>${permMatrix(d.modules, r ? r.perms : [])}<p class="mu2">Owner-only areas (settings, backups, the activity log, employees, pharmacy) are never given to a role.</p><p class="err hide" id="serr"></p><div style="display:flex;gap:8px"><button class="btn" id="rok">Save role</button><button class="btn ghost" id="sx">Cancel</button></div>`, true);
+    wirePerms(modal); $('#sx').addEventListener('click', closeModal);
+    $('#rok').addEventListener('click', guard(async () => { try { await api(r ? '/api/admin/staff/roles/' + r.id : '/api/admin/staff/roles', { method: r ? 'PUT' : 'POST', body: { name: $('#rn').value, description: $('#rd').value, perms: readPerms(modal) } }); closeModal(); toast('Saved'); route(); } catch (x) { const el = $('#serr'); el.textContent = x.message; el.classList.remove('hide'); } }));
+  };
+  on('#radd', 'click', () => roleForm(null)); onAll('[data-re]', 'click', (el) => roleForm(d.roles.find((r) => r.id === Number(el.dataset.re))));
+  onAll('[data-rd]', 'click', async (el) => { if (!confirm('Delete this role?')) return; await api('/api/admin/staff/roles/' + el.dataset.rd, { method: 'DELETE' }); route(); });
+};
+
+/* ---------------- notifications and announcements ---------------- */
+views.notifications = async () => {
+  const d = await api('/api/notifications?limit=40');
+  mn(hd('Notifications', '<button class="btn ghost sm" id="nall">Mark all as read</button>') + `${can('marketing', true) ? `<div class="panel"><h3 style="margin-top:0">Send an announcement</h3><div class="grid2"><label class="f">To<select id="aud"><option value="partners">All partner stores</option><option value="wholesale">Approved wholesale buyers</option><option value="staff">Employees</option></select></label><label class="f">Title<input id="att" maxlength="140"></label></div><label class="f">Message<textarea id="abd" rows="2" maxlength="600"></textarea></label><label class="chk"><input type="checkbox" id="aem"> Also send it by email</label><div style="margin-top:8px"><button class="btn" id="asend">Send announcement</button></div></div>` : ''}
+    <div class="panel">${d.notifications.map((n) => `<a class="ntfa ${n.read ? '' : 'new'}" href="${e(n.link ? (n.link.startsWith('/admin') ? n.link.replace('/admin', '') || '#/' : n.link) : '#')}" data-nid="${n.id}" ${n.link && !n.link.startsWith('/admin') ? 'target="_blank"' : ''}><b>${e(n.title)}</b>${n.body ? `<div class="mu">${e(n.body)}</div>` : ''}<div class="mu2">${dt(n.created)}</div></a>`).join('') || '<p class="mu">Nothing yet.</p>'}</div>`);
+  onAll('[data-nid]', 'click', async (el) => { api('/api/notifications/read', { body: { id: Number(el.dataset.nid) } }).catch(() => {}); });
+  on('#nall', 'click', async () => { await api('/api/notifications/read', { body: { all: true } }); route(); });
+  on('#asend', 'click', async () => { const r = await api('/api/admin/announce', { body: { audience: $('#aud').value, title: $('#att').value, body: $('#abd').value, email: $('#aem').checked } }); toast(`Sent to ${r.sent} people`); $('#att').value = ''; $('#abd').value = ''; });
+};
 
 /* ---------------- products ---------------- */
 const pstate = { q: '', store: '' }; const psel = new Set();
@@ -2320,7 +2559,7 @@ views.pharmacy = async () => {
 
 /* ---------------- boot ---------------- */
 async function boot() {
-  try { const m = await api('/api/me'); me = m.user && m.user.role === 'admin' ? m.user : null; } catch { me = null; }
+  try { const m = await api('/api/me'); me = m.user && (m.user.role === 'admin' || m.user.role === 'staff') ? m.user : null; } catch { me = null; }
   if (!me) return loginView();
   try { const c = await api('/api/config'); cfgStores = c.stores; } catch { /* retry in views */ }
   route();
