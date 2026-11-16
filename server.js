@@ -104,6 +104,7 @@ app.use('/api/pharmacy', require('./routes/pharmacy'));
 app.use('/api/rider', require('./routes/rider'));
 app.use('/api/partner', require('./routes/partner'));
 app.use('/api/wholesale', require('./routes/wholesale'));
+app.use('/api/warehouse', require('./routes/warehouse'));
 app.use('/api', require('./routes/public'));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
