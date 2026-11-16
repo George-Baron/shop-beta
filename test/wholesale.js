@@ -24,7 +24,10 @@ const call = async (method, url, body, cookie) => {
 };
 const login = async (email, password) => { const r = await call('POST', '/api/auth/login', { email, password }); assert.strictEqual(r.s, 200, 'login ' + email + ' ' + r.t); return r.c; };
 const PW = 'Wholesale-Test-Pass-2026!';
-const stockOf = async (id) => Number((await q('SELECT stock FROM products WHERE id=$1', [id]))[0].stock);
+// Wholesale stock lives in the warehouse, separate from retail products.stock. stockOf = what is still available to sell wholesale.
+const stockOf = async (id) => { const r = (await q("SELECT on_hand - reserved AS a FROM wholesale_stock_balances WHERE product_id=$1", [id]))[0]; return r ? Number(r.a) : 0; };
+const retailOf = async (id) => Number((await q('SELECT stock FROM products WHERE id=$1', [id]))[0].stock);
+const setAvail = async (id, n) => { const wh = (await q("SELECT id FROM wholesale_warehouses WHERE code='MAIN'"))[0].id; await q('INSERT INTO wholesale_stock_balances (product_id,warehouse_id,on_hand,reserved,updated) VALUES ($1,$2,$3,0,1) ON CONFLICT (product_id,warehouse_id) DO UPDATE SET on_hand = wholesale_stock_balances.reserved + $3', [id, wh, n]); };
 const appBody = (o = {}) => ({ business_name: 'Ada Provisions Ltd', contact_name: 'Ada Obi', phone: '08031234567', address: '5 Trade Fair Road', state: 'Lagos', city: 'Ojo', reg_no: 'RC445566', business_type: 'Retailer', buys: 'Rice, beans and cooking oil for my shops', est_monthly: '₦2m', ...o });
 
 (async () => {
@@ -37,7 +40,8 @@ const appBody = (o = {}) => ({ business_name: 'Ada Provisions Ltd', contact_name
   const W = (m, u, b) => A(m, '/api/admin/wholesale' + u, b);
   const prods = (await q("SELECT id, name, price, stock FROM products WHERE vendor_id IS NULL AND is_pharmacy=0 AND NOT EXISTS (SELECT 1 FROM variants v WHERE v.product_id=products.id) AND stock >= 30 ORDER BY id LIMIT 3"));
   assert.ok(prods.length >= 2, 'need two plain products with stock');
-  const [P1, P2] = prods; const P1stock = Number(P1.stock);
+  const [P1, P2] = prods; const P1stock = Number(P1.stock); const retail1 = P1stock, retail2 = Number(P2.stock);
+  await setAvail(P1.id, P1stock); await setAvail(P2.id, Number(P2.stock));
   const variantProd = (await q('SELECT product_id AS id FROM variants LIMIT 1'))[0];
   let buyer, buyerAcct, ref, ref2;
 
@@ -168,7 +172,7 @@ const appBody = (o = {}) => ({ business_name: 'Ada Provisions Ltd', contact_name
     assert.ok((await W('GET', '/quotes/' + r)).j.quote.events.some((e) => /refund them/.test(e.note)));
   });
   await test('stock cannot be oversold: two quotes for the same last units, only one can be accepted', async () => {
-    await q('UPDATE products SET stock=12 WHERE id=$1', [P2.id]);
+    await setAvail(P2.id, 12);
     const C = (m, u, b) => call(m, '/api/wholesale' + u, b, buyer);
     const a1 = (await C('POST', '/quotes', { items: [{ productId: P2.id, qty: 8 }], ship_address: '5 Trade Fair Road', ship_state: 'Lagos' })).j.ref;
     const a2 = (await C('POST', '/quotes', { items: [{ productId: P2.id, qty: 8 }], ship_address: '5 Trade Fair Road', ship_state: 'Lagos' })).j.ref;
@@ -181,7 +185,7 @@ const appBody = (o = {}) => ({ business_name: 'Ada Provisions Ltd', contact_name
   const stub = (ref, amount, currency = 'NGN', status = 'success') => execFileSync(process.execPath, ['-e', `const S = require('./lib/shop'); S.paystackVerify = async () => ({ status: ${JSON.stringify(status)}, reference: ${JSON.stringify(ref)}, currency: ${JSON.stringify(currency)}, amount: ${amount} }); require('./lib/wholesale').settle(${JSON.stringify(ref)}).then((q) => { console.log('S=' + q.status); process.exit(0); }).catch((e) => { console.error(e); process.exit(1); })`], { cwd: path.join(__dirname, '..'), env: { ...process.env, DATABASE_URL: urlOf(DB) } }).toString();
   const accepted = async (qty = 3) => {
     const C = (m, u, b) => call(m, '/api/wholesale' + u, b, buyer);
-    await q('UPDATE products SET stock=50 WHERE id=$1', [P2.id]);
+    await setAvail(P2.id, 50);
     const r = (await C('POST', '/quotes', { items: [{ productId: P2.id, qty }], ship_address: '5 Trade Fair Road', ship_state: 'Lagos' })).j.ref;
     await W('POST', `/quotes/${r}/send`, { logistics_fee: 1000, shipment_plan: 'Collect', service_pct: 0 }); await C('POST', `/quotes/${r}/accept`, {});
     const total = (await C('GET', '/quotes/' + r)).j.quote.total; return { r, total, C };
@@ -199,7 +203,7 @@ const appBody = (o = {}) => ({ business_name: 'Ada Provisions Ltd', contact_name
   await test('declining and accepting at the same moment never leaves stock held for a declined quote', async () => {
     const C = (m, u, b) => call(m, '/api/wholesale' + u, b, buyer);
     for (let i = 0; i < 6; i++) {
-      await q('UPDATE products SET stock=50 WHERE id=$1', [P2.id]);
+      await setAvail(P2.id, 50);
       const r = (await C('POST', '/quotes', { items: [{ productId: P2.id, qty: 3 }], ship_address: '5 Trade Fair Road', ship_state: 'Lagos' })).j.ref;
       await W('POST', `/quotes/${r}/send`, { logistics_fee: 0, shipment_plan: 'Collect', service_pct: 0 });
       await Promise.all([C('POST', `/quotes/${r}/accept`, {}), C('POST', `/quotes/${r}/decline`, {})]);
@@ -215,7 +219,7 @@ const appBody = (o = {}) => ({ business_name: 'Ada Provisions Ltd', contact_name
   });
   await test('absurd admin numbers get a clear message, not a server error', async () => {
     const C = (m, u, b) => call(m, '/api/wholesale' + u, b, buyer);
-    await q('UPDATE products SET stock=50 WHERE id=$1', [P2.id]);
+    await setAvail(P2.id, 50);
     const r = (await C('POST', '/quotes', { items: [{ productId: P2.id, qty: 3 }], ship_address: '5 Trade Fair Road', ship_state: 'Lagos' })).j.ref;
     const items = (await W('GET', '/quotes/' + r)).j.quote.items.map((i) => ({ id: i.id, qty: i.qty, unit_price: i.unit_price }));
     for (const bad of [{ items: items.map((i) => ({ ...i, unit_price: 9e15 })), logistics_fee: 0 }, { items: items.map((i) => ({ ...i, unit_price: 99000000, qty: 50 })), logistics_fee: 0 }, { items, logistics_fee: 9e15 }])
