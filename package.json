@@ -36,6 +36,7 @@
     "lb": "node scripts/dev-lb.js",
     "load:local": "node load/run-staging.js",
     "test:assistant": "node --disable-warning=ExperimentalWarning test/assistant.js",
+    "test:roles": "node --disable-warning=ExperimentalWarning test/roles.js",
     "test:catalog": "node --disable-warning=ExperimentalWarning test/catalog.js"
   },
   "dependencies": {

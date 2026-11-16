@@ -40,7 +40,11 @@ module.exports = (kind) => {
   router.post('/apply', A.limiter('catalog-apply', 600, 3600000), json, ah(async (req, res) => {
     const b = req.body || {}; res.json(await IO.apply(await scopeOf(req), b, b.rows));
   }));
-  router.post('/log', json, ah(async (req, res) => { const b = req.body || {}; await IO.logRun(await scopeOf(req), req.user, b.kind === 'export' ? 'export' : 'import', b); res.json({ ok: true }); }));
+  router.post('/log', json, ah(async (req, res) => {
+    const b = req.body || {}, sc = await scopeOf(req); await IO.logRun(sc, req.user, b.kind === 'export' ? 'export' : 'import', b);
+    if (sc.vendor && b.kind !== 'export' && (Number(b.created) || 0) + (Number(b.updated) || 0) > 0) await require('../lib/notify').toStaff('catalog', true, { type: 'product', title: `${sc.vendor.name} imported ${(Number(b.created) || 0) + (Number(b.updated) || 0)} products`, body: 'They are waiting for your review.', link: '/admin#/vendors' });
+    res.json({ ok: true });
+  }));
   router.get('/history', ah(async (req, res) => res.json({ history: await IO.history(await scopeOf(req)) })));
   router.get('/export.:ext(xlsx|csv)', A.limiter('catalog-export', 60, 3600000), ah(async (req, res) => {
     const sc = await scopeOf(req), r = await IO.exportRows(sc, req.query), csv = req.params.ext === 'csv';
