@@ -1841,10 +1841,10 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['staff', '👤', 'Employees & roles'], ['notifications', '🔔', 'Notifications']];
+const NAV = [['dashboard', '📊', 'Dashboard'], ['commercial', '🧭', 'Commercial operations'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['staff', '👤', 'Employees & roles'], ['notifications', '🔔', 'Notifications']];
 const NAVMOD = { dashboard: 'any', notifications: 'any', orders: 'orders', products: 'catalog', catalogio: 'catalog', categories: 'catalog', reviews: 'catalog', customers: 'customers', messages: 'customers', coupons: 'marketing', marketing: 'marketing', deliveries: 'delivery', partners: 'delivery', vendors: 'partners', wholesale: 'wholesale', warehouse: 'warehouse', rfq: 'rfq' };
 const can = (m, w) => { const p = (me && me.perms) || []; return p.includes('*') || p.includes(m + (w ? ':edit' : ':view')); };
-const visible = (k) => (me && me.role === 'admin') || (NAVMOD[k] === 'any') || (NAVMOD[k] && can(NAVMOD[k], false));
+const visible = (k) => k === 'commercial' ? !!(me && (me.role === 'admin' || can('partners') || can('rfq') || can('reports') || can('finance'))) : (me && me.role === 'admin') || (NAVMOD[k] === 'any') || (NAVMOD[k] && can(NAVMOD[k], false));
 async function shell(page, body, unread) {
   root.innerHTML = `<div class="adm"><aside class="side"><div class="side-top"><div><b>🛠 Shop-Beta</b><div class="who">${e(me.email)}${me.staff_role && me.role === 'staff' ? ' · ' + e(me.staff_role) : ''}</div></div><div><a class="btn ghost sm" href="/" target="_blank" rel="noopener">View store</a> <button class="btn ghost sm" id="lo">Sign out</button></div></div>
   <nav>${NAV.filter(([k]) => visible(k)).map(([k, ic, t]) => `<a data-nav="${k}" class="${page === k ? 'on' : ''}">${ic} ${t}${k === 'messages' && unread ? ` <span class="dot">${unread}</span>` : ''}${k === 'notifications' ? ' <span class="dot hide" id="nbadge"></span>' : ''}</a>`).join('')}</nav></aside><main class="main" id="mn">${body}</main></div>`;
@@ -2749,6 +2749,76 @@ views.pharmacy = async () => {
   const ret = (sel, status) => onAll(sel, 'click', async (el) => { const resolution = prompt('What was decided? (refund, replacement, or why refused)'); if (!resolution) return; await P('/returns/' + (el.dataset.ra || el.dataset.rj), { method: 'PUT', body: { status, resolution } }); route(); });
   ret('[data-ra]', 'approved'); ret('[data-rj]', 'rejected');
 };
+
+/* ---------------- commercial operations ---------------- */
+const cs = { tab: 'work', from: '', to: '', officer: '', pstatus: '', rstatus: '', rep: '', report: null };
+views.commercial = async () => {
+  const canRep = can('reports') || can('finance');
+  const hasWork = can('partners') || can('rfq');
+  if (!hasWork && canRep) cs.tab = 'reports';
+  const tabs = [...(hasWork ? [['work', 'Workspace']] : []), ...(canRep || can('partners') || can('rfq') ? [['reports', 'Reports']] : [])];
+  if (!tabs.some(([k]) => k === cs.tab)) cs.tab = tabs[0][0];
+  const body = cs.tab === 'work' ? await commWork() : await commReports();
+  mn(hd('Commercial operations') + `<div class="tbar" role="tablist">${tabs.map(([k, l]) => `<button class="btn ${cs.tab === k ? '' : 'ghost'} sm" data-ctab="${k}" role="tab">${l}</button>`).join('')}</div>` + body);
+  onAll('[data-ctab]', 'click', (el) => { cs.tab = el.dataset.ctab; return views.commercial(); });
+  if (cs.tab === 'work') bindCommWork(); else bindCommReports();
+};
+const cfmt = (v, t) => v == null || v === '' ? '' : t === 'money' ? naira(v) : t === 'int' ? Number(v).toLocaleString('en-NG') : t === 'hours' ? Number(v).toFixed(1) + ' h' : t === 'date' ? new Date(v * 1000).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' }) : e(v);
+const cCard = (label, v, hint) => `<div class="panel" style="min-width:140px;margin:0"><div class="mu2">${e(label)}</div><b style="font-size:20px">${e(v)}</b>${hint ? `<div class="mu2">${e(hint)}</div>` : ''}</div>`;
+const RSTAT = { submitted: 'Submitted', received: 'Received', review: 'Under review', sourcing: 'Sourcing', quote_prepared: 'Quote prepared', quote_sent: 'Quote sent', accepted: 'Accepted', rejected: 'Rejected', converted: 'Converted to order', completed: 'Completed' };
+async function commWork() {
+  const q = new URLSearchParams({ ...(cs.from ? { from: cs.from } : {}), ...(cs.to ? { to: cs.to } : {}), ...(cs.officer ? { officer: cs.officer } : {}), ...(cs.pstatus ? { pstatus: cs.pstatus } : {}), ...(cs.rstatus ? { rstatus: cs.rstatus } : {}) });
+  const d = await api('/api/admin/commercial/overview?' + q); cs.data = d;
+  const P = d.sections.find((s) => s.key === 'partners'), R = d.sections.find((s) => s.key === 'rfq');
+  const officerOpts = (sel) => `<option value="">Nobody</option>${d.officers.map((o) => `<option value="${o.id}" ${Number(sel) === o.id ? 'selected' : ''}>${e(o.name)}</option>`).join('')}`;
+  let h = `<div class="tbar" style="flex-wrap:wrap;gap:8px"><label style="width:auto">From<input type="date" id="cf" value="${e(cs.from || d.from)}"></label><label style="width:auto">To<input type="date" id="ct" value="${e(cs.to || d.to)}"></label>
+    <label style="width:auto">Officer<select id="co"><option value="">Everyone</option><option value="none" ${cs.officer === 'none' ? 'selected' : ''}>Unassigned</option>${d.officers.map((o) => `<option value="${o.id}" ${String(cs.officer) === String(o.id) ? 'selected' : ''}>${e(o.name)}</option>`).join('')}</select></label>
+    ${P ? `<label style="width:auto">Partner status<select id="cps"><option value="">All</option>${['pending', 'approved', 'rejected', 'suspended'].map((s) => `<option value="${s}" ${cs.pstatus === s ? 'selected' : ''}>${s === 'pending' ? 'under evaluation' : s}</option>`).join('')}</select></label>` : ''}
+    ${R ? `<label style="width:auto">Request status<select id="crs"><option value="">All</option>${Object.entries(RSTAT).map(([k, l]) => `<option value="${k}" ${cs.rstatus === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>` : ''}</div>`;
+  if (P) {
+    const c = P.counts;
+    h += `<h3 style="margin:14px 0 6px">Partner stores</h3><div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">${cCard('Under evaluation', c.pending)}${cCard('Approved', c.approved)}${cCard('No officer yet', c.unassigned)}${cCard('Products awaiting review', c.productsAwaiting)}${cCard('Suspended', c.suspended)}</div>
+    <div class="panel"><div class="tw"><table class="t"><tr><th>Store</th><th>Status</th><th>Place</th><th>Relationship officer</th><th style="text-align:right">Awaiting review</th><th style="text-align:right">Live products</th>${P.rows.some((r) => r.sales != null) ? '<th style="text-align:right">Sales (period)</th>' : ''}</tr>
+    ${P.rows.map((r) => `<tr><td><a href="#/vendors"><b>${e(r.name)}</b></a></td><td><span class="pill ${r.status === 'approved' ? 'ok' : r.status === 'pending' ? '' : 'bad'}">${r.status === 'pending' ? 'evaluating' : e(r.status)}</span></td><td>${e(r.place)}</td>
+      <td>${can('partners', true) ? `<select data-vo="${r.id}" aria-label="Officer for ${e(r.name)}">${officerOpts(r.officerId)}</select>` : e(r.officer || 'Nobody')}</td><td style="text-align:right">${r.awaiting}</td><td style="text-align:right">${r.live}</td>${r.sales != null ? `<td style="text-align:right">${naira(r.sales)}</td>` : ''}</tr>`).join('') || '<tr><td colspan="7" class="mu2">No partner stores match.</td></tr>'}</table></div></div>`;
+  }
+  if (R) {
+    const c = R.counts;
+    h += `<h3 style="margin:14px 0 6px">Quotation requests</h3><div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">${cCard('Waiting for an officer', c.unassigned)}${cCard('Assigned to me', c.mine)}${cCard('Quote sent, awaiting buyer', c.quote_sent || 0)}${cCard('Accepted', c.accepted || 0)}${cCard('Converted to orders', c.converted || 0)}</div>
+    <div class="panel"><div class="tw"><table class="t"><tr><th>Request</th><th>Buyer</th><th>Status</th><th>Officer</th><th style="text-align:right">Lines</th><th style="text-align:right">Quotation</th><th>Created</th></tr>
+    ${R.rows.map((r) => `<tr><td><a href="#/rfq"><b>${e(r.ref)}</b></a></td><td>${e(r.company)}</td><td><span class="pill ${['accepted', 'converted', 'completed'].includes(r.status) ? 'ok' : r.status === 'rejected' ? 'bad' : ''}">${e(r.expired ? 'Quote expired' : RSTAT[r.status] || r.status)}</span></td>
+      <td>${can('rfq', true) ? `<select data-ro="${e(r.ref)}" aria-label="Officer for ${e(r.ref)}">${officerOpts(r.officerId)}</select>` : e(r.officer || 'Nobody')}</td><td style="text-align:right">${r.items}</td><td style="text-align:right">${r.total ? naira(r.total) : ''}</td><td>${cfmt(r.created, 'date')}</td></tr>`).join('') || '<tr><td colspan="7" class="mu2">No requests match.</td></tr>'}</table></div></div>`;
+  }
+  return h;
+}
+function bindCommWork() {
+  const re = () => views.commercial();
+  on('#cf', 'change', () => { cs.from = $('#cf').value; return re(); }); on('#ct', 'change', () => { cs.to = $('#ct').value; return re(); });
+  on('#co', 'change', () => { cs.officer = $('#co').value; return re(); }); on('#cps', 'change', () => { cs.pstatus = $('#cps').value; return re(); }); on('#crs', 'change', () => { cs.rstatus = $('#crs').value; return re(); });
+  onAll('[data-vo]', 'change', async (el) => { await api('/api/admin/commercial/partners/' + el.dataset.vo + '/officer', { body: { user_id: el.value ? Number(el.value) : null } }); toast('Officer updated'); return re(); });
+  onAll('[data-ro]', 'change', async (el) => { await api('/api/admin/rfq/' + encodeURIComponent(el.dataset.ro) + '/assign', { body: { user_id: el.value ? Number(el.value) : null } }); toast('Officer updated'); return re(); });
+}
+let commList = null;
+async function commReports() {
+  commList = commList || (await api('/api/admin/commercial/reports')).reports;
+  const moneyOk = can('reports') || can('finance');
+  const list = commList.filter((r) => (moneyOk || !r.money) && (r.name !== 'employee-performance' || can('reports', true)));
+  if (!list.length) return '<div class="panel"><p class="mu2">Your role does not include any reports.</p></div>';
+  if (!list.some((r) => r.name === cs.rep)) cs.rep = list[0].name;
+  const cur = list.find((r) => r.name === cs.rep), qs = new URLSearchParams({ ...(cs.from ? { from: cs.from } : {}), ...(cs.to ? { to: cs.to } : {}) });
+  const r = (await api('/api/admin/commercial/reports/' + cs.rep + '?' + qs)).report; cs.report = r;
+  const dl = (f) => `/api/admin/commercial/reports/${cs.rep}/download?${new URLSearchParams({ format: f, ...(cur.dated ? { from: r.from, to: r.to } : {}) })}`;
+  return `<div class="tbar" style="flex-wrap:wrap;gap:8px"><label style="width:auto">Report<select id="crp">${list.map((x) => `<option value="${x.name}" ${x.name === cs.rep ? 'selected' : ''}>${e(x.title)}</option>`).join('')}</select></label>
+    ${cur.dated ? `<label style="width:auto">From<input type="date" id="crf" value="${e(r.from)}"></label><label style="width:auto">To<input type="date" id="crt" value="${e(r.to)}"></label>` : ''}
+    <a class="btn ghost sm" href="${dl('xlsx')}" download>Download Excel</a><a class="btn ghost sm" href="${dl('csv')}" download>Download CSV</a></div>
+  <h3 style="margin:8px 0 4px">${e(r.title)}</h3>${r.note ? `<p class="mu2">${e(r.note)}</p>` : ''}
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0">${r.summary.map((s) => cCard(s.label, s.value == null ? '—' : cfmt(s.value, s.type))).join('')}</div>
+  <div class="panel"><div class="tw"><table class="t"><tr>${r.columns.map((c) => `<th${['money', 'int', 'hours'].includes(c.type) ? ' style="text-align:right"' : ''}>${e(c.label)}</th>`).join('')}</tr>${r.rows.map((row) => `<tr>${r.columns.map((c) => `<td${['money', 'int', 'hours'].includes(c.type) ? ' style="text-align:right"' : ''}>${cfmt(row[c.key], c.type)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${r.columns.length}" class="mu2">Nothing in this period.</td></tr>`}</table></div></div>`;
+}
+function bindCommReports() {
+  on('#crp', 'change', () => { cs.rep = $('#crp').value; return views.commercial(); });
+  on('#crf', 'change', () => { cs.from = $('#crf').value; return views.commercial(); }); on('#crt', 'change', () => { cs.to = $('#crt').value; return views.commercial(); });
+}
 
 /* ---------------- boot ---------------- */
 async function boot() {

@@ -68,6 +68,7 @@ router.use('/vendors', require('./vendors-admin'));
 router.use('/wholesale', require('./wholesale-admin'));
 router.use('/catalog', require('./catalog-admin'));
 router.use('/rfq', require('./rfq-admin'));
+router.use('/commercial', require('./commercial-admin'));
 router.use('/warehouse', require('./warehouse'));
 router.get('/audit', ah(async (req, res) => res.json({ log: await all('SELECT id, user_name, method, path, status, detail, ip, created FROM audit_log ORDER BY id DESC LIMIT 300') })));
 
