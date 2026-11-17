@@ -40,7 +40,11 @@ async function buildConfig() {
     categories,
     zones,
     pharmacy: PC.enabled(),
-    payments: { paystack: S.paystack_enabled === '1' && (S_.paystackLive() || S_.demoAllowed()), pod: S.pod_enabled === '1', demo: !S_.paystackLive() && S_.demoAllowed() },
+    payments: { paystack: S.paystack_enabled === '1' && (S_.paystackLive() || S_.demoAllowed()), pod: S.pod_enabled === '1', demo: !S_.paystackLive() && S_.demoAllowed(), stripe: require('../lib/stripe').enabled() },
+    // Countries and currencies a customer can choose. 'rate' is Naira per unit at the charge rate: used only to show approximate prices; the real amount is fixed by the server at checkout.
+    countries: await require('../lib/regions').publicCountries(),
+    currencies: Object.values(await require('../lib/currency').available()).map((c) => ({ code: c.code, rate: c.rate, decimals: c.decimals })),
+    gateways: { paystack_currencies: S_.paystackCurrencies(), stripe_currencies: require('../lib/stripe').enabled() ? require('../lib/stripe').currencies() : [] },
   };
 }
 
@@ -217,16 +221,16 @@ router.post('/checkout', A.limiter('checkout', 20, 3600000), ah(async (req, res)
   if (order.replayed) { // the same checkout sent again: answer exactly as before, send no second email, start no second payment
     if (order.status === 'cancelled') fail(409, 'That order was cancelled. Please place a new order.');
     if (order.payment_method === 'pod' || order.payment_status === 'paid') return res.json({ ref: order.ref, token: order.access_token, next: 'pod', replayed: true });
-    if (!S_.paystackLive()) return res.json({ ref: order.ref, token: order.access_token, next: 'demo', replayed: true });
-    if (!order.pay_url) { order.pay_url = await S_.paystackInitialize(order); await run('UPDATE orders SET pay_url=? WHERE id=?', order.pay_url, order.id); }
-    return res.json({ ref: order.ref, token: order.access_token, next: 'paystack', url: order.pay_url, replayed: true });
+    if (order.gateway !== 'stripe' && !S_.paystackLive()) return res.json({ ref: order.ref, token: order.access_token, next: 'demo', replayed: true });
+    if (!order.pay_url) { order.pay_url = await S_.startPayment(order); await run('UPDATE orders SET pay_url=? WHERE id=?', order.pay_url, order.id); }
+    return res.json({ ref: order.ref, token: order.access_token, next: order.gateway === 'stripe' ? 'stripe' : 'paystack', url: order.pay_url, replayed: true });
   }
   if (order.payment_method === 'pod') { S_.mailOrderPlaced(order); return res.json({ ref: order.ref, token: order.access_token, next: 'pod' }); }
-  if (!S_.paystackLive()) return res.json({ ref: order.ref, token: order.access_token, next: 'demo' });
+  if (order.gateway !== 'stripe' && !S_.paystackLive()) return res.json({ ref: order.ref, token: order.access_token, next: 'demo' });
   try {
-    const url = await S_.paystackInitialize(order);
+    const url = await S_.startPayment(order);
     await run('UPDATE orders SET pay_url=? WHERE id=?', url, order.id);
-    return res.json({ ref: order.ref, token: order.access_token, next: 'paystack', url });
+    return res.json({ ref: order.ref, token: order.access_token, next: order.gateway === 'stripe' ? 'stripe' : 'paystack', url });
   } catch (err) { await S_.cancelOrder(order, 'Payment could not be started'); throw err; }
 }));
 
@@ -291,7 +295,8 @@ router.get('/orders', A.requireUser, ah(async (req, res) => {
 /* ================= payments ================= */
 router.get('/paystack/verify', A.limiter('verify', 40, 600000), ah(async (req, res) => {
   const ref = str(req.query.reference || req.query.trxref, 20).toUpperCase();
-  if (!S_.paystackLive()) return res.json({ ok: true });
+  const prior = await S_.loadOrder('ref=?', ref);
+  if (!(prior && prior.gateway === 'stripe') && !S_.paystackLive()) return res.json({ ok: true });
   const o = await S_.settleWithPaystack(ref);
   res.json({ ok: !!o, payment_status: o ? o.payment_status : null });
 }));
@@ -305,12 +310,23 @@ router.post('/paystack/webhook', ah(async (req, res) => {
   }
   res.json({ ok: true });
 }));
+// Stripe tells us a card payment finished. We never trust the message itself: the worker asks Stripe for the session and checks the amount and currency.
+router.post('/stripe/webhook', ah(async (req, res) => {
+  const stripe = require('../lib/stripe');
+  if (!stripe.webhookOk(req.rawBody, req.headers['stripe-signature'])) return res.status(401).json({ error: 'Bad signature' });
+  const ev = req.body || {}, obj = (ev.data && ev.data.object) || {};
+  if (['checkout.session.completed', 'checkout.session.async_payment_succeeded'].includes(ev.type) && obj.client_reference_id) {
+    const ref = str(obj.client_reference_id, 40).toUpperCase();
+    await queue.enqueue('paystack.settle', { ref }, { key: 'stripe:' + ref + ':' + str(ev.id, 60) });
+  }
+  res.json({ ok: true });
+}));
 // Demo mode only (no PAYSTACK_SECRET_KEY set): lets you test the whole order flow without real money.
 router.post('/pay/demo/:ref', A.limiter('demo', 30, 600000), ah(async (req, res) => {
   if (!S_.demoAllowed()) fail(404, 'Not found.');
   if (S_.paystackLive()) fail(404, 'Not found.');
   const o = await S_.loadOrder('ref=?', str(req.params.ref, 20).toUpperCase());
-  if (!o || o.payment_method !== 'paystack' || o.payment_status === 'paid' || o.status !== 'pending') fail(400, 'This order is not waiting for payment.');
+  if (!o || o.payment_method !== 'paystack' || o.gateway === 'stripe' || o.payment_status === 'paid' || o.status !== 'pending') fail(400, 'This order is not waiting for payment.');
   if (req.body.outcome === 'fail') await S_.cancelOrder(o, 'Demo payment failed');
   else await S_.markPaid(o, 'DEMO-' + o.ref, 'Payment received (demo)');
   res.json({ ok: true });

@@ -260,7 +260,13 @@ body.is-admin .acts,body.is-admin .nop{display:none!important}}
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const e = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const naira = (n) => '₦' + Number(n || 0).toLocaleString('en-NG');
+// The customer's chosen currency (storefront only). Prices are kept in Naira; this shows them in the customer's money at the current rate. The exact amount is fixed by the server at checkout.
+const fxc = { code: 'NGN', rate: 1 };
+const fmtMinor = (minor, code) => { try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).format(Number(minor) / 10 ** new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).resolvedOptions().maximumFractionDigits); } catch { return Number(minor) / 100 + ' ' + code; } };
+const naira = (n) => {
+  if (fxc.code !== 'NGN' && !location.pathname.startsWith('/admin')) { try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: fxc.code }).format(Number(n || 0) / fxc.rate); } catch { /* show Naira */ } }
+  return '₦' + Number(n || 0).toLocaleString('en-NG');
+};
 const store = { cfg: null, user: null };
 
 async function api(path, opts = {}) {
@@ -648,13 +654,16 @@ async function checkout(main, cfg) {
   if (!cart.items.length) { main.innerHTML = '<div class="wrap empty"><div class="em">🛒</div><h2>Your cart is empty</h2><p><a class="btn" href="/" data-link>Continue shopping</a></p></div>'; return 'Checkout'; }
   const user = store.user; let addrs = []; if (user) { try { addrs = (await api('/api/addresses')).addresses; } catch { /* optional */ } }
   const saved = ls.get('sb_checkout', {}); const A = addrs[0] || {};
-  const st = { state: A.state || saved.state || '', delivery: 'standard', payment: '', data: null };
+  const known = (c) => (cfg.countries || []).some((x) => x.code === c);
+  const st = { country: known(saved.country) ? saved.country : 'NG', state: '', delivery: 'standard', payment: '', data: null };
+  st.state = st.country === 'NG' ? (A.state || saved.state || '') : (saved.state || '');
   main.innerHTML = `<div class="wrap page"><h1>Checkout</h1>${user ? '' : '<p class="note">Checking out as a guest. <a href="/login?next=/checkout" data-link style="color:var(--accent);font-weight:700">Sign in</a> to use saved addresses and track orders.</p>'}
    <form id="cof" class="row" style="grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:24px;align-items:start" novalidate>
     <div style="display:grid;gap:18px">
      <div class="card"><h3>1. Contact</h3><div class="row c2">${field('cn', 'Full name', { req: 1, auto: 'name', val: user ? user.name : saved.name, max: 80 })}${field('cp', 'Phone', { req: 1, type: 'tel', auto: 'tel', ph: '0801 234 5678', val: (user && user.phone) || saved.phone })}</div>${field('ce', 'Email (for your receipt)', { req: 1, type: 'email', auto: 'email', val: user ? user.email : saved.email })}</div>
      <div class="card"><h3>2. Delivery address</h3>${addrs.length ? `<label class="f">Saved addresses<select id="saddr"><option value="">Enter a new address</option>${addrs.map((a) => `<option value="${a.id}">${e(a.label)} · ${e(a.address)}, ${e(a.state)}</option>`).join('')}</select></label>` : ''}
-       <label class="f">State<select id="cs" required><option value="">Choose your state…</option>${cfg.zones.map((z) => `<option ${z.state === st.state ? 'selected' : ''}>${e(z.state)}</option>`).join('')}</select></label>
+       ${(cfg.countries || []).length > 1 ? `<label class="f">Country<select id="cco">${cfg.countries.map((c) => `<option value="${e(c.code)}" ${c.code === st.country ? 'selected' : ''}>${e(c.name)}</option>`).join('')}</select></label>` : ''}
+       <div id="regionwrap"></div>
        <div id="addrfields"><div class="row c2">${field('cc', 'City / area', { val: A.city || saved.city, max: 60 })}${field('ca', 'Street address', { val: A.address || saved.address, max: 200 })}</div></div>
        <label class="f">Delivery notes (optional)<input id="cnotes" maxlength="300" placeholder="Landmark, gate code, preferred time…"></label></div>
      <div class="card hide" id="mapcard"><h3>Pin your delivery location</h3><p class="mu" style="margin-top:0">Drop a pin on your door so the rider finds you. We use it to work out the distance, the delivery time and any distance fee.</p>
@@ -669,19 +678,31 @@ async function checkout(main, cfg) {
      <div style="display:flex;gap:8px;margin:12px 0"><input id="ocode" placeholder="Promo code" value="${e(cart.coupon)}"><button type="button" class="btn ghost sm" id="oapply">Apply</button></div>
      <p class="err hide" id="cerr" role="alert"></p><button class="btn lg block" id="place" disabled>Place order</button><p class="mu" style="font-size:12px;margin-top:8px">🔒 Secure checkout. Prices are confirmed by our server.</p></aside></form></div>`;
   const pay = cfg.payments;
-  const methods = [];
-  if (pay.paystack) methods.push(['paystack', '💳 Pay online', 'Card, bank transfer or USSD via Paystack' + (pay.demo ? ' (demo mode: no real money)' : '')]);
-  if (pay.pod) methods.push(['pod', '💵 Pay on delivery', 'Pay cash or transfer to our rider when your order arrives']);
-  st.payment = methods.length ? methods[0][0] : '';
-  $('#popts').innerHTML = methods.length ? methods.map(([v, t, d], i) => `<label class="chk" style="padding:10px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px"><input type="radio" name="pm" value="${v}" ${i ? '' : 'checked'}><span><b>${t}</b><br><small class="mu">${d}</small></span></label>`).join('') : '<p class="err">No payment method is available right now.</p>';
+  // The server says which ways of paying are open for this country, currency and delivery; the list is redrawn whenever it changes.
+  const PAYINFO = { paystack: ['💳 Pay online', 'Card, bank transfer or USSD via Paystack' + (pay.demo ? ' (demo mode: no real money)' : '')], stripe: ['💳 Pay by international card', 'Visa, Mastercard and more, securely through Stripe'], pod: ['💵 Pay on delivery', 'Pay cash or transfer to our rider when your order arrives'] };
+  let methods = [];
+  function drawPay(list) {
+    if (JSON.stringify(list) === JSON.stringify(methods)) return;
+    methods = list; if (!methods.includes(st.payment)) st.payment = methods[0] || '';
+    $('#popts').innerHTML = methods.length ? methods.map((v) => `<label class="chk" style="padding:10px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px"><input type="radio" name="pm" value="${v}" ${v === st.payment ? 'checked' : ''}><span><b>${PAYINFO[v][0]}</b><br><small class="mu">${PAYINFO[v][1]}</small></span></label>`).join('') : '<p class="err">No way of paying is open for this country and currency. Try another currency at the bottom of the page.</p>';
+  }
+  const ctry = () => (cfg.countries || []).find((c) => c.code === st.country) || { code: 'NG', name: 'Nigeria', region_label: 'State' };
+  function drawRegion() {
+    const c = ctry();
+    $('#regionwrap').innerHTML = c.code === 'NG'
+      ? `<label class="f">State<select id="cs" required><option value="">Choose your state…</option>${cfg.zones.map((z) => `<option ${z.state === st.state ? 'selected' : ''}>${e(z.state)}</option>`).join('')}</select></label>`
+      : `<div class="row c2"><label class="f">${e(c.region_label)}<input id="cs" required maxlength="60" value="${e(st.state)}" autocomplete="address-level1"></label><label class="f">Postcode${c.postcode_required ? '' : ' (optional)'}<input id="cpc" maxlength="12" autocomplete="postal-code"></label></div>`;
+    $('#cp').placeholder = c.code === 'NG' ? '0801 234 5678' : '+' + c.dial_code + ' …';
+  }
+  drawRegion();
   const err = (m) => { const el = $('#cerr'); el.textContent = m || ''; el.classList.toggle('hide', !m); };
   /* ---- delivery pin ---- */
   const mp = { cfg: null, map: null, L: null, marker: null, lines: [], pin: null, quote: null, seq: 0 };
-  const needPin = () => !!(mp.cfg && mp.cfg.mapped && st.delivery !== 'pickup');
-  function refreshPlace() { $('#place').disabled = !st.state || !methods.length || (needPin() && !(mp.quote && mp.quote.ok)); }
+  const needPin = () => !!(mp.cfg && mp.cfg.mapped && st.delivery !== 'pickup' && st.country === 'NG');
+  function refreshPlace() { $('#place').disabled = (st.country === 'NG' && !st.state) || !methods.length || (needPin() && !(mp.quote && mp.quote.ok)); }
   async function mapSync() {
     mp.cfg = mp.cfg || await dcfg();
-    const show = needPin() && !!st.state;
+    const show = needPin() && (st.country !== 'NG' || !!st.state);
     $('#mapcard').classList.toggle('hide', !show);
     if (!show) { refreshPlace(); return; }
     if (!mp.map) {
@@ -726,24 +747,28 @@ async function checkout(main, cfg) {
     navigator.geolocation.getCurrentPosition((pos) => setPin(pos.coords.latitude, pos.coords.longitude, 16), () => toast('We could not get your location. Search or tap the map instead.', 'bad'), { enableHighAccuracy: true, timeout: 10000 });
   });
   async function reprice() {
-    try { const r = await priceNow({ state: st.state, delivery: st.delivery }); st.data = r;
+    try { const r = await priceNow({ state: st.state, delivery: st.delivery, country: st.country, currency: fxc.code }); st.data = r;
       if (r.couponError) { err(r.couponError); cart.setCoupon(''); } 
       if (r.issues.length) err(r.issues[0].message);
       if (!r.lines.length) { go('/checkout', true); return; }
       const d = r.delivery;
       $('#osum').className = ''; $('#osum').innerHTML = (() => { const gs = byStore(r.lines); return gs.map((g) => groupHead(g.name, gs) + g.lines.map((l) => `<div class="line" style="grid-template-columns:48px 1fr auto"><div class="lt" style="width:48px;height:48px">${tile({ id: l.productId, emoji: l.emoji, image: l.image, name: l.name })}</div><div style="font-size:13px"><b>${e(l.name)}</b><br><span class="mu">${e(l.variantLabel)} × ${l.qty}</span></div><b style="font-size:13px">${naira(l.price * l.qty)}</b></div>`).join('')).join(''); })()
-        + `<div class="sum"><span>Subtotal</span><span>${naira(r.subtotal)}</span></div>${r.discount ? `<div class="sum" style="color:var(--ok)"><span>Discount (${e(r.coupon)})</span><span>−${naira(r.discount)}</span></div>` : ''}<div class="sum"><span>Delivery</span><span>${d.options ? (d.fee ? naira(d.fee) : 'Free') : '—'}</span></div><div class="sum total"><span>Total</span><span>${naira(r.total)}</span></div>`;
+        + `<div class="sum"><span>Subtotal</span><span>${naira(r.subtotal)}</span></div>${r.discount ? `<div class="sum" style="color:var(--ok)"><span>Discount (${e(r.coupon)})</span><span>−${naira(r.discount)}</span></div>` : ''}<div class="sum"><span>Delivery</span><span>${d.options ? (d.fee ? naira(d.fee) : 'Free') : '—'}</span></div>${r.tax ? `<div class="sum"><span>${e(r.tax_label)}</span><span>${naira(r.tax)}</span></div>` : ''}<div class="sum total"><span>Total${r.charge && r.currency !== 'NGN' ? ' (you will be charged)' : ''}</span><span>${r.charge && r.currency !== 'NGN' ? e(fmtMinor(r.charge.amount, r.currency)) : naira(r.total)}</span></div>`;
       if (d.options) $('#dopts').innerHTML = Object.entries(d.options).map(([k, o]) => `<label class="chk" style="padding:10px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px"><input type="radio" name="dm" value="${k}" ${d.selected === k ? 'checked' : ''}><span style="flex:1"><b>${e(o.label)}</b> · ${o.fee ? naira(o.fee) : 'Free'}<br><small class="mu">${e(o.eta)}</small></span></label>`).join('') + (d.free ? '<p class="note">🎉 You qualify for free standard delivery.</p>' : d.threshold ? `<p class="mu" style="font-size:13px">Spend ${naira(d.threshold)} to get free standard delivery.</p>` : '');
       st.delivery = d.selected || st.delivery;
+      if (r.blocked && r.blocked.length) err(r.blocked[0]);
+      drawPay(r.payments || []);
       const zone = cfg.zones.find((z) => z.state === st.state);
       $$('input[name=pm]').forEach((i) => { if (i.value === 'pod') { const ok = zone && zone.pod && st.delivery !== 'pickup'; i.disabled = !ok; if (!ok && i.checked) { const o = $$('input[name=pm]').find((x) => x.value !== 'pod' && !x.disabled); if (o) { o.checked = true; st.payment = o.value; } } } });
       $('#addrfields').classList.toggle('hide', st.delivery === 'pickup');
-      $('#place').disabled = !st.state || !methods.length;
+      $('#place').disabled = (st.country === 'NG' && !st.state) || !methods.length || !!(r.blocked && r.blocked.length);
       mapSync(); rxSync(st, r.lines);
     } catch (er) { err(er.message); }
   }
   $('#cof').addEventListener('change', (ev) => {
     const t = ev.target;
+    if (t.id === 'cco') { st.country = t.value; st.state = ''; mp.pin = null; mp.quote = null; if (mp.marker) { mp.marker.remove(); mp.marker = null; } drawRegion(); reprice(); return; }
+    if (t.id === 'cs' && st.country !== 'NG') { st.state = t.value.trim(); return; }
     if (t.id === 'cs') { st.state = t.value; mp.pin = null; mp.quote = null; if (mp.marker) { mp.marker.remove(); mp.marker = null; } reprice(); }
     if (t.name === 'dm') { st.delivery = t.value; reprice(); }
     if (t.name === 'pm') st.payment = t.value;
@@ -755,7 +780,8 @@ async function checkout(main, cfg) {
     ev.preventDefault(); err('');
     const g = (i) => $('#' + i).value.trim();
     if (!g('cn') || !g('ce') || !g('cp')) return err('Please fill in your name, email and phone number.');
-    if (!st.state) return err('Please choose your state.');
+    if (st.country !== 'NG') st.state = g('cs');
+    if (!st.state) return err(st.country === 'NG' ? 'Please choose your state.' : 'Please enter your ' + ctry().region_label.toLowerCase() + '.');
     if (st.delivery !== 'pickup' && !g('ca')) return err('Please enter your street address.');
     if (needPin() && !mp.pin) return err('Please drop a pin on the map so we know where to deliver.');
     if (needPin() && !(mp.quote && mp.quote.ok)) return err(mp.quote ? mp.quote.message : 'Please wait while we check delivery to your pin.');
@@ -763,12 +789,12 @@ async function checkout(main, cfg) {
     const btn = $('#place'); btn.disabled = true; btn.textContent = 'Placing order…';
     // One key per attempt: if the connection drops and the shopper tries again, the server hands back the same order instead of making a second.
     if (!st.idem) st.idem = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2))).replace(/[^A-Za-z0-9_-]/g, '');
-    ls.set('sb_checkout', { name: g('cn'), email: g('ce'), phone: g('cp'), state: st.state, city: g('cc'), address: g('ca') });
+    ls.set('sb_checkout', { name: g('cn'), email: g('ce'), phone: g('cp'), country: st.country, state: st.state, city: g('cc'), address: g('ca') });
     try {
-      const r = await api('/api/checkout', { body: { items: cart.items, coupon: cart.coupon, contact: { name: g('cn'), email: g('ce'), phone: g('cp') }, address: { state: st.state, city: g('cc'), address: g('ca') }, prescriptionIds: st.rx || [], delivery: st.delivery, payment: st.payment, notes: g('cnotes'), idempotencyKey: st.idem, location: needPin() && mp.pin ? { ...mp.pin, landmark: g('mland') } : undefined } });
+      const r = await api('/api/checkout', { body: { items: cart.items, coupon: cart.coupon, contact: { name: g('cn'), email: g('ce'), phone: g('cp') }, address: { state: st.state, city: g('cc'), address: g('ca'), country: st.country, postcode: st.country === 'NG' ? '' : g('cpc') }, currency: fxc.code, prescriptionIds: st.rx || [], delivery: st.delivery, payment: st.payment, notes: g('cnotes'), idempotencyKey: st.idem, location: needPin() && mp.pin ? { ...mp.pin, landmark: g('mland') } : undefined } });
       try { sessionStorage.setItem('sb_last', JSON.stringify({ ref: r.ref, email: g('ce'), token: r.token || '' })); } catch { /* private mode */ }
       try { if (window.gtag) window.gtag('event', 'begin_checkout', { value: st.data.total, currency: 'NGN' }); if (window.fbq) window.fbq('track', 'InitiateCheckout'); } catch { /* blocked */ }
-      if (r.next === 'paystack') { location.href = r.url; return; }
+      if (r.next === 'paystack' || r.next === 'stripe') { location.href = r.url; return; }
       cart.clear(); cart.setCoupon('');
       go('/order/' + r.ref + (r.next === 'demo' ? '?demo=1' : '?new=1'));
     } catch (er) { if (er.status) st.idem = null; /* the server answered, so a new attempt needs a new key; a dropped connection keeps the key */ err(er.message); btn.disabled = false; btn.textContent = 'Place order'; reprice(); }
@@ -804,8 +830,8 @@ async function orderPage(main, ref, u, cfg) {
    ${!['cancelled', 'refunded'].includes(order.status) ? `<div class="card" style="margin-bottom:16px"><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;text-align:center;font-size:12px">${flow.map((s, i) => `<div><div style="height:6px;border-radius:3px;background:${i <= stepIdx ? 'var(--accent)' : 'var(--border)'};margin-bottom:6px"></div><span class="${i <= stepIdx ? '' : 'mu'}" style="font-weight:${i === stepIdx ? 800 : 500}">${STATUS[s]}</span></div>`).join('')}</div></div>` : ''}
    ${deliveryCard(order)}
    <div class="row c2" style="align-items:start"><div class="card"><h3>Items</h3>${(() => { const gs = byStore(order.items, (i) => i.store || ''); return gs.map((g) => groupHead(g.name, gs) + g.lines.map((i) => `<div class="line" style="grid-template-columns:48px 1fr auto"><div class="lt" style="width:48px;height:48px">${tile({ id: i.product_id, emoji: i.emoji, image: i.image, name: i.name })}</div><div style="font-size:14px"><b>${e(i.name)}</b><br><span class="mu">${e(i.variant_label)} × ${i.qty}</span></div><b>${naira(i.price * i.qty)}</b></div>`).join('')).join(''); })()}
-     <div class="sum"><span>Subtotal</span><span>${naira(order.subtotal)}</span></div>${order.discount ? `<div class="sum"><span>Discount ${e(order.coupon || '')}</span><span>−${naira(order.discount)}</span></div>` : ''}<div class="sum"><span>Delivery</span><span>${order.delivery_fee ? naira(order.delivery_fee) : 'Free'}</span></div><div class="sum total"><span>Total</span><span>${naira(order.total)}</span></div></div>
-    <div style="display:grid;gap:16px"><div class="card"><h3>Delivery</h3><p style="margin:0">${e(order.name)}<br>${e(order.address)}${order.city ? ', ' + e(order.city) : ''}, ${e(order.state)}<br>${e(order.phone)}</p><p class="mu" style="margin-bottom:0">${e({ standard: 'Standard delivery', express: 'Express delivery', pickup: 'Store pickup' }[order.delivery] || '')} · ${order.payment_method === 'pod' ? 'Pay on delivery' : order.payment_status === 'paid' ? 'Paid online' : 'Online payment pending'}</p></div>
+     <div class="sum"><span>Subtotal</span><span>${naira(order.subtotal)}</span></div>${order.discount ? `<div class="sum"><span>Discount ${e(order.coupon || '')}</span><span>−${naira(order.discount)}</span></div>` : ''}<div class="sum"><span>Delivery</span><span>${order.delivery_fee ? naira(order.delivery_fee) : 'Free'}</span></div>${order.tax ? `<div class="sum"><span>${e(order.tax_label)}</span><span>${naira(order.tax)}</span></div>` : ''}<div class="sum total"><span>${order.currency !== 'NGN' && order.charge_amount != null ? (order.payment_status === 'paid' ? 'Total paid' : 'Total to pay') : 'Total'}</span><span>${order.currency !== 'NGN' && order.charge_amount != null ? e(fmtMinor(order.charge_amount, order.currency)) : naira(order.total)}</span></div></div>
+    <div style="display:grid;gap:16px"><div class="card"><h3>Delivery</h3><p style="margin:0">${e(order.name)}<br>${e(order.address)}${order.city ? ', ' + e(order.city) : ''}, ${e(order.state)}${order.postcode ? ' ' + e(order.postcode) : ''}${order.country && order.country !== 'NG' ? ', ' + e(order.country) : ''}<br>${e(order.phone)}</p><p class="mu" style="margin-bottom:0">${e({ standard: 'Standard delivery', express: 'Express delivery', pickup: 'Store pickup' }[order.delivery] || '')} · ${order.payment_method === 'pod' ? 'Pay on delivery' : order.payment_status === 'paid' ? 'Paid online' : 'Online payment pending'}</p></div>
      <div class="card"><h3>Updates</h3>${order.events.slice().reverse().map((ev) => `<div style="font-size:13px;margin-bottom:8px"><b>${e(STATUS[ev.status] || ev.status)}</b> <span class="mu">· ${fmt(ev.created)}</span>${ev.note ? `<br><span class="mu">${e(ev.note)}</span>` : ''}</div>`).join('')}</div></div></div>
    <p style="text-align:center;margin-top:20px"><button class="btn ghost sm" id="print">🖨 Print receipt</button> ${order.status === 'pending' && order.payment_status !== 'paid' ? '<button class="btn ghost sm" id="cancelo">Cancel order</button>' : ''} <a class="btn sm" href="/" data-link>Continue shopping</a></p></div>`;
   if (order.pharmacy) { main.querySelector('.wrap .card').insertAdjacentHTML('afterend', pharmOrderCard(order)); }
@@ -1429,6 +1455,7 @@ function shell() {
         ${s.instagram ? `<a href="${e(s.instagram)}" target="_blank" rel="noopener">Instagram</a>` : ''}${s.facebook ? `<a href="${e(s.facebook)}" target="_blank" rel="noopener">Facebook</a>` : ''}</div>
     </div>
     ${cfg.pharmacy && (s.pharm_aggregator_licence || s.pharm_pcn_logo || s.pharm_statement) ? `<div class="legal" style="display:block;text-align:left">${s.pharm_pcn_logo ? `<img src="${e(s.pharm_pcn_logo)}" alt="Pharmacists Council of Nigeria" style="height:44px;vertical-align:middle;margin-right:10px">` : ''}${s.pharm_aggregator_licence ? `<b>Pharmacy aggregator licence no. ${e(s.pharm_aggregator_licence)}</b><br>` : ''}${s.pharm_statement ? e(s.pharm_statement) : ''}</div>` : ''}
+    ${(cfg.currencies || []).length > 1 ? `<div class="legal" style="display:block;text-align:left"><label class="mu" style="font-size:13px">Show prices in <select id="curpick" aria-label="Currency">${cfg.currencies.map((c) => `<option ${c.code === fxc.code ? 'selected' : ''}>${e(c.code)}</option>`).join('')}</select></label> <span class="mu2" style="font-size:12px">Converted for display. You are charged the exact amount shown at checkout.</span></div>` : ''}
     <div class="legal"><span>© ${new Date().getFullYear()} ${e(s.store_name)}. All rights reserved.</span><span>${e(s.tax_note || '')}</span></div></div></footer>
   ${s.whatsapp ? `<a class="wa" href="https://wa.me/${e(s.whatsapp)}?text=${encodeURIComponent('Hello ' + s.store_name + ', I need help with…')}" target="_blank" rel="noopener" aria-label="Chat on WhatsApp">💬</a>` : ''}`;
   $('#nav2').innerHTML = '';
@@ -1461,6 +1488,11 @@ document.addEventListener('click', async (ev) => {
   if (t.closest('#modeBtn')) { const m = document.documentElement.getAttribute('data-mode') === 'dark' ? 'light' : 'dark'; document.documentElement.setAttribute('data-mode', m); ls.set('sb_mode', m); return; }
   if (t.closest('#scrim')) closeCart();
 });
+document.addEventListener('change', (ev) => {
+  if (ev.target.id !== 'curpick') return;
+  try { localStorage.setItem('sb_currency', ev.target.value); } catch { /* private mode */ }
+  location.reload();
+});
 document.addEventListener('submit', async (ev) => {
   if (ev.target.id === 'sform') { ev.preventDefault(); const q = $('#sq').value.trim(); if (q) go('/shop?q=' + encodeURIComponent(q) + (new URL(location.href).searchParams.get('store') ? '&store=' + new URL(location.href).searchParams.get('store') : '')); }
   if (ev.target.id === 'nform') { ev.preventDefault(); const i = ev.target.querySelector('input'); try { await api('/api/newsletter', { body: { email: i.value } }); toast('Thanks for subscribing!'); i.value = ''; } catch (er) { toast(er.message, 'bad'); } }
@@ -1473,6 +1505,7 @@ onChange(() => { syncHeader(); });
 (async () => {
   try {
     cfg = await api('/api/config'); store.cfg = cfg; store.user = cfg.user;
+    try { const want = localStorage.getItem('sb_currency'); const c = (cfg.currencies || []).find((x) => x.code === want); if (c) { fxc.code = c.code; fxc.rate = c.rate; } } catch { /* private mode */ }
     if (store.user) { try { const d = await api('/api/wishlist'); d.ids.forEach((i) => wish.ids.add(i)); ls.set('sb_wish', [...wish.ids]); } catch { /* optional */ } }
     app.cfg = cfg; shell(); initCart(cfg);
     if (cfg.settings.ga_id) { const s = document.createElement('script'); s.async = true; s.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(cfg.settings.ga_id); document.head.appendChild(s); window.dataLayer = window.dataLayer || []; window.gtag = function () { window.dataLayer.push(arguments); }; window.gtag('js', new Date()); window.gtag('config', cfg.settings.ga_id); }
@@ -2000,7 +2033,7 @@ const dstate = { tab: 'suppliers', sstatus: '', sq: '', plist: 'pending', pq: ''
 let dmeta = null;
 const DS = (p, o) => api('/api/admin/dropship' + p, o);
 const dsdate = (t) => (t ? new Date(t * 1000).toLocaleDateString('en-NG') : '');
-const ETAB = [['suppliers', 'Suppliers'], ['products', 'Products'], ['settings', 'Settings & rates']];
+const ETAB = [['suppliers', 'Suppliers'], ['products', 'Products'], ['settings', 'Settings & rates'], ['trade', 'Countries & currencies']];
 views.dropship = async () => {
   if (!dmeta) dmeta = await DS('/meta');
   let body = '';
@@ -2012,6 +2045,7 @@ views.dropship = async () => {
   }
   if (dstate.tab === 'products') body = await dsProducts();
   if (dstate.tab === 'settings') body = await dsSettings();
+  if (dstate.tab === 'trade') body = await dsTrade();
   mn(hd('🚚 Dropshipping') + `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">${ETAB.map(([k, t]) => `<button class="btn ${dstate.tab === k ? '' : 'ghost'} sm" data-dt="${k}">${t}</button>`).join('')}</div>` + body);
   onAll('[data-dt]', 'click', (el) => { dstate.tab = el.dataset.dt; return views.dropship(); });
   on('#dsq', 'change', () => { dstate.sq = $('#dsq').value; return views.dropship(); });
@@ -2024,6 +2058,7 @@ views.dropship = async () => {
   on('#dpimp', 'click', () => importWizard());
   onAll('[data-dp]', 'click', (el) => productDS(el.dataset.dp));
   if (dstate.tab === 'settings') dsSettingsWire();
+  if (dstate.tab === 'trade') dsTradeWire();
   onAll('[data-sup]', 'click', (el) => supplierForm(el.dataset.sup));
 };
 const dsOpts = (list, sel, label = (x) => x.name) => list.map((x) => `<option value="${e(x.code)}" ${x.code === sel ? 'selected' : ''}>${e(label(x))}</option>`).join('');
@@ -2153,6 +2188,87 @@ function dsSettingsWire() {
   onAll('[data-rsave]', 'click', guard(async (el) => { await DS('/rates/' + el.dataset.rsave, { method: 'PUT', body: { ngn_per_unit: $(`[data-rate="${el.dataset.rsave}"]`).value } }); toast('Rate saved'); views.dropship(); }));
   on('#rnew', 'click', guard(async () => { if (!$('#rnewc').value) return toast('Choose a currency', 'bad'); await DS('/rates/' + $('#rnewc').value, { method: 'PUT', body: { ngn_per_unit: $('#rnewv').value } }); toast('Rate saved'); views.dropship(); }));
   onAll('[data-cmsave]', 'click', guard(async (el) => { const id = el.dataset.cmsave; await DS('/category-margins/' + id, { method: 'PUT', body: { margin_type: $(`[data-cmt="${id}"]`).value, margin_value: $(`[data-cmv="${id}"]`).value } }); toast('Saved'); }));
+}
+/* ---- Countries & currencies ---- */
+const DR = (p, o) => DS('/regions' + p, o);
+let tradeData = null;
+async function dsTrade() {
+  const d = tradeData = await DR('');
+  const g = d.gateways, ago = (t) => (t ? new Date(t * 1000).toLocaleString() : '—');
+  const zname = Object.fromEntries(d.zones.map((z) => [z.id, z.name]));
+  return `<div class="panel"><h3>How customers pay</h3>
+   <p>Paystack takes Naira and these currencies: <b>${g.paystack_currencies.map(e).join(', ')}</b> (only where the country is marked as a Paystack country).</p>
+   <p>Stripe (international cards): <b class="${g.stripe_enabled ? 'ok' : 'bad'}">${g.stripe_enabled ? 'ON' : 'OFF'}</b> ${g.stripe_enabled ? '' : `<span class="mu2">Needs STRIPE_ENABLED=1 ${g.stripe_key_set ? '' : 'and STRIPE_SECRET_KEY '}in the server settings.</span>`} ${g.stripe_enabled && !g.stripe_webhook_set ? '<span class="bad">STRIPE_WEBHOOK_SECRET is not set: customers are confirmed only when they return to the site.</span>' : ''}</p>
+   <p>Automatic exchange rates: <b class="${d.feed.enabled ? 'ok' : ''}">${d.feed.enabled ? 'ON' : 'OFF'}</b> ${d.feed.enabled ? `<button class="btn ghost sm" id="fxnow">Update rates now</button> <span class="mu2">Rates older than ${d.feed.max_age_hours} hours stop being used.</span>` : '<span class="mu2">Set FX_FEED_ENABLED=1 to turn it on. Rates you type by hand are never changed by the feed unless you unlock them.</span>'}</p>
+   <label class="f" style="max-width:260px">Usual weight of one item (kg)<input id="dkg" type="number" step="0.1" min="0.1" value="${d.default_item_kg}"></label><button class="btn sm" id="dkgsave">Save</button><span class="mu2"> Used for items with no weight of their own, to work out the delivery fee.</span></div>
+  <div class="panel"><h3>Currencies</h3><p class="mu2">Prices stay in Naira. A currency can be switched on once it has a rate. The markup is added to what the customer is charged, to cover bank and gateway currency costs. The rate is fixed when the order is placed.</p>
+   <div class="tw"><table class="t"><tr><th>Currency</th><th>On</th><th>₦ per 1</th><th>Source</th><th>Updated</th><th>Markup %</th><th></th></tr>${d.currencies.filter((c) => c.code !== 'NGN').map((c) => `<tr><td><b>${e(c.code)}</b> ${c.enabled && !c.usable ? '<span class="bad">no usable rate</span>' : ''}</td>
+    <td><input type="checkbox" data-ce="${c.code}" ${c.enabled ? 'checked' : ''} aria-label="${e(c.code)} on"></td>
+    <td><input type="number" step="0.0001" min="0" style="width:120px" data-cr="${c.code}" value="${c.ngn_per_unit == null ? '' : c.ngn_per_unit}"></td>
+    <td>${c.source ? e(c.source) + (c.locked ? ' (locked)' : ' (auto)') : '—'}${c.source && d.feed.enabled ? ` <label class="mu2"><input type="checkbox" data-cl="${c.code}" ${c.locked ? 'checked' : ''}> lock</label>` : ''}</td><td class="mu2">${ago(c.updated)}</td>
+    <td><input type="number" step="0.1" min="0" max="20" style="width:70px" data-cm="${c.code}" value="${c.markup_pct}"></td><td><button class="btn sm" data-csave="${c.code}">Save</button></td></tr>`).join('')}</table></div>
+   <div style="display:flex;gap:6px;margin-top:8px"><select id="cnewc"><option value="">Add a currency…</option>${dmeta.currencies.filter((c) => !d.currencies.some((x) => x.code === c.code)).map((c) => `<option value="${c.code}">${e(c.code)} · ${e(c.name)}</option>`).join('')}</select><button class="btn ghost sm" id="cnew">Add</button></div></div>
+  <div class="panel"><h3>Shipping zones</h3><p class="mu2">Delivery fee in Naira for a parcel up to each weight. Above the last band, the fee per extra kg is added. A zone is only used while it is switched on.</p>
+   ${d.zones.map((z) => `<div class="panel" style="margin:8px 0"><div class="fgrid"><label class="f">Zone<input data-zf="name" data-z="${z.id}" value="${e(z.name)}"></label><label class="f">Fee per extra kg (₦)<input type="number" min="0" data-zf="extra" data-z="${z.id}" value="${z.extra_per_kg}"></label>
+    <label class="f">Days from dispatch (from)<input type="number" min="0" data-zf="lo" data-z="${z.id}" value="${z.eta_min}"></label><label class="f">to<input type="number" min="0" data-zf="hi" data-z="${z.id}" value="${z.eta_max}"></label></div>
+    <label class="f">Weight bands, one per line as <code>up to kg : fee in ₦</code><textarea rows="${Math.max(3, z.rates.length)}" data-zf="rates" data-z="${z.id}">${z.rates.map((r) => `${r.up_to_kg}: ${r.fee}`).join('\n')}</textarea></label>
+    <label class="chk"><input type="checkbox" data-zf="active" data-z="${z.id}" ${z.active ? 'checked' : ''}> Switched on</label> <button class="btn sm" data-zsave="${z.id}">Save zone</button> <span class="mu2">${d.countries.filter((c) => c.zone_id === z.id).length} countries</span></div>`).join('')}
+   <button class="btn ghost sm" id="znew">+ New zone</button></div>
+  <div class="panel"><h3>Countries</h3><p class="mu2">A country can be switched on once it has a zone that is on. Tax is off until you choose how you charge it there: <b>added</b> on top of the price, or <b>included</b> in it. The percentages are usual standard rates, for reference. Please confirm with your accountant.</p>
+   <div class="tw"><table class="t"><tr><th>Country</th><th>On</th><th>Zone</th><th>Tax</th><th>Phone</th><th>Postcode</th><th></th></tr>${d.countries.map((c) => `<tr><td><b>${e(c.name)}</b> <span class="mu2">${c.code}</span></td><td>${c.enabled ? '<span class="ok">On</span>' : 'Off'}</td><td>${c.code === 'NG' ? 'State fees' : e(zname[c.zone_id] || '—')}</td><td>${c.tax_mode === 'none' ? 'None' : e(c.tax_label) + ' ' + c.tax_pct + '% ' + c.tax_mode}</td><td class="mu2">+${e(c.dial_code)} · ${c.phone_min}–${c.phone_max} digits</td><td class="mu2">${c.postcode_required ? 'Required' : 'Optional'}</td><td><button class="btn ghost sm" data-ctry="${c.code}">Edit</button></td></tr>`).join('')}</table></div>
+   <div style="display:flex;gap:6px;margin-top:8px"><select id="ctrynew"><option value="">Add another country…</option>${dmeta.countries.filter((c) => !d.countries.some((x) => x.code === c.code)).map((c) => `<option value="${c.code}">${e(c.name)}</option>`).join('')}</select><button class="btn ghost sm" id="ctryadd">Add</button></div></div>
+  <div class="panel"><h3>Products that cannot go to a country</h3><p class="mu2"><b>Banned</b>: never sold there. <b>Needs approval</b>: not sold online; the customer is asked to contact you.</p>
+   <div class="tw"><table class="t"><tr><th>Country</th><th>What</th><th>Rule</th><th>Note</th><th></th></tr>${d.restrictions.map((r) => `<tr><td>${e(r.country)}</td><td>${e(r.product_name ? 'Product: ' + r.product_name : r.category_name ? 'Category: ' + r.category_name : 'Department: ' + (r.store_name || r.store))}</td><td>${r.kind === 'banned' ? 'Banned' : 'Needs approval'}</td><td class="mu2">${e(r.note)}</td><td><button class="btn ghost sm" data-rdel="${r.id}">Remove</button></td></tr>`).join('') || '<tr><td colspan="5" class="mu2">None yet.</td></tr>'}</table></div>
+   <div class="fgrid" style="margin-top:8px"><label class="f">Country<select id="rc">${d.countries.map((c) => `<option value="${c.code}">${e(c.name)}</option>`).join('')}</select></label>
+    <label class="f">Applies to<select id="rt"><option value="store">A whole department</option><option value="category">A category</option><option value="product">One product (by number)</option></select></label>
+    <label class="f">Which<select id="rw">${d.stores.map((x) => `<option value="${e(x.slug)}">${e(x.name)}</option>`).join('')}</select></label>
+    <label class="f">Rule<select id="rk"><option value="banned">Banned</option><option value="restricted">Needs approval</option></select></label></div>
+   <label class="f">Note (optional)<input id="rn" maxlength="200"></label><button class="btn sm" id="radd">Add rule</button></div>`;
+}
+function dsTradeWire() {
+  const d = tradeData, reload = () => views.dropship();
+  on('#fxnow', 'click', guard(async () => { const r = await DR('/fx/refresh', { method: 'POST', body: {} }); toast(`Updated ${r.updated.length} rate(s)` + (r.rejected.length ? `, ignored ${r.rejected.join(', ')} (jumped more than 25%)` : '')); reload(); }));
+  on('#dkgsave', 'click', guard(async () => { await DR('/settings', { method: 'PUT', body: { default_item_kg: $('#dkg').value } }); toast('Saved'); }));
+  onAll('[data-csave]', 'click', guard(async (el) => {
+    const c = el.dataset.csave, rate = $(`[data-cr="${c}"]`).value, lock = $(`[data-cl="${c}"]`);
+    const cur = d.currencies.find((x) => x.code === c);
+    if (rate && Number(rate) !== cur.ngn_per_unit) await DS('/rates/' + c, { method: 'PUT', body: { ngn_per_unit: rate } });
+    await DR('/currencies/' + c, { method: 'PUT', body: { enabled: $(`[data-ce="${c}"]`).checked, markup_pct: $(`[data-cm="${c}"]`).value, ...(lock ? { locked: lock.checked } : {}) } });
+    toast('Saved'); reload();
+  }));
+  on('#cnew', 'click', guard(async () => { if (!$('#cnewc').value) return toast('Choose a currency', 'bad'); await DR('/currencies', { method: 'POST', body: { code: $('#cnewc').value } }); reload(); }));
+  const zoneBody = (id) => { const f = (k) => $(`[data-zf="${k}"][data-z="${id}"]`); return { name: f('name').value, extra_per_kg: f('extra').value, eta_min: f('lo').value, eta_max: f('hi').value, active: f('active').checked, rates: f('rates').value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const [k, v] = l.split(':'); return { up_to_kg: (k || '').trim(), fee: (v || '').trim() }; }) }; };
+  onAll('[data-zsave]', 'click', guard(async (el) => { await DR('/zones/' + el.dataset.zsave, { method: 'PUT', body: zoneBody(el.dataset.zsave) }); toast('Zone saved'); reload(); }));
+  on('#znew', 'click', guard(async () => { const name = prompt('Name of the new zone'); if (!name) return; await DR('/zones', { method: 'POST', body: { name, extra_per_kg: 0, eta_min: 7, eta_max: 14, active: false, rates: [{ up_to_kg: 1, fee: 20000 }] } }); reload(); }));
+  on('#ctryadd', 'click', guard(async () => { if (!$('#ctrynew').value) return toast('Choose a country', 'bad'); await DR('/countries', { method: 'POST', body: { code: $('#ctrynew').value } }); reload(); }));
+  onAll('[data-ctry]', 'click', (el) => countryForm(el.dataset.ctry));
+  const fill = () => { const t = $('#rt').value; $('#rw').innerHTML = t === 'store' ? d.stores.map((x) => `<option value="${e(x.slug)}">${e(x.name)}</option>`).join('') : t === 'category' ? d.categories.map((x) => `<option value="${x.id}">${e(x.name)} (${e(x.store)})</option>`).join('') : '<option value="">Type the product number below</option>'; };
+  on('#rt', 'change', fill);
+  on('#radd', 'click', guard(async () => {
+    const t = $('#rt').value; let w = $('#rw').value;
+    if (t === 'product') { w = prompt('Product number (the id shown in the product list)'); if (!w) return; }
+    await DR('/restrictions', { method: 'POST', body: { country: $('#rc').value, kind: $('#rk').value, note: $('#rn').value, [t === 'store' ? 'store' : t === 'category' ? 'category_id' : 'product_id']: w } }); toast('Rule added'); reload();
+  }));
+  onAll('[data-rdel]', 'click', guard(async (el) => { await DR('/restrictions/' + el.dataset.rdel, { method: 'DELETE' }); reload(); }));
+}
+function countryForm(code) {
+  const d = tradeData, c = d.countries.find((x) => x.code === code);
+  openModal(`<h2>${e(c.name)}</h2><div class="fgrid">
+   <label class="chk"><input type="checkbox" id="kon" ${c.enabled ? 'checked' : ''} ${c.code === 'NG' ? 'disabled' : ''}> Customers can order to this country</label>
+   ${c.code === 'NG' ? '<p class="mu2">Nigeria uses the state fees under Settings.</p>' : `<label class="f">Shipping zone<select id="kz"><option value="">None</option>${d.zones.map((z) => `<option value="${z.id}" ${z.id === c.zone_id ? 'selected' : ''}>${e(z.name)}${z.active ? '' : ' (off)'}</option>`).join('')}</select></label>`}
+   <label class="f">Usual currency<select id="kc">${dmeta.currencies.map((x) => `<option value="${x.code}" ${x.code === c.currency ? 'selected' : ''}>${e(x.code)}</option>`).join('')}</select></label>
+   <label class="f">Tax<select id="kt"><option value="none" ${c.tax_mode === 'none' ? 'selected' : ''}>None</option><option value="added" ${c.tax_mode === 'added' ? 'selected' : ''}>Added on top of the price</option><option value="included" ${c.tax_mode === 'included' ? 'selected' : ''}>Already included in the price</option></select></label>
+   <label class="f">Tax rate %<input id="kp" type="number" step="0.01" min="0" max="40" value="${c.tax_pct}"></label><label class="f">Tax name<input id="kl" maxlength="20" value="${e(c.tax_label)}"></label>
+   <label class="f">Dial code<input id="kd" maxlength="5" value="${e(c.dial_code)}"></label><label class="f">Phone digits, shortest<input id="kmin" type="number" value="${c.phone_min}"></label><label class="f">longest<input id="kmax" type="number" value="${c.phone_max}"></label>
+   <label class="chk"><input type="checkbox" id="kpr" ${c.postcode_required ? 'checked' : ''}> Postcode required</label><label class="f">Postcode pattern (regular expression, optional)<input id="kre" maxlength="120" value="${e(c.postcode_regex)}"></label>
+   <label class="f">Name for the region box<input id="krl" maxlength="30" value="${e(c.region_label)}"></label><label class="chk"><input type="checkbox" id="kps" ${c.paystack_ok ? 'checked' : ''}> Paystack may be offered here</label></div>
+   <div class="acts"><button class="btn ghost" id="kclose">Close</button><button class="btn" id="ksave">Save</button></div>`, true);
+  const bind = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
+  bind('#kclose', closeModal);
+  bind('#ksave', guard(async () => {
+    await DR('/countries/' + code, { method: 'PUT', body: { enabled: $('#kon').checked, zone_id: $('#kz') ? $('#kz').value : undefined, currency: $('#kc').value, tax_mode: $('#kt').value, tax_pct: $('#kp').value, tax_label: $('#kl').value, dial_code: $('#kd').value, phone_min: $('#kmin').value, phone_max: $('#kmax').value, postcode_required: $('#kpr').checked, postcode_regex: $('#kre').value, region_label: $('#krl').value, paystack_ok: $('#kps').checked } });
+    closeModal(); toast('Saved'); views.dropship();
+  }));
 }
 const FLABEL = { sku: 'Supplier SKU', name: 'Product name', cost: 'Cost per unit', ship_cost: 'Shipping cost', stock: 'Stock', processing_days: 'Processing days', weight: 'Weight', length: 'Length', width: 'Width', height: 'Height', hs_code: 'HS code', origin: 'Country of origin', description: 'Description', brand: 'Brand', category: 'Category', images: 'Photo links', url: 'Supplier link' };
 const VERDICT = { new: ['New', 'ok'], duplicate: ['Already imported', ''], possible_duplicate: ['Same name exists', 'warn'], in_file_duplicate: ['Repeated in file', ''], error: ['Problem', 'bad'] };

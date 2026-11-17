@@ -66,11 +66,33 @@ Dropship products cannot be edited in the normal Products screen, so they cannot
 | Wrong department or category on an import | Edit the product (Products > open it) |
 | Supplier is unreliable | Record late deliveries, cancellations and defects, or pause the supplier |
 
+## 8. Countries, currencies and paying from abroad (step 3)
+Open **Dropshipping > Countries & currencies**. Nothing ships abroad until you switch it on: the starter zones are OFF, and only Nigeria is enabled.
+
+**How a price reaches a customer abroad.** Prices stay in Naira. The customer picks a currency (bottom of any page); the site shows prices converted for display, and checkout shows *exactly* what they will be charged. When the order is placed the server fixes the rate and the amount in the customer's currency (`orders.fx_rate`, `orders.charge_amount`). A later rate change never changes an order already placed, and the amount sent to Paystack or Stripe is that stored amount, never recalculated.
+
+**Currencies.** A currency can only be switched on once it has a rate. The *markup* (default 2%) lowers the rate customers are charged at, so they pay slightly more of their own money; it covers bank and gateway currency costs. Amounts are rounded **up**. A rate typed by hand is *locked* and never changed by the automatic feed. Set `FX_FEED_ENABLED=1` to let the feed keep unlocked rates fresh every 6 hours: a jump of more than 25% in one update is ignored as a bad reading, and a feed rate older than `FX_MAX_AGE_HOURS` (72) stops being used, so a currency never sells at a stale rate. Rate changes never reprice your products.
+
+**Shipping zones and fees.** Each zone has weight bands (`up to kg : fee in ₦`), a fee per extra kg beyond the last band, and delivery days from dispatch. A cart's weight is the sum of each product's weight (dropship products have one) or the *usual item weight* setting for products without one. A country is only shippable when its zone is switched on and has bands. Abroad there is one delivery option; express, store pickup, pay on delivery and the map pin are Nigeria-only. Nigeria keeps its state fees.
+
+**Countries.** Add any country in the world. Each has its dial code, allowed phone length, whether a postcode is required and its pattern, the name of the region box (State, County, Province…), a usual currency, and its tax rule. Phone numbers are accepted as `+44 7911 123456`, `07911 123456` or `7911123456` and stored as `+447911123456`.
+
+**Tax.** Off by default everywhere. *Added*: the tax is added to goods + delivery and is part of the total the customer pays. *Included*: the part already inside the price is shown on the order but the total does not change. The percentages seeded are usual standard rates for reference only: confirm with your accountant before turning tax on.
+
+**Products that cannot go to a country.** Ban or restrict a product, a category or a whole department per country. *Banned*: the order is refused with a clear message. *Needs approval*: not sold online; the customer is asked to contact you.
+
+**Paying.** Paystack is offered for Naira from anywhere, and for `PAYSTACK_CURRENCIES` (default NGN, GHS, ZAR, KES, USD) in countries marked "Paystack may be offered" (Nigeria and Africa). Stripe (international cards) is offered for `STRIPE_CURRENCIES` when `STRIPE_ENABLED=1` and keys are set. Pay on delivery stays Nigeria-only, in Naira. A payment is only marked received after the server asks the gateway itself and the **reference, currency and amount** all match the order; a Stripe webhook only prompts that check, and old or wrongly signed webhooks are refused. In the database `payment_method='paystack'` still means "paid online" for either gateway; `orders.gateway` says which.
+
+**Privacy.** Customers see countries, their phone and postcode rules and display rates. They never see shipping fee tables, markups, supplier costs, margins or tax notes. The customer's own order shows what they were charged and nothing about our rate or gateway.
+
+**Setting up Stripe.** Create the account, add `STRIPE_ENABLED=1`, `STRIPE_SECRET_KEY`, and a webhook for `checkout.session.completed` (and `checkout.session.async_payment_succeeded`) pointing at `https://YOUR-SITE/api/stripe/webhook`, then put its signing secret in `STRIPE_WEBHOOK_SECRET`. Check your Stripe account can charge the currencies in `STRIPE_CURRENCIES`. Stripe cannot charge Naira here, so Nigerian customers use Paystack.
+
 ## Settings and environment
+* `STRIPE_ENABLED`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CURRENCIES`, `PAYSTACK_CURRENCIES`, `FX_FEED_ENABLED`, `FX_FEED_URL`, `FX_MAX_AGE_HOURS`: see DEPLOY.md. `STRIPE_API_URL` is for tests only (preflight fails if it is set in production).
 * `SUPABASE_SUPPLIER_BUCKET` (default `supplier-docs`): create it as a **private** bucket. `npm run preflight` checks it.
 * `DROPSHIP_ORDERS_ENABLED`: leave unset until the order flow (step 4) is built.
 * Pricing defaults, exchange rates and category margins are stored in their own tables (not the public settings), so cost and margin data cannot reach the storefront.
-* Every change is in the activity log. Rate limits protect uploads and imports. Migrations `010` and `011` are safe to re-run.
+* Every change is in the activity log. Rate limits protect uploads and imports. Migrations `010`, `011` and `012` are safe to re-run.
 
 ## Not built yet
-Order flow and supplier purchase orders (step 4); display currencies, countries, shipping zones, Stripe and the automatic rates feed (step 3); trade documents, landed-cost calculator, compliance reminders and restricted-item checks (step 5); profit reports, payables and refunds (step 6); supplier login portal (step 7). Until step 5 adds restricted-item checks, **you** must not import medicines, food, chemicals, batteries or weapons. Medicines are blocked outright (the pharmacy department stays behind `PHARMACY_ENABLED`).
+Order flow and supplier purchase orders (step 4); trade documents, landed-cost calculator, compliance reminders and restricted-item checks (step 5); profit reports, payables and refunds (step 6); supplier login portal (step 7). Until step 5 adds restricted-item checks, **you** must not import medicines, food, chemicals, batteries or weapons. Medicines are blocked outright (the pharmacy department stays behind `PHARMACY_ENABLED`).
