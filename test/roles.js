@@ -182,7 +182,16 @@ const X = require('../lib/xlsx');
     assert.strictEqual(await stockOf(P1.id), before - 40, 'goods are set aside'); assert.strictEqual((await E('POST', `/${ref}/convert`)).s, 409, 'only once');
     assert.strictEqual((await B('GET', '/' + ref)).j.request.sales_ref, sref); assert.strictEqual((await B('GET', '/' + ref)).j.request.status, 'converted');
     const W = (m, u, b) => A(m, '/api/admin/wholesale' + u, b);
-    assert.strictEqual((await W('POST', `/quotes/${sref}/transfer`, { reference: 'GTB-RFQ-1' })).s, 200); assert.strictEqual((await W('POST', `/quotes/${sref}/ship`, { carrier: 'Our truck' })).s, 200); assert.strictEqual((await W('POST', `/quotes/${sref}/deliver`, {})).s, 200);
+    // Orders are picked and packed in the warehouse before they can be dispatched.
+  const prep = async (ref) => {
+    const O = (m, u, b) => A(m, '/api/admin/warehouse/orders/' + ref + u, b);
+    assert.strictEqual((await O('POST', '/start')).s, 200);
+    const lines = (await O('GET', '')).j.order.lines;
+    assert.strictEqual((await O('POST', '/pick', { lines: lines.map((l) => ({ id: l.id, qty_picked: l.qty })) })).s, 200);
+    assert.strictEqual((await O('POST', '/picked')).s, 200);
+    assert.strictEqual((await O('POST', '/pack', { packages: 2, note: 'test' })).s, 200);
+  };
+    assert.strictEqual((await W('POST', `/quotes/${sref}/transfer`, { reference: 'GTB-RFQ-1' })).s, 200); await prep(sref); assert.strictEqual((await W('POST', `/quotes/${sref}/ship`, { carrier: 'Our truck' })).s, 200); assert.strictEqual((await W('POST', `/quotes/${sref}/deliver`, { received_by: 'Store manager' })).s, 200);
     assert.strictEqual((await B('GET', '/' + ref)).j.request.status, 'completed', 'delivery completes the request');
   });
   await test('declined and rejected requests: a reason is needed either way', async () => {

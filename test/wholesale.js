@@ -38,6 +38,15 @@ const appBody = (o = {}) => ({ business_name: 'Ada Provisions Ltd', contact_name
   const admin = await login('owner@example.com', 'Str0ng-Owner-Pass!');
   const A = (m, u, b) => call(m, u, b, admin);
   const W = (m, u, b) => A(m, '/api/admin/wholesale' + u, b);
+  // Orders are picked and packed in the warehouse before they can be dispatched.
+  const prep = async (ref) => {
+    const O = (m, u, b) => A(m, '/api/admin/warehouse/orders/' + ref + u, b);
+    assert.strictEqual((await O('POST', '/start')).s, 200);
+    const lines = (await O('GET', '')).j.order.lines;
+    assert.strictEqual((await O('POST', '/pick', { lines: lines.map((l) => ({ id: l.id, qty_picked: l.qty })) })).s, 200);
+    assert.strictEqual((await O('POST', '/picked')).s, 200);
+    assert.strictEqual((await O('POST', '/pack', { packages: 2, note: 'test' })).s, 200);
+  };
   const prods = (await q("SELECT id, name, price, stock FROM products WHERE vendor_id IS NULL AND is_pharmacy=0 AND NOT EXISTS (SELECT 1 FROM variants v WHERE v.product_id=products.id) AND stock >= 30 ORDER BY id LIMIT 3"));
   assert.ok(prods.length >= 2, 'need two plain products with stock');
   const [P1, P2] = prods; const P1stock = Number(P1.stock); const retail1 = P1stock, retail2 = Number(P2.stock);
@@ -125,8 +134,11 @@ const appBody = (o = {}) => ({ business_name: 'Ada Provisions Ltd', contact_name
     assert.strictEqual((await C('POST', `/quotes/${ref}/pay/demo`, {})).s, 200);
     assert.strictEqual((await C('GET', '/quotes/' + ref)).j.quote.status, 'paid');
     assert.strictEqual((await W('POST', `/quotes/${ref}/ship`, {})).s, 400, 'carrier is required');
+    assert.strictEqual((await W('POST', `/quotes/${ref}/ship`, { carrier: 'Our truck' })).s, 409, 'not picked and packed yet');
+    await prep(ref);
     assert.strictEqual((await W('POST', `/quotes/${ref}/ship`, { carrier: 'Our truck', tracking: 'TRK-1' })).s, 200);
-    assert.strictEqual((await W('POST', `/quotes/${ref}/deliver`, {})).s, 200);
+    assert.strictEqual((await W('POST', `/quotes/${ref}/deliver`, {})).s, 400, 'who received the goods is required');
+    assert.strictEqual((await W('POST', `/quotes/${ref}/deliver`, { received_by: 'Mr Okafor' })).s, 200);
     const done = (await C('GET', '/quotes/' + ref)).j.quote; assert.strictEqual(done.status, 'delivered'); assert.ok(done.events.length >= 6);
     assert.strictEqual(await stockOf(P1.id), P1stock - 10, 'delivered goods stay out of stock');
   });

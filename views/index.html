@@ -287,6 +287,27 @@ const e = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<'
 const naira = (n) => '₦' + Number(n || 0).toLocaleString('en-NG');
 const store = { cfg: null, user: null };
 
+// Printing: documents are written into a hidden frame so the page behind them is never printed with them.
+const fdate = (t) => (t ? new Date(t * 1000).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+function printHtml(title, body) {
+  const f = document.createElement('iframe'); f.setAttribute('aria-hidden', 'true'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+  document.body.appendChild(f);
+  const d = f.contentWindow.document;
+  d.open(); d.write(`<!doctype html><html><head><meta charset="utf-8"><title>${e(title)}</title><style>body{font:14px/1.45 Arial,sans-serif;color:#111;margin:24px}h1{font-size:22px;margin:0}h2{font-size:15px;margin:18px 0 6px}table{width:100%;border-collapse:collapse;margin:8px 0}th,td{border-bottom:1px solid #ccc;padding:6px 8px;text-align:left;vertical-align:top}th{background:#f3f3f3;font-size:12px;text-transform:uppercase}.r{text-align:right}.top{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}.box{border:1px solid #bbb;padding:8px 12px;margin:6px 0}.paid{display:inline-block;border:2px solid #1a7f37;color:#1a7f37;font-weight:700;padding:2px 10px;transform:rotate(-4deg)}.sig{margin-top:36px;display:flex;gap:40px}.sig div{flex:1;border-top:1px solid #555;padding-top:4px;font-size:12px}.mu{color:#555;font-size:12px}</style></head><body>${body}</body></html>`); d.close();
+  setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch { /* the browser blocked printing */ } setTimeout(() => f.remove(), 60000); }, 250);
+}
+// The final invoice is read from the frozen copy the server keeps; nothing here recalculates a price.
+function invoiceHtml(v) {
+  const L = v.lines || [];
+  return `<div class="top"><div><h1>${e(v.seller.name)}</h1><div class="mu">${e(v.seller.address)}<br>${e(v.seller.phone)} ${e(v.seller.email)}</div></div>
+  <div style="text-align:right"><h1>INVOICE</h1><b>${e(v.invoice_no)}</b><br>Order ${e(v.order_no)}<br>Issued ${fdate(v.issued)}<br><span class="paid">PAID</span></div></div>
+  <div class="top"><div class="box"><b>Billed to</b><br>${e(v.buyer.business)}<br>${e(v.buyer.contact)} · ${e(v.buyer.phone)}<br>${e(v.buyer.email)}<br>${e(v.buyer.address)}${v.buyer.reg_no ? '<br>Reg. no. ' + e(v.buyer.reg_no) : ''}</div>
+  <div class="box"><b>Deliver to</b><br>${e(v.deliver_to.name)} · ${e(v.deliver_to.phone)}<br>${e(v.deliver_to.address)}</div></div>
+  <table><tr><th>Item</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Amount</th></tr>${L.map((i) => `<tr><td>${e(i.name)}${i.sku ? `<br><span class="mu">${e(i.sku)}</span>` : ''}</td><td class="r">${i.qty}</td><td class="r">${naira(i.unit_price)}</td><td class="r">${naira(i.line_total)}</td></tr>`).join('')}</table>
+  <table style="width:50%;margin-left:auto"><tr><td>Goods</td><td class="r">${naira(v.goods_total)}</td></tr>${v.logistics_fee ? `<tr><td>Logistics</td><td class="r">${naira(v.logistics_fee)}</td></tr>` : ''}${v.service_fee ? `<tr><td>Service fee${v.service_pct ? ' (' + v.service_pct + '%)' : ''}</td><td class="r">${naira(v.service_fee)}</td></tr>` : ''}<tr><td><b>Total paid</b></td><td class="r"><b>${naira(v.total)}</b></td></tr></table>
+  <p class="mu">Paid ${fdate(v.payment.paid_at)} by ${e(v.payment.method || 'bank transfer')}${v.payment.ref ? ', reference ' + e(v.payment.ref) : ''}. Quote ${e(v.quote_ref)}.</p>`;
+}
+
 async function api(path, opts = {}) {
   const o = { method: opts.method || 'GET', headers: {}, credentials: 'same-origin' };
   if (opts.body !== undefined) { o.method = opts.method || 'POST'; o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(opts.body); }
@@ -1615,12 +1636,21 @@ async function wholesalePage(main) {
       requested: '<p class="mu">We are preparing your proforma invoice. You will get an email.</p><button class="btn ghost" id="wdec">Cancel this request</button>',
       quoted: '<p>Please check the invoice. When you approve it, we set these goods aside for you, then you pay, and only then do we ship.</p><button class="btn" id="wacc">Approve quotation</button> <button class="btn ghost" id="wdec">Decline</button>',
       accepted: `<p><b>Pay before ${wdate(q.pay_by)}</b> or the goods are released. We ship after payment.</p><button class="btn" id="wpay">Pay ${naira(q.total)} online</button>${q.bank ? `<div class="card" style="margin-top:12px"><b>Or pay by bank transfer</b><p style="white-space:pre-line;margin:6px 0">${e(q.bank)}</p><p class="mu" style="font-size:13px;margin:0">Use <b>${e(q.ref)}</b> as the payment reference. We confirm your transfer and email you.</p></div>` : ''}`,
-      paid: '<p>✅ Payment received. We will arrange the shipment as agreed above.</p>',
-      shipped: `<p>🚚 Shipped with <b>${e(q.carrier || 'our carrier')}</b>${q.tracking ? ', tracking ' + e(q.tracking) : ''}.</p>`, delivered: '<p>✅ Delivered.</p>',
+      paid: `<p>✅ Payment received. Your order number is <b>${e(q.order_no)}</b>.</p>`, shipped: '<p>🚚 Your order is on its way.</p>', delivered: '<p>✅ Delivered.</p>',
     }[q.status] || `<p class="mu">${e(WSTATUS[q.status] || q.status)}</p>`;
-    draw(`<p class="noprint"><span class="pill">${e(WSTATUS[q.status] || q.status)}</span> <button class="btn ghost sm" onclick="window.print()">Print invoice</button></p>${proformaHtml(q, account.business_name)}<div class="card noprint" style="margin-top:14px">${act}</div>
+    const fu = q.fulfilment, STEPS = [['Paid', 1], ['Preparing', ['to_pick', 'picking', 'picked']], ['Packed', ['packed']], ['On its way', ['dispatched']], ['Delivered', ['delivered']]], ORDER = ['to_pick', 'picking', 'picked', 'packed', 'dispatched', 'delivered'], at = fu ? ORDER.indexOf(fu.stage) : -1;
+    const stepAt = (i) => (i === 0 ? 0 : [0, 2, 3, 4, 5][i]);
+    const tracker = fu ? `<div class="card noprint" style="margin-top:14px"><h4 style="margin-top:0">Order ${e(q.order_no)} <span class="mu" style="font-weight:400">· invoice ${e(q.invoice_no)}</span></h4>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">${STEPS.map(([t], i) => { const on_ = i === 0 || at >= stepAt(i); return `<span class="pill" style="${on_ ? 'background:var(--primary,#0a7);color:#fff' : 'opacity:.55'}">${on_ ? '✓ ' : ''}${t}</span>`; }).join('')}</div>
+      <p style="margin:6px 0"><b>${e(fu.label)}</b>${fu.packages && at >= 3 ? ' · ' + fu.packages + ' package' + (fu.packages === 1 ? '' : 's') : ''}</p>
+      ${['dispatched', 'delivered'].includes(fu.stage) ? `<p class="mu" style="margin:4px 0">${q.carrier ? 'Carrier: ' + e(q.carrier) + '. ' : ''}${q.tracking ? 'Tracking: ' + e(q.tracking) + '. ' : ''}${fu.driver_name ? 'Driver: ' + e(fu.driver_name) + (fu.driver_phone ? ' (' + e(fu.driver_phone) + ')' : '') + '. ' : ''}${fu.vehicle_no ? 'Vehicle: ' + e(fu.vehicle_no) + '. ' : ''}${fu.expected_note && fu.stage === 'dispatched' ? 'Expected: ' + e(fu.expected_note) + '.' : ''}</p>` : ''}
+      ${fu.stage === 'dispatched' && fu.failed_attempts ? '<p class="mu" style="margin:4px 0">We could not deliver on an earlier attempt. See the progress notes below.</p>' : ''}
+      ${fu.stage === 'delivered' ? `<p class="mu" style="margin:4px 0">Received by ${e(fu.received_by)}${fu.delivered_at ? ' on ' + wdate(fu.delivered_at) : ''}.</p>` : ''}
+      <button class="btn ghost sm" id="winv">View / print final invoice</button></div>` : '';
+    draw(`<p class="noprint"><span class="pill">${e(WSTATUS[q.status] || q.status)}</span> <button class="btn ghost sm" onclick="window.print()">Print proforma</button></p>${proformaHtml(q, account.business_name)}<div class="card noprint" style="margin-top:14px">${act}</div>${tracker}
       <div class="card noprint" style="margin-top:14px"><h4 style="margin-top:0">Progress</h4>${q.events.map((x) => `<div style="font-size:13px;padding:2px 0"><span class="mu">${wdate(x.created)}</span> · ${e(x.note || x.status)}</div>`).join('')}</div>`);
     const after = () => wholesalePage(main);
+    const inv = $('#winv'); if (inv) inv.addEventListener('click', run(async () => { const r = await W(`/quotes/${q.ref}/invoice`); printHtml('Invoice ' + q.invoice_no, invoiceHtml(r.invoice || r)); }));
     const acc = $('#wacc'); if (acc) acc.addEventListener('click', run(async () => { await W(`/quotes/${q.ref}/accept`, { body: {} }); toast('Approved'); after(); }));
     const dec = $('#wdec'); if (dec) dec.addEventListener('click', run(async () => { if (!confirm('Decline this quotation?')) return; await W(`/quotes/${q.ref}/decline`, { body: {} }); after(); }));
     const pay = $('#wpay'); if (pay) pay.addEventListener('click', run(async () => { const r = await W(`/quotes/${q.ref}/pay`, { body: {} }); if (r.url) { location.href = r.url; return; } if (r.demo) { await W(`/quotes/${q.ref}/pay/demo`, { body: {} }); toast('Demo payment recorded'); after(); } }));
@@ -2413,8 +2443,7 @@ async function wholesaleQuote(ref) {
    <p class="mu2">Total of goods is recalculated when you send. Service fee is a percentage of goods. Sending emails the proforma invoice to the buyer.</p>
    <button class="btn" id="qsend">${q.status === 'quoted' ? 'Update and resend' : 'Send proforma invoice'}</button> ` : `<div class="panel" style="margin-top:10px"><div>Goods ${money(q.goods_total)} · Logistics ${money(q.logistics_fee)} · Service ${money(q.service_fee)}${q.service_pct ? ' (' + q.service_pct + '%)' : ''}</div><b>Total ${money(q.total)}</b>${q.shipment_plan ? '<div class="mu2">' + e(q.shipment_plan) + '</div>' : ''}${q.payment_method ? `<div class="mu2">Paid by ${e(q.payment_method)}${q.payment_ref ? ', ref ' + e(q.payment_ref) : ''}</div>` : ''}</div>`}
    ${q.status === 'accepted' ? `<div class="panel"><b>Bank transfer received?</b><div class="tbar"><input id="qtr" placeholder="Bank reference (from your statement)"><button class="btn sm" id="qtrb">Mark paid</button></div><p class="mu2">Online payments are marked automatically. Pay-by ${wd(q.pay_by)}; after that the goods are released.</p></div>` : ''}
-   ${q.status === 'paid' ? `<div class="panel"><b>Ship (payment is in)</b><div class="row c2"><label>Carrier<input id="qc" maxlength="80" placeholder="Our truck, courier name, buyer collects"></label><label>Tracking / waybill<input id="qt" maxlength="80"></label></div><button class="btn sm" id="qshipb">Mark shipped</button></div>` : ''}
-   ${q.status === 'shipped' ? '<button class="btn sm" id="qdel">Mark delivered</button> ' : ''}
+   ${['paid', 'shipped', 'delivered'].includes(q.status) ? `<div class="panel"><b>${e(q.order_no || 'Order')}</b>${q.invoice_no ? ' · invoice ' + e(q.invoice_no) : ''}${q.fulfilment ? '<br>' + e(q.fulfilment.label) : ''}<p class="mu2" style="margin:6px 0 0">Picking, packing, dispatch and delivery are done on the Warehouse screen, Orders tab.</p></div>` : ''}
    ${['requested', 'quoted', 'accepted'].includes(q.status) ? '<button class="btn ghost sm" id="qcan">Cancel quote</button> ' : ''}
    <button class="btn ghost sm" id="qprint">Print</button> <button class="btn ghost sm" id="qclose">Close</button>
    <h4>History</h4>${q.events.map((x) => `<div class="mu2">${wd(x.created)} · ${e(x.note || x.status)}</div>`).join('')}`, true);
@@ -2424,8 +2453,6 @@ async function wholesaleQuote(ref) {
   $('#qclose').addEventListener('click', closeModal); $('#qprint').addEventListener('click', () => window.print());
   bind('#qsend', async () => { const items = $$('[data-qi]', modal).reduce((m, i) => { const o = m.find((x) => x.id === Number(i.dataset.qi)) || m[m.push({ id: Number(i.dataset.qi) }) - 1]; o[i.dataset.k] = i.value; return m; }, []); await P('send', { items, logistics_fee: $('#ql').value, service_pct: $('#qp').value, valid_days: $('#qv').value, shipment_plan: $('#qs').value, admin_note: $('#qn').value }); toast('Proforma sent'); });
   bind('#qtrb', async () => { await P('transfer', { reference: $('#qtr').value }); toast('Marked paid'); });
-  bind('#qshipb', async () => { await P('ship', { carrier: $('#qc').value, tracking: $('#qt').value }); toast('Marked shipped'); });
-  bind('#qdel', async () => { await P('deliver'); toast('Delivered'); });
   bind('#qcan', async () => { const r = prompt('Reason for cancelling (the buyer is told)'); if (r === null) throw new Error('Not cancelled'); await P('cancel', { reason: r }); toast('Cancelled'); });
 }
 views.wholesale = async () => {
@@ -2465,17 +2492,103 @@ views.wholesale = async () => {
 
 /* ---------------- wholesale warehouse (admin) ---------------- */
 // Wholesale stock is separate from the shop's retail stock. Everyone with the "warehouse" permission can look; only those who can edit see the buttons that change stock.
-const whs = { tab: 'stock', q: '', low: '', only: '', lines: [], ref: '', note: '', opening: false, key: '', rel: '', aq: '' };
+const whs = { tab: 'orders', ost: 'open', oq: '', rep: 'stock', rfrom: '', rto: '',  q: '', low: '', only: '', lines: [], ref: '', note: '', opening: false, key: '', rel: '', aq: '' };
 const wdt = (t) => (t ? new Date(t * 1000).toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
 const MVT = { opening: 'Opening stock', receipt: 'Received', adjustment: 'Adjustment', damaged: 'Damaged', expired: 'Expired', return: 'Customer return', transfer_in: 'Transfer in', transfer_out: 'Transfer out', reserve: 'Set aside for a quote', release: 'Released back', dispatch: 'Dispatched', migration: 'Moved from retail' };
 const newKey = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2));
 const csvCell = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+
+/* ---- wholesale orders: pick, pack, dispatch, deliver ---- */
+const OSTAGES = [['open', 'Open'], ['to_pick', 'To pick'], ['picking', 'Picking'], ['picked', 'Picked'], ['packed', 'Packed'], ['dispatched', 'Dispatched'], ['delivered', 'Delivered']];
+async function ordersBody() {
+  const { orders, counts } = await api('/api/admin/warehouse/orders?' + new URLSearchParams({ stage: whs.ost, q: whs.oq }));
+  const chips = OSTAGES.map(([k, t]) => `<button class="btn ${whs.ost === k ? '' : 'ghost'} sm" data-ost="${k}">${t}${k !== 'open' && counts[k] ? ` (${counts[k]})` : ''}</button>`).join('');
+  return `<div class="tbar" style="flex-wrap:wrap;gap:6px">${chips}</div>
+  <div class="tbar"><input id="woq" placeholder="Search order number, quote or buyer" value="${e(whs.oq)}"></div>
+  <div class="panel"><div class="tw"><table class="t"><tr><th>Order</th><th>Buyer</th><th>Paid</th><th>Lines / units</th><th>Where</th><th>Stage</th><th></th></tr>${orders.map((o) => `<tr><td><b>${e(o.order_no)}</b><br><span class="mu2">${e(o.ref)}</span></td><td>${e(o.business_name)}</td><td>${wd(o.paid_at)}<br><span class="mu2">${naira(o.total)}</span></td><td>${o.lines} / ${o.units}</td><td>${e([o.ship_city, o.ship_state].filter(Boolean).join(', '))}</td><td>${e(o.stage_label)}${o.packages && o.stage !== 'to_pick' ? `<br><span class="mu2">${o.packages} package${o.packages === 1 ? '' : 's'}</span>` : ''}</td><td><button class="btn sm" data-oopen="${e(o.ref)}">Open</button></td></tr>`).join('') || '<tr><td colspan="7" class="mu">No orders here.</td></tr>'}</table></div></div>`;
+}
+function bindOrders() {
+  onAll('[data-ost]', 'click', (el) => { whs.ost = el.dataset.ost; return views.warehouse(); });
+  on('#woq', 'change', () => { whs.oq = $('#woq').value.trim(); return views.warehouse(); });
+  onAll('[data-oopen]', 'click', (el) => openOrder(el.dataset.oopen));
+}
+async function openOrder(ref) {
+  const A = '/api/admin/warehouse/orders/' + encodeURIComponent(ref);
+  const { order: o } = await api(A);
+  const work = can('warehouse', true), roll = can('delivery', true) || work, st = o.stage;
+  const lines = o.lines.map((l) => `<tr><td>${e(l.name)}${l.sku ? `<br><span class="mu2">${e(l.sku)}</span>` : ''}</td><td>${l.qty}</td><td>${st === 'picking' && work ? `<input type="number" min="0" max="${l.qty}" style="width:80px" data-pl="${l.id}" value="${l.qty_picked}">` : l.qty_picked}</td><td>${st === 'picking' && work ? `<input data-pn="${l.id}" maxlength="200" placeholder="if short" value="${e(l.short_note)}">` : e(l.short_note)}</td></tr>`).join('');
+  const actions = [];
+  if (st === 'to_pick' && work) actions.push('<button class="btn" id="o-start">Start picking</button>');
+  if (st === 'picking' && work) actions.push('<button class="btn ghost" id="o-save">Save quantities</button> <button class="btn" id="o-picked">Mark picked</button>');
+  if (st === 'picked' && work) actions.push('<div class="row c2"><label>Packages (cartons, bags, pallets)<input id="o-pk" type="number" min="1" step="1"></label><label>Packing note<input id="o-pn" maxlength="300"></label></div><button class="btn" id="o-pack">Mark packed</button>');
+  if (['picked', 'packed'].includes(st) && work) actions.push('<button class="btn ghost sm" id="o-undo">Take back one step</button>');
+  if (st === 'packed' && roll) actions.push(`<div class="panel"><b>Dispatch</b><div class="row c2"><label>Carrier<input id="o-c" maxlength="80" placeholder="Our truck, courier name"></label><label>Waybill / tracking<input id="o-t" maxlength="80"></label></div><div class="row c2"><label>Driver name<input id="o-dn" maxlength="80"></label><label>Driver phone<input id="o-dp" maxlength="30"></label></div><div class="row c2"><label>Vehicle number<input id="o-v" maxlength="30"></label><label>Expected arrival (shown to buyer)<input id="o-x" maxlength="120" placeholder="e.g. Tuesday afternoon"></label></div><p class="mu2">Stock is deducted now and the buyer is told it is on its way.</p><button class="btn" id="o-disp">Dispatch</button></div>`);
+  if (st === 'dispatched' && roll) actions.push(`<div class="panel"><b>Delivered</b><div class="row c2"><label>Received by (name of person who signed)<input id="o-rb" maxlength="80"></label><label>Note<input id="o-dnote" maxlength="300"></label></div><button class="btn" id="o-del">Confirm delivered</button></div><div class="panel"><b>Could not deliver</b><label>Reason (the buyer is told)<input id="o-fr" maxlength="300"></label><button class="btn ghost sm" id="o-fail">Record failed attempt</button></div>`);
+  openModal(`<h3 style="margin-top:0">${e(o.order_no)} <span class="mu2">· ${e(o.stage_label)}</span></h3>
+  <p class="mu2">${e(o.buyer.business_name)} · ${e(o.buyer.contact_name)}, ${e(o.buyer.phone)}<br>Deliver to: ${e(o.ship.name)}, ${e(o.ship.address)}, ${e(o.ship.phone)}<br>Quote ${e(o.ref)} · invoice ${e(o.invoice_no)} · paid ${wd(o.paid_at)}${o.picker ? ' · picker ' + e(o.picker) : ''}${o.packer ? ' · packer ' + e(o.packer) : ''}</p>
+  <div class="tw"><table class="t"><tr><th>Item</th><th>Ordered</th><th>Picked</th><th>Note</th></tr>${lines}</table></div>
+  ${o.packages ? `<p class="mu2">${o.packages} package${o.packages === 1 ? '' : 's'}${o.package_note ? ' · ' + e(o.package_note) : ''}</p>` : ''}
+  ${o.dispatched_at ? `<p class="mu2">Dispatched ${wdt(o.dispatched_at)} · ${e(o.carrier)}${o.tracking ? ' · ' + e(o.tracking) : ''}${o.driver_name ? ' · driver ' + e(o.driver_name) + ' ' + e(o.driver_phone) : ''}${o.vehicle_no ? ' · vehicle ' + e(o.vehicle_no) : ''}${o.failed_attempts ? ' · failed attempts: ' + o.failed_attempts : ''}</p>` : ''}
+  ${o.delivered_at ? `<p class="mu2">Delivered ${wdt(o.delivered_at)} · received by ${e(o.received_by)}${o.delivery_note ? ' · ' + e(o.delivery_note) : ''}</p>` : ''}
+  ${actions.join('')}
+  <div style="margin-top:12px"><button class="btn ghost sm" id="o-pl">Print pick list</button> <button class="btn ghost sm" id="o-dn2">Print delivery note</button> <button class="btn ghost sm" id="o-inv">Print invoice</button> <button class="btn ghost sm" id="o-x">Close</button></div>
+  <h4>History</h4>${o.events.map((x) => `<div class="mu2">${wdt(x.created)} · ${e(x.note || x.stage)} <span class="mu2">(${e(x.by)})</span></div>`).join('') || '<div class="mu2">Nothing yet.</div>'}`, true);
+  const again = () => { views.warehouse(); return openOrder(ref); };                 // stay on the order so the next step is one tap away
+  const go = (path, body, msg) => async () => { await api(A + '/' + path, { body: body ? body() : {} }); if (msg) toast(msg); await again(); };
+  const mon = (id, fn) => { const el = $(id, modal); if (el) el.addEventListener('click', guard(fn)); };   // the dialog sits outside the page body, so on() would not find it
+  const bindG = mon;
+  $('#o-x').addEventListener('click', closeModal);
+  const picks = () => $$('[data-pl]', modal).map((i) => ({ id: Number(i.dataset.pl), qty_picked: i.value, short_note: ($(`[data-pn="${i.dataset.pl}"]`, modal) || {}).value || '' }));
+  bindG('#o-start', go('start', null, 'Picking started'));
+  bindG('#o-save', async () => { await api(A + '/pick', { body: { lines: picks() } }); toast('Saved'); });
+  bindG('#o-picked', async () => { await api(A + '/pick', { body: { lines: picks() } }); await api(A + '/picked', { body: {} }); toast('Marked picked'); await again(); });
+  bindG('#o-pack', go('pack', () => ({ packages: $('#o-pk').value, note: $('#o-pn').value }), 'Packed'));
+  bindG('#o-undo', go('undo', null, 'Taken back'));
+  bindG('#o-disp', go('dispatch', () => ({ carrier: $('#o-c').value, tracking: $('#o-t').value, driver_name: $('#o-dn').value, driver_phone: $('#o-dp').value, vehicle_no: $('#o-v').value, expected_note: $('#o-x').value }), 'Dispatched'));
+  bindG('#o-del', go('delivered', () => ({ received_by: $('#o-rb').value, delivery_note: $('#o-dnote').value }), 'Delivered'));
+  bindG('#o-fail', go('failed', () => ({ reason: $('#o-fr').value }), 'Recorded'));
+  const head = (t) => `<h1>${t}</h1><p><b>${e(o.order_no)}</b> · quote ${e(o.ref)}<br>${e(o.buyer.business_name)}<br>Deliver to: ${e(o.ship.name)}, ${e(o.ship.address)}, ${e(o.ship.phone)}</p>`;
+  mon('#o-pl', 'click', () => printHtml('Pick list ' + o.order_no, head('Pick list') + `<table><tr><th>Item</th><th>SKU</th><th class="r">Qty</th><th>Picked</th></tr>${o.lines.map((l) => `<tr><td>${e(l.name)}</td><td>${e(l.sku)}</td><td class="r">${l.qty}</td><td>☐</td></tr>`).join('')}</table><div class="sig"><div>Picked by</div><div>Checked by</div></div>`));
+  mon('#o-dn2', 'click', () => printHtml('Delivery note ' + o.order_no, head('Delivery note') + `<table><tr><th>Item</th><th class="r">Qty</th></tr>${o.lines.map((l) => `<tr><td>${e(l.name)}</td><td class="r">${l.qty}</td></tr>`).join('')}</table><p>Packages: ${o.packages || ''} ${e(o.package_note)}<br>${o.driver_name ? 'Driver: ' + e(o.driver_name) + ' ' + e(o.driver_phone) + '<br>' : ''}${o.vehicle_no ? 'Vehicle: ' + e(o.vehicle_no) : ''}</p><div class="sig"><div>Received by (name and signature)</div><div>Date</div></div>`));
+  mon('#o-inv', 'click', guard(async () => { const v = await api('/api/admin/warehouse/invoices/' + encodeURIComponent(o.ref)); printHtml('Invoice ' + o.invoice_no, invoiceHtml(v.invoice || v)); }));
+}
+
+/* ---- wholesale reports ---- */
+let repList = null;
+async function reportsBody() {
+  repList = repList || (await api('/api/admin/warehouse/reports')).reports;
+  const moneyOk = can('reports') || can('finance');
+  const list = repList.filter((r) => moneyOk || !r.money);
+  if (!list.some((r) => r.name === whs.rep)) whs.rep = list[0].name;
+  const cur = list.find((r) => r.name === whs.rep);
+  const r = (await api('/api/admin/warehouse/reports/' + whs.rep + '?' + new URLSearchParams({ from: whs.rfrom, to: whs.rto }))).report;
+  whs.report = r;
+  const fmt = (v, t) => t === 'money' ? naira(v) : t === 'int' ? Number(v || 0).toLocaleString('en-NG') : t === 'hours' ? (v == null || v === '' ? '' : Number(v).toFixed(1) + ' h') : t === 'date' ? wdt(v) : e(v);
+  return `<div class="tbar" style="flex-wrap:wrap;gap:8px"><label style="width:auto">Report<select id="rp">${list.map((x) => `<option value="${x.name}" ${x.name === whs.rep ? 'selected' : ''}>${e(x.title)}</option>`).join('')}</select></label>
+  ${cur.dated ? `<label style="width:auto">From<input type="date" id="rf" value="${e(r.from)}"></label><label style="width:auto">To<input type="date" id="rt" value="${e(r.to)}"></label>` : ''}<button class="btn ghost sm" id="rcsv">Download CSV</button></div>
+  <h3 style="margin:8px 0 4px">${e(r.title)}</h3>${r.note ? `<p class="mu2">${e(r.note)}</p>` : ''}
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0">${r.summary.map((s) => `<div class="panel" style="min-width:140px;margin:0"><div class="mu2">${e(s.label)}</div><b style="font-size:18px">${fmt(s.value, s.type)}</b></div>`).join('')}</div>
+  <div class="panel"><div class="tw"><table class="t"><tr>${r.columns.map((c) => `<th${['money', 'int', 'hours'].includes(c.type) ? ' style="text-align:right"' : ''}>${e(c.label)}</th>`).join('')}</tr>${r.rows.map((row) => `<tr>${r.columns.map((c) => `<td${['money', 'int', 'hours'].includes(c.type) ? ' style="text-align:right"' : ''}>${fmt(row[c.key], c.type)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${r.columns.length}" class="mu">Nothing in this period.</td></tr>`}</table></div></div>`;
+}
+function bindReports() {
+  on('#rp', 'change', () => { whs.rep = $('#rp').value; return views.warehouse(); });
+  on('#rf', 'change', () => { whs.rfrom = $('#rf').value; return views.warehouse(); });
+  on('#rt', 'change', () => { whs.rto = $('#rt').value; return views.warehouse(); });
+  on('#rcsv', 'click', () => {
+    const r = whs.report; if (!r) return;
+    const cell = (v, t) => (t === 'date' && v ? new Date(v * 1000).toISOString().slice(0, 16).replace('T', ' ') : v);
+    const rows = [r.columns.map((c) => c.label)].concat(r.rows.map((row) => r.columns.map((c) => cell(row[c.key], c.type))));
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + rows.map((x) => x.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv' })); a.download = 'wholesale-' + r.name + '-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+}
 views.warehouse = async () => {
   const edit = can('warehouse', true), A = '/api/admin/warehouse';
-  const tabs = [['stock', 'Stock'], ...(edit ? [['receive', 'Receive stock']] : []), ['moves', 'Movements'], ...(edit ? [['log', 'Activity']] : [])];
-  if (!tabs.some(([k]) => k === whs.tab)) whs.tab = 'stock';
+  const tabs = [['orders', 'Orders'], ['stock', 'Stock'], ...(edit ? [['receive', 'Receive stock']] : []), ['moves', 'Movements'], ['reports', 'Reports'], ...(edit ? [['log', 'Activity']] : [])];
+  if (!tabs.some(([k]) => k === whs.tab)) whs.tab = 'orders';
   let body = '';
-  if (whs.tab === 'stock') {
+  if (whs.tab === 'orders') body = await ordersBody();
+  else if (whs.tab === 'reports') body = await reportsBody();
+  else if (whs.tab === 'stock') {
     const { stock } = await api(A + '/stock?' + new URLSearchParams({ q: whs.q, low: whs.low, only: whs.only, limit: 300 }));
     const held = stock.filter((s) => Number(s.on_hand) > 0).length;
     body = `${!held && !whs.q && !whs.only && !whs.low ? `<div class="panel"><b>No wholesale stock has been entered yet.</b><p class="mu2" style="margin:6px 0 0">Wholesale buyers only see products that have stock here. ${edit ? 'Open <b>Receive stock</b>, tick <i>Opening stock</i> and enter what is in the warehouse today.' : 'Ask the warehouse manager to enter the opening stock.'}</p></div>` : ''}
@@ -2499,6 +2612,7 @@ views.warehouse = async () => {
   }
   mn(hd('Wholesale warehouse') + `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">${tabs.map(([k, t]) => `<button class="btn ${whs.tab === k ? '' : 'ghost'} sm" data-whtab="${k}">${t}</button>`).join('')}</div>` + body);
   onAll('[data-whtab]', 'click', (el) => { whs.tab = el.dataset.whtab; return views.warehouse(); });
+  if (whs.tab === 'orders') bindOrders(); else if (whs.tab === 'reports') bindReports();
   on('#whq', 'change', () => { whs.q = $('#whq').value; return views.warehouse(); });
   on('#who', 'change', () => { whs.only = $('#who').checked ? '1' : ''; return views.warehouse(); });
   on('#whl', 'change', () => { whs.low = $('#whl').checked ? '1' : ''; return views.warehouse(); });

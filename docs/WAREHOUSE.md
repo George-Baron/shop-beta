@@ -24,5 +24,19 @@ People who can only view see no edit buttons; the server refuses their changes a
 ## Migrations 012 and 014
 Creates the tables, seeds the `MAIN` warehouse, and moves goods already held for accepted/paid quotes from the retail count into wholesale on-hand + reserved (nothing double counted). **After deploying, receive your wholesale stock** (`POST /stock/receipt` with `opening: true`): until you do, wholesale availability is zero and buyers see no products.
 
+## Orders, invoices, picking, packing and delivery (migration 015)
+- **Paying a quote makes it an order**, in the same database transaction as the payment: order number `ORD-2026-000001` and final invoice `INV-2026-000001` (per-year, Lagos year, never reused). The invoice is a frozen copy of what the buyer paid for (`wholesale_invoices.snapshot`); a later price change cannot alter it. Quotes paid before this release get their numbers the first time they are opened.
+- **Fulfilment stages** (between paid and shipped): To pick, Picking, Picked, Packed, Dispatched, Delivered. Every step is checked on the server against the current stage under a row lock, so two people cannot move one order at once (the second gets a clear 409). Quote statuses are unchanged.
+- **Picking** records the quantity taken per line; an order cannot be marked picked while any line is short. **Packing** needs a package count. **Take back** steps one stage back until dispatch.
+- **Dispatch** needs a packed order; it deducts the stock (once) and records carrier, waybill, driver, vehicle and expected arrival. **Delivered** needs the name of the person who received the goods. **Delivery failed** records a reason and tells the buyer.
+- **Buyers** see the order number, invoice number, a progress tracker, driver and vehicle once dispatched, who received it, and can print the final invoice. Internal warehouse notes are never shown to them.
+- **Staff** are notified of a new order to pick; the buyer is notified at each major step. Pick list, delivery note and invoice can be printed from the order.
+- **Permissions:** picking and packing need warehouse edit; dispatch and delivered need delivery or warehouse edit; money reports need reports or finance; the frozen invoice can be read by finance, warehouse and wholesale staff.
+
+## Reports (Warehouse > Reports, CSV download on each)
+Stock and value, Low stock, Stock movements, Fulfilment speed (warehouse view); Sales by product, Sales by buyer, Invoices issued, Waiting for payment (need reports or finance). Periods are whole Lagos days (default last 30 days, at most two years). An order cancelled after payment keeps its invoice and is flagged "refund by hand" in the Invoices report, because credit notes do not exist yet.
+
+API additions: `GET /orders`, `GET /orders/:ref`, `POST /orders/:ref/{start,pick,picked,pack,undo,dispatch,delivered,failed}`, `GET /invoices/:ref`, `GET /reports`, `GET /reports/:name`; buyers: `GET /api/wholesale/quotes/:ref/invoice`.
+
 ## Not built yet
-picking/packing, delivery and final invoices, reports, bulk stock import. (Roles, RFQs and notifications came from the reconciled PR #10; see docs/ROLES_RFQ.md.) Migration 014 drops the earlier separate warehouse role table if it is empty. Tests: `npm run test:warehouse`.
+Credit notes (refunds after payment are by hand), bulk stock import. (Roles, RFQs and notifications came from the reconciled PR #10; see docs/ROLES_RFQ.md.) Migration 014 drops the earlier separate warehouse role table if it is empty. Tests: `npm run test:warehouse`.

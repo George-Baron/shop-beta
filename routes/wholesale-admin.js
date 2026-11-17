@@ -15,7 +15,7 @@ router.get('/quotes/:ref', ah(async (req, res) => res.json({ quote: await W.admi
 router.post('/quotes/:ref/send', ah(async (req, res) => { await W.sendQuote(req.params.ref, req.body || {}, by(req)); res.json({ ok: true }); }));
 router.post('/quotes/:ref/transfer', ah(async (req, res) => { await W.markTransferReceived(req.params.ref, req.body && req.body.reference, by(req)); res.json({ ok: true }); }));
 router.post('/quotes/:ref/ship', ah(async (req, res) => { await W.ship(req.params.ref, req.body || {}, by(req)); res.json({ ok: true }); }));
-router.post('/quotes/:ref/deliver', ah(async (req, res) => { await W.deliver(req.params.ref, by(req)); res.json({ ok: true }); }));
+router.post('/quotes/:ref/deliver', ah(async (req, res) => { await W.deliver(req.params.ref, req.body || {}, by(req)); res.json({ ok: true }); }));
 router.post('/quotes/:ref/cancel', ah(async (req, res) => { await W.adminCancel(req.params.ref, String((req.body && req.body.reason) || '').slice(0, 300), by(req)); res.json({ ok: true }); }));
 
 router.get('/products', ah(async (req, res) => res.json({ products: await W.adminProducts(req.query) })));
