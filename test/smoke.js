@@ -259,7 +259,7 @@ async function test(name, fn) {
 
   console.log('\nPages');
   await test('server-rendered SEO: titles, product JSON-LD, 404s, sitemap, robots, security headers', async () => {
-    const home = await guest.get('/d/electronics'); assert.match(home.text, /<html lang="en" data-store="electronics">/); assert.match(home.text, /<title>Shop-Beta Electronics/);
+    const home = await guest.get('/d/electronics'); assert.match(home.text, /<html lang="en" data-store="electronics">/); assert.match(home.text, /<title>VELTO-MART Electronics/);
     const prod = (await guest.get('/api/products?store=electronics')).json.products[0]; const page = await guest.get('/product/' + prod.slug);
     assert.match(page.text, /application\/ld\+json/); assert.match(page.text, /og:title/); assert.ok(!page.text.includes('<!--SEO-->') && !page.text.includes('<!--HTMLATTR-->') && !page.text.includes('<!--PRERENDER-->'));
     const nonce = /script nonce="([^"]+)"/.exec(page.text)[1]; assert.ok(page.headers.get('content-security-policy').includes(`'nonce-${nonce}'`));
