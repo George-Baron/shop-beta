@@ -519,6 +519,18 @@ const nowS = () => Math.floor(Date.now() / 1000);
     assert.ok(!JSON.stringify((await rc(r2, 'GET', '/messages')).j).includes('Rude on the phone'));
   });
 
+  await test('the buyer can rate a delivered order once, from their own order link; it feeds the rider\'s rating and a low score with a comment counts as a complaint', async () => {
+    const full = { ref: od.ref, email: od.email, token: od.token }, basic = { ref: od.ref, email: od.email };
+    assert.strictEqual((await call('POST', '/api/orders/lookup', full)).j.order.can_rate_delivery, true);
+    assert.strictEqual((await call('POST', `/api/orders/${od.ref}/rate-delivery`, { ...basic, rating: 5 })).s, 403, 'the email alone is not enough');
+    assert.strictEqual((await call('POST', `/api/orders/${od.ref}/rate-delivery`, { ...full, rating: 6 })).s, 400);
+    assert.strictEqual((await call('POST', `/api/orders/${od.ref}/rate-delivery`, { ...full, rating: 1, comment: 'Arrived very late' })).s, 200);
+    assert.strictEqual((await call('POST', `/api/orders/${od.ref}/rate-delivery`, { ...full, rating: 5 })).s, 409, 'only once');
+    const o = (await call('POST', '/api/orders/lookup', full)).j.order; assert.strictEqual(o.delivery_rating.rating, 1); assert.ok(!o.can_rate_delivery); assert.ok(!/SB-R\d|rider_id/.test(JSON.stringify(o)));
+    const p = (await ops('GET', '/riders/' + r1.id)).j.rider.performance; assert.strictEqual(p.rating, 2.5, 'average of the staff rating 4 and the customer rating 1'); assert.strictEqual(p.complaints, 2);
+    const nd = await place('undelivered@example.com'); assert.strictEqual((await call('POST', `/api/orders/${nd.ref}/rate-delivery`, { ref: nd.ref, email: nd.email, token: nd.token, rating: 5 })).s, 400, 'not delivered yet');
+  });
+
   app.kill(); fake.close();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) console.log('\n--- app log (tail) ---\n' + app.log.split('\n').slice(-25).join('\n'));
