@@ -39,8 +39,11 @@ Type in *AI commands*: "Show me all available riders", "How many riders are onli
 ## Performance
 Assigned, accepted, rejected, completed, failed, average pickup and delivery time, on-time share, rating, complaints and GPS reliability, from recorded data. Assignments marked **excused** (customer unreachable, wrong address, desk decision) are left out of on-time and failure counts. Riders with fewer than 5 assignments get a neutral dispatch score.
 
+## Customer rating
+After a delivery the buyer sees a 1 to 5 star form on their order page (only via their own order link, not email alone; once per order). It feeds the rider's rating; a score of 1 or 2 with a comment also counts as a complaint. `POST /api/orders/:ref/rate-delivery`.
+
 ## Settings (`PUT /api/admin/rider-ops/settings`)
 Dispatch mode, weights, offer timeout, live/stale seconds, update intervals, maximum pickup distance and accuracy, wait for a reply, delay grace, retention days, allow riders without GPS. They are not exposed to customers.
 
 ## Tests
-`npm run test:riders` (backend, 40 checks incl. the 27-step workflow) and `npm run test:riders-ui` (Chromium; real browser GPS permission, live map).
+`npm run test:riders` (backend, 41 checks incl. the 27-step workflow) and `npm run test:riders-ui` (Chromium; real browser GPS permission, live map).

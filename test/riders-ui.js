@@ -118,6 +118,14 @@ const SHOTS = process.env.SHOTS_DIR || os.tmpdir();
     await until(async () => (await q("SELECT status FROM orders WHERE id=$1", [order.id]))[0].status === 'delivered', 15000);
     const pr = (await q('SELECT otp_verified FROM delivery_proofs'))[0]; assert.strictEqual(pr.otp_verified, 1);
   });
+  await test('the customer sees the star form on the delivered order and rating it is saved', async () => {
+    const cctx = await browser.newContext({ viewport: { width: 390, height: 800 } }), cp = await cctx.newPage();
+    await cp.goto(`${base}/order/${order.ref}?t=${order.access_token}&email=cust@example.com`); await seen(cp, '#ratebox');
+    await cp.click('[data-star="5"]'); await cp.fill('#ratetxt', 'Quick and polite'); await cp.click('#ratego');
+    await cp.getByText('Your delivery rating', { exact: false }).first().waitFor({ timeout: 10000 });
+    const f = (await q("SELECT rating, comment, source FROM rider_feedback"))[0]; assert.strictEqual(f.rating, 5); assert.strictEqual(f.source, 'customer'); assert.strictEqual(f.comment, 'Quick and polite');
+    await cp.screenshot({ path: path.join(SHOTS, 'customer-rating.png'), fullPage: true }); await cctx.close();
+  });
   await test('chat works both ways with read receipts, and the AI is named', async () => {
     await rp.screenshot({ path: path.join(SHOTS, 'rider-after.png') }); await rp.click('[data-tab="chat"]', { timeout: 8000 }); await seen(rp, '#mf');
     await rp.fill('#mt', 'Hello desk, delivery done'); await rp.click('#mf button.btn:not(.ghost)'); await txt(rp, 'Hello desk, delivery done');

@@ -270,6 +270,11 @@ async function customerOrder(o) {
     return out; // no delivery code and no rider position for a masked view
   }
   out.handover_code = await D.visibleCode(o);
+  if (o.status === 'delivered') {   // the buyer's own delivery rating (the rider's identity is not part of it)
+    const fb = await get("SELECT rating, comment FROM rider_feedback WHERE order_id=? AND source='customer'", o.id);
+    if (fb) out.delivery_rating = { rating: Number(fb.rating), comment: fb.comment };
+    else out.can_rate_delivery = !!(await get("SELECT 1 x FROM rider_assignments WHERE order_id=? AND assignment_status='delivered'", o.id));
+  }
   if (out.delivery_info && o.status === 'shipped' && o.rider_id) {
     const pt = await get('SELECT lat, lng, created FROM rider_points WHERE order_id=? ORDER BY id DESC LIMIT 1', o.id);
     out.rider = pt ? { lat: pt.lat, lng: pt.lng, at: Number(pt.created) } : null;
@@ -278,6 +283,19 @@ async function customerOrder(o) {
 }
 router.post('/orders/lookup', A.limiter('lookup', 40, 600000), ah(async (req, res) => {
   res.json({ order: await customerOrder(await ownedOrder(req, req.body.ref, req.body.email, req.body.token)) });
+}));
+router.post('/orders/:ref/rate-delivery', A.limiter('rate-delivery', 20, 600000), ah(async (req, res) => {
+  const o = await ownedOrder(req, req.params.ref, req.body.email, req.body.token);
+  if (o.view !== 'full') fail(403, 'Open your order from the link in your confirmation email to rate the delivery.');
+  if (o.status !== 'delivered') fail(400, 'You can rate the delivery once the order has arrived.');
+  const a = await get("SELECT rider_id FROM rider_assignments WHERE order_id=? AND assignment_status='delivered' ORDER BY id DESC LIMIT 1", o.id);
+  if (!a) fail(400, 'This order was not delivered by one of our riders.');
+  const rating = int(req.body.rating), comment = str(req.body.comment, 500);
+  if (!(rating >= 1 && rating <= 5)) fail(400, 'Choose a rating from 1 to 5.');
+  try {
+    await run("INSERT INTO rider_feedback (rider_id, order_id, rating, complaint, comment, source, recorded_by, created_at) VALUES (?,?,?,?,?,'customer','customer',?)", a.rider_id, o.id, rating, rating <= 2 ? comment : '', comment, now());
+  } catch (e) { if (e.code === '23505') fail(409, 'You have already rated this delivery. Thank you.'); throw e; }
+  res.json({ ok: true });
 }));
 router.post('/orders/:ref/cancel', A.limiter('cancel', 10, 600000), ah(async (req, res) => {
   const o = await ownedOrder(req, req.params.ref, req.body.email);

@@ -1025,6 +1025,15 @@ async function orderPage(main, ref, u, cfg) {
   const dp = $('#demopay'); if (dp) dp.addEventListener('click', async () => { try { await api('/api/pay/demo/' + ref, { body: { outcome: 'ok' } }); cart.clear(); cart.setCoupon(''); toast('Payment received (demo)'); go('/order/' + ref + '?new=1', true); } catch (er) { toast(er.message, 'bad'); } });
   const df = $('#demofail'); if (df) df.addEventListener('click', async () => { await api('/api/pay/demo/' + ref, { body: { outcome: 'fail' } }); toast('Payment failed. The order was cancelled.', 'bad'); rerender(); });
   const rc = $('#recheck'); if (rc) rc.addEventListener('click', async () => { await api('/api/paystack/verify?reference=' + encodeURIComponent(ref)).catch(() => {}); rerender(); });
+  const rt = $('#ratebox');
+  if (rt) {
+    let stars = 0; const paintStars = () => $$('[data-star]', rt).forEach((b) => { b.textContent = Number(b.dataset.star) <= stars ? '★' : '☆'; });
+    $$('[data-star]', rt).forEach((b) => b.addEventListener('click', () => { stars = Number(b.dataset.star); paintStars(); }));
+    $('#ratego', rt).addEventListener('click', async () => {
+      if (!stars) return toast('Tap a star to rate the delivery.', 'bad');
+      try { await api('/api/orders/' + ref + '/rate-delivery', { body: { email, token, rating: stars, comment: $('#ratetxt', rt).value } }); toast('Thank you for your feedback'); rerender(); } catch (er) { toast(er.message, 'bad'); }
+    });
+  }
   $('#print').addEventListener('click', () => window.print());
   const co = $('#cancelo'); if (co) co.addEventListener('click', async () => { if (!confirm('Cancel this order?')) return; try { await api('/api/orders/' + ref + '/cancel', { body: { email } }); toast('Order cancelled'); rerender(); } catch (er) { toast(er.message, 'bad'); } });
   return 'Order ' + order.ref;
@@ -1036,6 +1045,7 @@ function deliveryCard(order) {
   const stages = [['Order placed', order.created], ['Rider accepted', d.accepted_at], ['Picked up', d.picked_up_at], ['On the way', d.on_way_at], ['Delivered', d.delivered_at]];
   return `<div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">Delivery</h3>
     ${d.delivered_at ? `<p style="margin:0 0 8px">✅ Delivered at <b>${tm(d.delivered_at)}</b></p>` : d.promised_at ? `<p style="margin:0 0 8px">Expected by <b>${tm(d.promised_at)}</b>${d.km ? ' · ' + d.km + ' km' : ''}${late ? ' <span style="color:var(--bad)">· running late, sorry</span>' : ''}</p>` : ''}
+    ${order.can_rate_delivery ? `<div class="card" id="ratebox" style="margin:10px 0"><h3 style="margin-top:0">How was your delivery?</h3><div style="font-size:34px;letter-spacing:6px;cursor:pointer" role="group" aria-label="Rating">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-star="${n}" aria-label="${n} star${n > 1 ? 's' : ''}" style="background:none;border:0;font-size:34px;cursor:pointer;color:#f59e0b;padding:0 2px">☆</button>`).join('')}</div><textarea id="ratetxt" maxlength="500" rows="2" placeholder="Anything to add? (optional)" style="width:100%;margin:8px 0"></textarea><button class="btn" id="ratego">Send rating</button></div>` : order.delivery_rating ? `<p class="mu" style="margin:10px 0">Your delivery rating: <b style="color:#f59e0b">${'★'.repeat(order.delivery_rating.rating)}${'☆'.repeat(5 - order.delivery_rating.rating)}</b> Thank you.</p>` : ''}
     ${order.handover_code ? `<div class="note" style="text-align:center;margin:10px 0"><div style="font-size:13px">Your delivery code</div><div style="font-size:36px;font-weight:800;letter-spacing:8px">${e(order.handover_code)}</div><div style="font-size:13px">Read this code to the rider only when your parcel is in your hands. It completes the delivery.${order.payment_method === 'pod' ? ' Have ' + naira(order.total) + ' ready.' : ''} Never share it before then.</div></div>` : ''}
     ${d.locked ? '<p style="color:var(--bad)">Delivery is paused after too many wrong codes. We will contact you.</p>' : ''}
     <div style="display:grid;gap:4px;font-size:13px">${stages.map(([n, t]) => `<div style="display:flex;justify-content:space-between;opacity:${t ? 1 : 0.45}"><span>${t ? '●' : '○'} ${n}</span><span class="mu">${t ? tm(t) : '—'}</span></div>`).join('')}</div>
