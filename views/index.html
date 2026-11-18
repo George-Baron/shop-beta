@@ -265,6 +265,33 @@ body.is-admin .acts,body.is-admin .nop{display:none!important}}
 .rtrk{list-style:none;display:flex;gap:6px;flex-wrap:wrap;padding:0;margin:0 0 12px;font-size:12.5px}.rtrk li{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;background:var(--surface-2,#eee);color:var(--muted,#666)}.rtrk li span{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:var(--border);font-weight:800;font-size:11px}.rtrk .done{color:var(--text)}.rtrk .done span{background:var(--accent);color:var(--accent-ink)}.rtrk .now{background:var(--accent-soft);color:var(--text);font-weight:800;outline:2px solid var(--accent)}
 .ntf{display:block;padding:12px 14px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;text-decoration:none;color:inherit}.ntf.new{border-color:var(--accent);background:var(--accent-soft)}
 body.is-admin .ntfa{display:block;padding:10px 12px;border-bottom:1px solid var(--border);text-decoration:none;color:inherit}body.is-admin .ntfa.new{background:var(--accent-soft)}body.is-admin .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}body.is-admin .pm td{vertical-align:top}
+
+/* rider app */
+body.is-rider .ann,body.is-rider .head,body.is-rider .foot,body.is-rider .cookie,body.is-rider .ai-btn,body.is-rider .ai-panel,body.is-rider .wa{display:none!important}body.is-rider .rd-bar{top:0}
+.rd{max-width:640px;margin:0 auto;padding:0 0 84px}.rd-top{display:flex;justify-content:space-between;align-items:center;padding:12px 16px}
+.rd-bar{display:flex;gap:10px;align-items:center;margin:0 12px 12px;padding:10px 14px;border-radius:12px;background:var(--card,#fff);border:1px solid var(--border,#e5e7eb);position:sticky;top:0;z-index:5}
+.rd-dot{width:14px;height:14px;border-radius:50%;flex:none}.rd-dot.pulse{animation:rdp 1.6s infinite}@keyframes rdp{0%{box-shadow:0 0 0 0 rgba(22,163,74,.5)}100%{box-shadow:0 0 0 12px rgba(22,163,74,0)}}
+.rd-body{padding:0 12px;display:grid;gap:12px}.rd-body .card{margin:0}.rd-row{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.rd-go{font-size:22px;padding:22px 16px}.rd-seg{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.rd-seg button{padding:14px 6px;border-radius:12px;border:2px solid var(--border,#d1d5db);background:transparent;font-weight:700;font-size:15px;color:inherit}.rd-seg button.on{background:var(--accent,#2563eb);border-color:var(--accent,#2563eb);color:#fff}
+.rd-offer{border:2px solid var(--accent,#2563eb)!important}.rd-count{font-weight:800;font-size:20px;color:var(--bad,#dc2626)}.rd-two{display:grid;grid-template-columns:2fr 1fr;gap:8px}.rd-two .btn{padding:16px 8px}
+.rd-chips{display:flex;flex-wrap:wrap;gap:6px}.rd-chips span{background:rgba(0,0,0,.06);border-radius:999px;padding:4px 10px;font-size:13px}
+.rd-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.rd-stat{background:var(--card,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;padding:12px 6px;text-align:center}.rd-stat b{display:block;font-size:22px}.rd-stat span{font-size:12px;color:var(--muted,#6b7280)}
+.rd-tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card,#fff);border-top:1px solid var(--border,#e5e7eb);z-index:20}.rd-tabs button{flex:1;position:relative;border:0;background:none;padding:10px 0 12px;font-size:20px;color:inherit;opacity:.65}.rd-tabs button span{display:block;font-size:11px}.rd-tabs button.on{opacity:1;font-weight:800;color:var(--accent,#2563eb)}.rd-tabs i{position:absolute;top:4px;left:55%;background:var(--bad,#dc2626);color:#fff;border-radius:999px;font-size:11px;font-style:normal;padding:1px 6px}
+.rd-map{height:220px;border-radius:12px;background:#e6ebf0;margin:8px 0 4px}.rd-pick{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border,#e5e7eb)}
+.rd-report{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.codein{font-size:26px;text-align:center;letter-spacing:6px}
+.rd-msgs{max-height:48vh;overflow:auto;display:grid;gap:8px;align-content:start;padding:4px}.rd-msg{background:rgba(0,0,0,.06);border-radius:12px;padding:8px 12px;max-width:88%;justify-self:start}.rd-msg.me{background:var(--accent,#2563eb);color:#fff;justify-self:end}.rd-msg .who{font-size:11px;opacity:.75;font-weight:700}.rd-msg .t{font-size:11px;opacity:.7;text-align:right}.rd-msg img{max-width:100%;max-height:180px;border-radius:8px;display:block;margin:4px 0}
+.rd-compose{display:flex;gap:6px;margin-top:8px}.rd-compose input{flex:1}.rd-quick{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.rd-av{display:grid;place-items:center;width:72px;height:72px;border-radius:50%;background:rgba(0,0,0,.08);font-size:32px;overflow:hidden}.rd-av img{width:100%;height:100%;object-fit:cover}
+.rd-sheet{position:fixed;inset:0;background:rgba(0,0,0,.55);display:grid;place-items:end center;z-index:100}.rd-box{background:var(--card,#fff);color:inherit;padding:20px;border-radius:18px 18px 0 0;max-width:560px;width:100%;max-height:90vh;overflow:auto}.rd-box ul{padding-left:18px;font-size:14px}
+/* admin riders */
+.rk-map,.rk-tmap,.rd-map{isolation:isolate;z-index:0}body.is-admin .modal .box:has(.rk-panel){width:min(1040px,100%)}
+.rk-tabs{display:flex;gap:6px;margin:0 0 10px;flex-wrap:wrap}.rk-tabs button{border:1px solid var(--border,#d1d5db);background:transparent;border-radius:999px;padding:8px 14px;font-weight:700;color:inherit}.rk-tabs button.on{background:var(--accent,#2563eb);color:#fff;border-color:var(--accent,#2563eb)}
+.rk-split{display:grid;grid-template-columns:minmax(0,2fr) minmax(260px,1fr);gap:12px}@media(max-width:900px){.rk-split{grid-template-columns:1fr}}
+.rk-map{height:560px;border-radius:12px;background:#e6ebf0}.rk-side{max-height:560px;overflow:auto}.rk-legend{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;margin-bottom:8px}.rk-legend i{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+.rk-mk{width:34px;height:34px;border-radius:50%;border:3px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.45);color:#fff;font-weight:800;font-size:12px;display:grid;place-items:center}.rk-mk.stale{opacity:.6;outline:3px dashed #dc2626;outline-offset:1px}
+.rk-pill{color:#fff;border-radius:999px;padding:2px 9px;font-size:12px;font-weight:700;white-space:nowrap}.rk-panel{min-width:min(960px,92vw)}.rk-ph{display:flex;justify-content:space-between;gap:10px;align-items:start}.rk-cols{display:grid;grid-template-columns:1.3fr 1fr;gap:16px}@media(max-width:800px){.rk-cols{grid-template-columns:1fr}}
+.rk-perf{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px}.rk-perf div{background:rgba(0,0,0,.05);border-radius:8px;padding:6px;text-align:center}.rk-perf b{display:block;font-size:18px}.rk-perf span{font-size:11px;opacity:.7}
+.rk-tmap{height:220px;border-radius:10px;margin-top:8px}.rk-eg{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.rk-cmd{border-top:1px solid var(--border,#e5e7eb);padding:10px 0}.rk-cmd .q{font-weight:700}.rk-cmd .a{margin-top:4px}
 </style>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🛍%3C/text%3E%3C/svg%3E">
 </head>
@@ -1015,55 +1042,246 @@ function deliveryCard(order) {
     ${order.status === 'shipped' ? '<div id="trackmap" style="height:260px;border-radius:12px;margin-top:12px;background:#e6ebf0"></div><div class="mu" style="font-size:12px;margin-top:4px">Your rider appears on the map while the delivery is on the way.</div>' : ''}</div>`;
 }
 
-/* ---------------- rider screen (/rider) ---------------- */
+/* ---------------- rider app (/rider/login and /rider/dashboard) ---------------- */
+const blobToData = (b) => new Promise((res, rej) => { const f = new FileReader(); f.onload = () => res(f.result); f.onerror = () => rej(new Error('The photo could not be read.')); f.readAsDataURL(b); });
 async function riderPage(main) {
-  const draw = (inner) => { main.innerHTML = `<div class="wrap page" style="max-width:640px"><h1 style="font-size:26px">🛵 Rider</h1>${inner}</div>`; };
+  const path = location.pathname.replace(/\/+$/, '');
   if (!store.user || store.user.role !== 'rider') {
-    draw(`<div class="card"><p class="mu">Sign in with the rider account the store gave you.</p><form id="rl">${field('re', 'Email', { type: 'email', req: 1 })}${field('rp', 'Password', { type: 'password', req: 1 })}<p class="err hide" id="rerr"></p><button class="btn block">Sign in</button></form></div>`);
-    $('#rl').addEventListener('submit', async (ev) => { ev.preventDefault(); try { const r = await api('/api/auth/login', { body: { email: $('#re').value.trim(), password: $('#rp').value } }); if (r.user.role !== 'rider') { await api('/api/auth/logout', { body: {} }); throw new Error('This page is for delivery riders.'); } location.reload(); } catch (er) { const x = $('#rerr'); x.textContent = er.message; x.classList.remove('hide'); } });
-    return 'Rider';
+    if (path !== '/rider/login') history.replaceState({}, '', '/rider/login');
+    return riderLogin(main);
   }
-  const call = (id, act, body) => api(`/api/rider/orders/${id}/${act}`, { body: body || {} });
-  const here = () => new Promise((res) => { if (!navigator.geolocation) return res(null); navigator.geolocation.getCurrentPosition((p) => res({ lat: p.coords.latitude, lng: p.coords.longitude }), () => res(null), { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 }); });
-  let orders = [];
-  const card = (o) => {
-    const accepted = !!o.stages.accepted, left = o.pickups.filter((p) => !p.picked_up_at), road = o.status === 'shipped';
-    return `<div class="card" style="margin-bottom:14px" data-o="${o.id}"><div style="display:flex;justify-content:space-between;gap:8px"><b>${e(o.ref)}</b><span class="mu">${o.promised_at ? 'Promised ' + tm(o.promised_at) : ''}${o.late ? ' <b style="color:var(--bad)">LATE</b>' : ''}</span></div>
+  if (path !== '/rider/dashboard') history.replaceState({}, '', '/rider/dashboard');
+  return riderApp(main);
+}
+function riderLogin(main) {
+  main.innerHTML = `<div class="wrap page" style="max-width:460px"><div class="card"><h1 style="font-size:26px">🛵 Rider sign in</h1><p class="mu">Sign in with the rider account the store gave you.</p>
+   <form id="rl" novalidate>${field('re', 'Email', { type: 'email', req: 1, auto: 'username' })}${field('rp', 'Password', { type: 'password', req: 1, auto: 'current-password' })}<p class="err hide" id="rerr" role="alert"></p><button class="btn block lg">Sign in</button></form>
+   <p class="mu" style="font-size:12px;margin-top:12px">Your location is only used after you choose <b>Go online</b>, and stops when you go offline.</p></div></div>`;
+  $('#rl').addEventListener('submit', async (ev) => {
+    ev.preventDefault(); const er = $('#rerr'); er.classList.add('hide');
+    try {
+      const r = await api('/api/auth/login', { body: { email: $('#re').value.trim(), password: $('#rp').value } });
+      if (r.user.role !== 'rider') { await api('/api/auth/logout', { body: {} }); throw new Error('This is not a rider account.'); }
+      store.user = r.user; go('/rider/dashboard', true);
+    } catch (x) { er.textContent = x.message; er.classList.remove('hide'); }
+  });
+  return 'Rider sign in';
+}
+
+async function riderApp(main) {
+  const S = { me: null, orders: [], offers: [], msgs: [], tab: ls.get('sb_rtab', 'home'), now: Math.floor(Date.now() / 1000), maps: null, mapKey: '' };
+  const T = { watch: null, last: 0, sending: false, wake: null, perm: 'unknown', pos: null, err: '' };   // the tracking session on this phone
+  let es = null, dead = false;
+  const alive = () => { if (dead || !main.isConnected) { stop(); return false; } return true; };
+  const stop = () => { dead = true; if (T.watch != null) navigator.geolocation.clearWatch(T.watch); T.watch = null; if (es) es.close(); es = null; if (T.wake) { T.wake.release().catch(() => {}); T.wake = null; } };
+  const on = () => S.me && S.me.tracking.active;
+  const hhmm = (t) => (t ? new Date(t * 1000).toLocaleTimeString('en-NG', { hour: 'numeric', minute: '2-digit' }) : '');
+  const typing = () => { const a = document.activeElement; return a && main.contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName); };
+
+  /* ---- loading ---- */
+  const load = async () => {
+    const [me, o, of] = await Promise.all([api('/api/rider/me'), api('/api/rider/orders'), api('/api/rider/offers')]);
+    S.me = me; S.orders = o.orders.filter((x) => x.stages.accepted); S.offers = of.offers; S.now = of.now;
+  };
+  const loadMsgs = async () => { const m = await api('/api/rider/messages'); S.msgs = m.messages; S.ai = m.ai_name; if (S.me) S.me.unread = 0; };
+  const refresh = async (force) => { await load(); if (S.tab === 'chat') await loadMsgs(); if (alive()) paint(force); syncTracking(); };
+
+  /* ---- GPS: only inside a session the rider started, only while this page is open ---- */
+  const interval = () => ((S.me && S.me.tracking.interval_s) || 60) * 1000;
+  const sendFix = async (p, force) => {
+    if (!on() || T.sending) return;
+    const t = Date.now(); if (!force && t - T.last < interval() - 1500) return;
+    T.sending = true; T.last = t;
+    try {
+      const r = await api('/api/rider/location', { body: { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, heading: p.coords.heading, speed: p.coords.speed, timestamp: p.timestamp } });
+      if (r.interval && S.me) S.me.tracking.interval_s = r.interval;
+      T.err = r.accepted === false ? ({ accuracy: 'The GPS signal is weak. Move to open sky.', jump: 'That position looked wrong, so it was ignored.' }[r.reason] || '') : '';
+      S.me.tracking.last_fix_at = Math.floor(Date.now() / 1000); S.me.tracking.status = r.accepted === false ? S.me.tracking.status : 'live';
+    } catch (er) { if (er.status === 409) { await refresh(true); } else T.err = er.message; }
+    T.sending = false; if (alive()) paintBar();
+  };
+  const permFail = async (code) => {
+    const st = code === 1 ? 'denied' : 'gps_disabled'; T.perm = st;
+    if (on()) { try { const r = await api('/api/rider/permission', { body: { status: st } }); S.me = { ...S.me, tracking: r.tracking || S.me.tracking }; } catch { /* retry on next change */ } }
+    if (alive()) paint(true);
+  };
+  const startWatch = () => {
+    if (T.watch != null || !navigator.geolocation) return;
+    T.watch = navigator.geolocation.watchPosition((p) => { T.perm = 'granted'; T.pos = p; sendFix(p); }, (er) => permFail(er.code), { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 });
+    if (navigator.wakeLock) navigator.wakeLock.request('screen').then((w) => { T.wake = w; }).catch(() => {});
+  };
+  const stopWatch = () => { if (T.watch != null) navigator.geolocation.clearWatch(T.watch); T.watch = null; if (T.wake) { T.wake.release().catch(() => {}); T.wake = null; } };
+  function syncTracking() { if (on()) startWatch(); else stopWatch(); }
+  document.addEventListener('visibilitychange', () => { if (!dead && !document.hidden && on() && T.watch != null && T.wake == null && navigator.wakeLock) navigator.wakeLock.request('screen').then((w) => { T.wake = w; }).catch(() => {}); });
+  const probe = () => new Promise((res) => { if (!navigator.geolocation) return res({ ok: false, status: 'unavailable' }); navigator.geolocation.getCurrentPosition((p) => res({ ok: true, p }), (er) => res({ ok: false, status: er.code === 1 ? 'denied' : 'gps_disabled' }), { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }); });
+
+  const goOnline = async () => {
+    const yes = await askConsent(); if (!yes) return;
+    const b = $('#go-on'); if (b) { b.disabled = true; b.textContent = 'Checking your GPS…'; }
+    const pr = await probe();
+    try {
+      const r = await api('/api/rider/online', { body: { consent: true, permission: pr.ok ? 'granted' : pr.status, client: 'web' } });
+      S.me = { ...S.me, ...r }; T.perm = pr.ok ? 'granted' : pr.status;
+      if (pr.ok) { T.pos = pr.p; startWatch(); await sendFix(pr.p, true); }
+      else toast(pr.status === 'denied' ? 'Location is blocked. You are online but cannot be matched by distance; the desk can still assign you.' : 'Your phone\'s GPS seems to be off. Switch it on to be matched to nearby orders.', 'bad');
+      await refresh(true);
+    } catch (er) { toast(er.message, 'bad'); await refresh(true); }
+  };
+  const askConsent = () => new Promise((res) => {
+    const d = document.createElement('div'); d.className = 'rd-sheet';
+    d.innerHTML = `<div class="rd-box"><h2>Share your location?</h2><p>When you go online, Shop-Beta uses your phone's location so the operations team and the AI Operations Manager can see where you are, match you to nearby orders and keep customers updated.</p>
+      <ul><li>Tracking starts when you tap <b>Go online</b> and stops when you go offline.</li><li>It works while this page is open. Phones may pause it when the screen is off or another app is on top, so keep this page open while you work.</li><li>Only authorised staff can see your position. Old positions are deleted after a short period.</li></ul>
+      <button class="btn block lg" id="cy">Agree and go online</button><button class="btn ghost block" id="cn" style="margin-top:8px">Not now</button></div>`;
+    document.body.appendChild(d); const done = (v) => { d.remove(); res(v); };
+    $('#cy', d).addEventListener('click', () => done(true)); $('#cn', d).addEventListener('click', () => done(false));
+  });
+  const goOffline = async () => {
+    try { const r = await api('/api/rider/offline', { body: {} }); S.me = { ...S.me, ...r }; stopWatch(); await refresh(true); toast('You are offline. Tracking has stopped.'); }
+    catch (er) { toast(er.message, 'bad'); }
+  };
+
+  /* ---- views ---- */
+  const LOC = { live: ['#16a34a', 'Live'], recent: ['#84cc16', 'Recently updated'], stale: ['#d97706', 'Stale location'], gps_disabled: ['#dc2626', 'GPS disabled'], permission_denied: ['#dc2626', 'Permission denied'], offline: ['#6b7280', 'Offline'] };
+  const AV = { offline: 'Offline', available: 'Available for delivery', busy: 'Busy', on_delivery: 'On delivery', unavailable: 'Temporarily unavailable' };
+  const barHtml = () => {
+    const t = S.me.tracking, c = LOC[t.status] || LOC.offline, ago = t.last_fix_at ? Math.max(0, Math.floor(Date.now() / 1000) - t.last_fix_at) : null;
+    const sub = !t.active ? 'Location is not being shared.' : t.status === 'permission_denied' ? 'Location is blocked in your browser settings. The desk can still reach and assign you.' : t.status === 'gps_disabled' ? 'Switch on GPS on your phone.' : `Sharing your location while this page is open${ago != null ? ' · last sent ' + (ago < 5 ? 'just now' : ago < 90 ? ago + 's ago' : Math.round(ago / 60) + ' min ago') : ''}.`;
+    return `<span class="rd-dot ${t.active && (t.status === 'live' || t.status === 'recent') ? 'pulse' : ''}" style="background:${c[0]}"></span><div><b>${t.active ? '📡 Tracking on' : 'Tracking off'} · ${c[1]}</b><div class="mu" style="font-size:12px">${e(T.err || sub)}</div></div>`;
+  };
+  const paintBar = () => { const b = $('#rbar', main); if (b) b.innerHTML = barHtml(); };
+  const offerCard = (o) => {
+    const left = o.timeout_at ? Math.max(0, o.timeout_at - S.now) : null;
+    return `<div class="card rd-offer" data-offer="${o.id}"><div class="rd-row"><b style="font-size:18px">New delivery ${e(o.ref)}</b>${left != null ? `<span class="rd-count" data-to="${o.timeout_at}">${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}</span>` : '<span class="mu">no time limit</span>'}</div>
+     <p style="margin:8px 0"><b>Pick up:</b> ${o.pickup ? e(o.pickup.name) + '<br><span class="mu">' + e(o.pickup.address) + '</span>' : '—'}<br><b>Deliver to:</b> ${e(o.deliver_to || '—')}<br><span class="mu">The full address and the customer's phone appear after you accept.</span></p>
+     <div class="rd-chips">${o.pickup_km != null ? `<span>🏬 ${o.pickup_km} km to pickup</span>` : ''}${o.delivery_km != null ? `<span>📍 ${o.delivery_km} km delivery</span>` : ''}${o.eta_min != null ? `<span>⏱ ~${o.eta_min} min</span>` : ''}<span>💰 Fee ${naira(o.fee)}</span>${o.collect ? `<span>💵 Collect ${naira(o.collect)}</span>` : '<span>Paid online</span>'}</div>
+     <div class="mu" style="font-size:13px;margin:8px 0">${o.package.map(e).join('<br>')}${o.notes ? '<br><b>Note:</b> ' + e(o.notes) : ''}${o.pharmacy ? '<br><b>Medicines order</b>' : ''}</div>
+     <div class="rd-two"><button class="btn lg" data-accept="${o.id}">ACCEPT DELIVERY</button><button class="btn ghost lg" data-reject="${o.id}">REJECT</button></div></div>`;
+  };
+  const stat = (n, l) => `<div class="rd-stat"><b>${n}</b><span>${l}</span></div>`;
+  const homeTab = () => {
+    const m = S.me, a = m.rider.availability, st = m.stats;
+    const ctl = a === 'offline' ? `<button class="btn block lg rd-go" id="go-on">GO ONLINE</button><p class="mu" style="font-size:12px;margin:8px 0 0">You will be asked to allow location access.</p>`
+      : `<div class="rd-seg">${[['available', 'Available'], ['busy', 'Busy'], ['unavailable', 'Break']].map(([k, l]) => `<button class="${a === k ? 'on' : ''}" data-st="${k}" ${a === 'on_delivery' ? 'disabled' : ''}>${l}</button>`).join('')}</div>${a === 'on_delivery' ? '<p class="mu" style="margin:8px 0 0">You are on a delivery. Finish it, or ask the desk to hand it over, before going offline.</p>' : ''}<button class="btn ghost block" id="go-off" style="margin-top:10px">Go offline</button>`;
+    return `<div class="card"><div class="rd-row"><div><div class="mu" style="font-size:12px">Your status</div><div style="font-size:22px;font-weight:800">${AV[a]}</div></div>${on() && m.tracking.status !== 'live' && m.tracking.status !== 'recent' ? '<span class="pill pending">check GPS</span>' : ''}</div><div style="margin-top:12px">${ctl}</div></div>
+     ${S.offers.length ? S.offers.map(offerCard).join('') : ''}
+     <div class="rd-stats">${stat(st.available_requests, 'Delivery requests')}${stat(st.accepted, 'Accepted')}${stat(st.active, 'Active deliveries')}${stat(st.completed_today, 'Done today')}${stat(st.failed_today, 'Cancelled / failed')}${stat(st.earnings == null ? '—' : naira(st.earnings), 'Earnings')}</div>`;
+  };
+  const orderCard = (o) => {
+    const left = o.pickups.filter((p) => !p.picked_up_at), road = o.status === 'shipped', arrived = o.assignment === 'arrived_pickup';
+    return `<div class="card" data-o="${o.id}"><div class="rd-row"><b>${e(o.ref)}</b><span class="mu">${o.promised_at ? 'Promised ' + hhmm(o.promised_at) : ''}${o.late ? ' <b style="color:var(--bad)">LATE</b>' : ''}</span></div>
+     <div class="rd-map" data-map="${o.id}"></div><div class="mu rd-eta" data-eta="${o.id}" style="font-size:13px"></div>
      <p style="margin:8px 0"><b>${e(o.customer.name)}</b> · <a href="tel:${e(o.customer.phone)}">📞 ${e(o.customer.phone)}</a><br>${e(o.customer.address)}${o.customer.city ? ', ' + e(o.customer.city) : ''}, ${e(o.customer.state)}${o.customer.landmark ? '<br>Landmark: ' + e(o.customer.landmark) : ''}${o.notes ? '<br><span class="mu">Note: ' + e(o.notes) + '</span>' : ''}</p>
-     ${o.customer.nav ? `<a class="btn ghost sm" href="${e(o.customer.nav)}" target="_blank" rel="noopener">🧭 Directions to customer</a> <a class="btn ghost sm" href="${e(o.customer.nav_osm)}" target="_blank" rel="noopener">OpenStreetMap</a>` : ''}
+     ${o.customer.nav ? `<a class="btn ghost sm" href="${e(o.customer.nav)}" target="_blank" rel="noopener">🧭 Navigate to customer</a> ` : ''}
      ${o.collect ? `<p style="margin:10px 0;font-size:18px">💵 Collect <b>${naira(o.collect)}</b> at the door</p>` : '<p class="mu" style="margin:10px 0">Already paid online.</p>'}
-     <h4 style="margin:10px 0 4px">Pick up</h4>${o.pickups.map((p) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)"><span>${e(p.name)}<br><span class="mu" style="font-size:12px">${e(p.address)}${p.phone ? ' · <a href="tel:' + e(p.phone) + '">' + e(p.phone) + '</a>' : ''}</span></span><span>${p.picked_up_at ? '✅ ' + tm(p.picked_up_at) : `<a class="btn ghost sm" href="${e(p.nav)}" target="_blank" rel="noopener">🧭</a> ${accepted && !road ? `<button class="btn sm" data-pick="${p.partner_id}">Collected</button>` : ''}`}</span></div>`).join('')}
+     <h4 style="margin:10px 0 4px">Pick up</h4>${o.pickups.map((p) => `<div class="rd-pick"><span>${e(p.name)}<br><span class="mu" style="font-size:12px">${e(p.address)}${p.phone ? ' · <a href="tel:' + e(p.phone) + '">' + e(p.phone) + '</a>' : ''}</span></span><span>${p.picked_up_at ? '✅ ' + hhmm(p.picked_up_at) : `<a class="btn ghost sm" href="${e(p.nav)}" target="_blank" rel="noopener">🧭 Navigate</a> ${!road && arrived ? `<button class="btn sm" data-pick="${p.partner_id}">Collected</button>` : ''}`}</span></div>`).join('')}
      <h4 style="margin:10px 0 4px">Items</h4><div style="font-size:14px">${o.items.map((i) => `${i.qty} × ${e(i.name)}${i.variant_label ? ' (' + e(i.variant_label) + ')' : ''}`).join('<br>')}</div>
      <div style="margin-top:12px;display:grid;gap:8px">
-      ${!accepted ? '<button class="btn block" data-act="accept">Accept delivery</button>' : ''}
-      ${accepted && !road && !left.length ? '<button class="btn block" data-act="start">I am on the way</button>' : ''}
-      ${road ? `<div class="note"><b>At the door:</b> ask the customer for their 6-digit code.${o.pharmacy ? ' This is a <b>medicines</b> order: also ask for their full name and enter it. Hand over only to the buyer.' : ''}</div>${o.pharmacy ? '<input class="namein" maxlength="80" placeholder="Buyer\'s full name (as they say it)" style="margin-top:8px">' : ''}${o.locked ? '<p class="err">Locked after too many wrong codes. Call the shop.</p>' : `<input class="codein" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="off" style="font-size:24px;text-align:center;letter-spacing:6px"><button class="btn block" data-act="complete">Complete delivery</button>`}` : ''}
+      ${!road && !arrived && left.length ? '<button class="btn block lg" data-act="arrived">I HAVE ARRIVED AT PICKUP</button>' : ''}
+      ${!road && !left.length ? '<button class="btn block lg" data-act="start">I AM ON THE WAY TO THE CUSTOMER</button>' : ''}
+      ${road ? `<div class="note"><b>At the door:</b> ask the customer for their 6-digit code.${o.pharmacy ? ' This is a <b>medicines</b> order: also ask for their full name and enter it. Hand over only to the buyer.' : ''}</div>${o.pharmacy ? '<input class="namein" maxlength="80" placeholder="Buyer\'s full name (as they say it)">' : ''}${o.locked ? '<p class="err">Locked after too many wrong codes. Call the shop.</p>' : `<input class="codein" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="off"><label class="btn ghost block" style="cursor:pointer">📷 Add delivery photo (optional)<input type="file" class="proofin" accept="image/*" capture="environment" hidden></label><div class="mu proofnote" style="font-size:12px"></div><button class="btn block lg" data-act="complete">COMPLETE DELIVERY</button>`}` : ''}
+      <details><summary class="btn ghost block">Report a problem</summary><div class="rd-report">${[['delay', '⏳ I am delayed'], ['customer_unavailable', '📵 Customer unreachable'], ['incorrect_address', '🗺 Wrong address'], ['assistance', '🆘 I need help']].map(([k, l]) => `<button class="btn ghost" data-report="${k}">${l}</button>`).join('')}</div></details>
      </div>
-     <div class="mu" style="font-size:12px;margin-top:8px">Accepted ${tm(o.stages.accepted) || '—'} · Picked up ${tm(o.stages.picked_up) || '—'} · On the way ${tm(o.stages.on_way) || '—'}</div></div>`;
+     <div class="mu" style="font-size:12px;margin-top:8px">Accepted ${hhmm(o.stages.accepted) || '—'} · Picked up ${hhmm(o.stages.picked_up) || '—'} · On the way ${hhmm(o.stages.on_way) || '—'}</div></div>`;
   };
-  const refresh = async () => {
-    orders = (await api('/api/rider/orders')).orders;
-    draw(`<p class="mu">Signed in as ${e(store.user.name)} · <button class="btn ghost sm" id="rlo">Sign out</button> <button class="btn ghost sm" id="rrf">Refresh</button></p>${orders.length ? orders.map(card).join('') : '<div class="card"><p class="mu">No deliveries assigned to you right now.</p></div>'}`);
-    $('#rlo').addEventListener('click', async () => { await api('/api/auth/logout', { body: {} }); location.reload(); });
-    $('#rrf').addEventListener('click', () => refresh().catch((er) => toast(er.message, 'bad')));
+  const delTab = () => (S.orders.length ? S.orders.map(orderCard).join('') : '<div class="card"><p class="mu">No active deliveries. Accepted orders appear here with the map and the steps.</p></div>') + '<div id="hist"></div>';
+  const msgHtml = (m) => `<div class="rd-msg ${m.from === 'rider' ? 'me' : ''}"><div class="who">${m.from === 'rider' ? 'You' : e(m.sender || (m.from === 'ai' ? S.ai : 'Operations desk'))}${m.from === 'ai' ? ' · AI' : ''}${m.order_ref ? ' · ' + e(m.order_ref) : ''}</div>${m.attachment ? `<a href="${e(m.attachment)}" target="_blank" rel="noopener"><img src="${e(m.attachment)}" alt="Photo" loading="lazy"></a>` : ''}<div>${e(m.text)}</div><div class="t">${hhmm(m.at)}${m.from === 'rider' ? (m.read ? ' ✓✓ read' : m.delivered ? ' ✓✓' : ' ✓') : ''}</div></div>`;
+  const chatTab = () => `<div class="card"><div class="mu" style="font-size:12px;margin-bottom:8px">Chat with the operations desk and the ${e(S.ai || 'Shopbeta AI Operations Manager')}.</div><div id="msgs" class="rd-msgs">${S.msgs.map(msgHtml).join('') || '<p class="mu">No messages yet.</p>'}</div>
+    <form id="mf" class="rd-compose"><label class="btn ghost" style="cursor:pointer">📷<input type="file" id="mphoto" accept="image/*" hidden></label><input id="mt" maxlength="2000" placeholder="Type a message…" autocomplete="off"><button class="btn">Send</button></form>
+    <div class="rd-quick">${['I accept', 'I have arrived at the warehouse', 'I am delayed', 'I need assistance'].map((t) => `<button class="btn ghost sm" data-q="${e(t)}">${e(t)}</button>`).join('')}</div></div>`;
+  const profTab = () => {
+    const r = S.me.rider, p = S.me.performance || {};
+    return `<div class="card"><div style="display:flex;gap:14px;align-items:center"><label style="cursor:pointer"><span class="rd-av">${r.profile_image ? `<img src="${e(r.profile_image)}" alt="">` : '🛵'}</span><input type="file" id="pimg" accept="image/*" hidden></label><div><div style="font-size:20px;font-weight:800">${e(r.full_name)}</div><div class="mu">${e(r.code)} · <span class="pill ${r.verification_status === 'verified' ? 'delivered' : 'pending'}">${e(r.verification_status)}</span></div><div class="mu" style="font-size:12px">Tap the picture to change it</div></div></div>
+     <table class="t" style="margin-top:12px"><tr><td>Phone</td><td>${e(r.phone)}</td></tr><tr><td>Email</td><td>${e(r.email)}</td></tr><tr><td>Vehicle</td><td>${e(r.vehicle_type)}${r.vehicle_registration ? ' · ' + e(r.vehicle_registration) : ''}</td></tr><tr><td>Service area</td><td>${e(r.service_areas || r.states || 'Anywhere')}</td></tr><tr><td>Availability</td><td>${AV[r.availability]}</td></tr><tr><td>Location tracking</td><td>${e(S.me.tracking.label)}</td></tr></table></div>
+     <div class="rd-stats">${stat(p.total_assignments ?? 0, 'Deliveries assigned')}${stat(p.completed ?? 0, 'Successful')}${stat(p.failed ?? 0, 'Failed')}${stat(p.avg_delivery_min == null ? '—' : p.avg_delivery_min + ' min', 'Average delivery')}${stat(p.rating == null ? '—' : p.rating + ' ★', 'Rating')}${stat(p.on_time_pct == null ? '—' : p.on_time_pct + '%', 'On time')}</div>
+     <div class="card"><b>Your location</b><p class="mu" style="font-size:13px">Tracking runs only while you are online, and only while this page is open. Going offline stops it straight away. Your own status above always shows what is being shared.</p><button class="btn ghost block" id="rlo">Sign out</button></div>`;
+  };
+  const paint = (force) => {
+    if (!alive()) return; if (!force && typing()) return;
+    const u = S.me.unread || 0, n = S.offers.length;
+    main.innerHTML = `<div class="rd"><div class="rd-top"><b>🛵 ${e(S.me.rider.full_name)}</b><span class="mu">${e(S.me.rider.code)}</span></div><div class="rd-bar" id="rbar">${barHtml()}</div><div class="rd-body">${S.tab === 'home' ? homeTab() : S.tab === 'orders' ? delTab() : S.tab === 'chat' ? chatTab() : profTab()}</div>
+      <nav class="rd-tabs">${[['home', '🏠', 'Home', n], ['orders', '📦', 'Deliveries', S.orders.length], ['chat', '💬', 'Chat', u], ['me', '👤', 'Profile', 0]].map(([k, ic, l, c]) => `<button data-tab="${k}" class="${S.tab === k ? 'on' : ''}">${ic}<span>${l}</span>${c ? `<i>${c}</i>` : ''}</button>`).join('')}</nav></div>`;
+    bind(); if (S.tab === 'orders') { drawMaps(); histLoad(); } if (S.tab === 'chat') { const b = $('#msgs'); if (b) b.scrollTop = b.scrollHeight; }
+  };
+  const histLoad = async () => { try { const h = (await api('/api/rider/history')).history; const box = $('#hist'); if (box && h.length) box.innerHTML = `<div class="card"><b>Recent deliveries</b>${h.slice(0, 10).map((x) => `<div class="rd-pick"><span>${e(x.ref)} · ${e(x.city || '')}</span><span class="mu">${e(String(x.status).replace('_', ' '))}${x.delivered_at ? ' · ' + hhmm(x.delivered_at) : ''}</span></div>`).join('')}</div>`; } catch { /* optional */ } };
+
+  /* ---- navigation map for each active delivery ---- */
+  const drawMaps = async () => {
+    for (const o of S.orders) {
+      const box = $(`[data-map="${o.id}"]`, main); if (!box) continue;
+      let rt = null; try { rt = await api(`/api/rider/orders/${o.id}/route`); } catch { /* the map still shows the stops */ }
+      if (!box.isConnected) return;
+      const eta = $(`[data-eta="${o.id}"]`, main);
+      if (rt && rt.route && eta) { const arr = new Date(Date.now() + rt.route.minutes * 60000).toLocaleTimeString('en-NG', { hour: 'numeric', minute: '2-digit' }); eta.textContent = `${rt.to.kind === 'pickup' ? 'To pickup' : 'To customer'}: ${rt.route.km} km · about ${rt.route.minutes} min · arrive around ${arr}${rt.route.approx ? ' (rough estimate)' : ''}`; }
+      else if (eta) eta.textContent = rt && rt.to && !rt.from ? 'Waiting for a fresh GPS position to work out the route.' : '';
+      if (!rt || !rt.to) { box.remove(); continue; }
+      try {
+        const D = await dcfg(), pts = [[rt.to.lat, rt.to.lng]]; if (rt.from) pts.push([rt.from.lat, rt.from.lng]);
+        const { L, map } = await makeMap(box, D, pts[0], 14);
+        L.marker(pts[0]).addTo(map).bindPopup(rt.to.kind === 'pickup' ? 'Pickup: ' + rt.to.name : 'Customer');
+        if (rt.from) L.circleMarker(pts[1], { radius: 8, color: '#fff', weight: 3, fillColor: '#2563eb', fillOpacity: 1 }).addTo(map).bindPopup('You');
+        if (rt.route && rt.route.line) L.polyline(rt.route.line, { color: '#2563eb', weight: 5, opacity: 0.8 }).addTo(map);
+        map.fitBounds(pts.length > 1 ? L.latLngBounds(pts) : L.latLngBounds([pts[0], pts[0]]).pad(0.002), { padding: [24, 24], maxZoom: 16 });
+      } catch { box.remove(); }
+    }
+  };
+
+  /* ---- actions ---- */
+  const bind = () => {
+    $$('[data-tab]', main).forEach((b) => b.addEventListener('click', async () => { S.tab = b.dataset.tab; ls.set('sb_rtab', S.tab); if (S.tab === 'chat') { try { await loadMsgs(); api('/api/rider/messages/read', { body: {} }).catch(() => {}); } catch { /* shown empty */ } } paint(true); }));
+    const g = $('#go-on', main); if (g) g.addEventListener('click', goOnline);
+    const off = $('#go-off', main); if (off) off.addEventListener('click', goOffline);
+    $$('[data-st]', main).forEach((b) => b.addEventListener('click', async () => { try { const r = await api('/api/rider/status', { body: { status: b.dataset.st } }); S.me = { ...S.me, ...r }; await refresh(true); } catch (er) { toast(er.message, 'bad'); } }));
+    $$('[data-accept]', main).forEach((b) => b.addEventListener('click', async () => { b.disabled = true; try { await api(`/api/rider/assignments/${b.dataset.accept}/accept`, { body: {} }); toast('Delivery accepted'); S.tab = 'orders'; await refresh(true); } catch (er) { toast(er.message, 'bad'); await refresh(true); } }));
+    $$('[data-reject]', main).forEach((b) => b.addEventListener('click', async () => {
+      const why = prompt('Why are you rejecting this delivery? (optional)\nExamples: too far, vehicle problem, taking a break', ''); if (why === null) return;
+      b.disabled = true; try { await api(`/api/rider/assignments/${b.dataset.reject}/reject`, { body: { reason: why } }); toast('Rejected. It will be offered to someone else.'); await refresh(true); } catch (er) { toast(er.message, 'bad'); await refresh(true); }
+    }));
     $$('[data-o]', main).forEach((box) => {
-      const id = box.dataset.o, act = async (a, body) => { try { await call(id, a, body); await refresh(); } catch (er) { toast(er.message, 'bad'); if (er.status === 423) refresh(); } };
+      const id = box.dataset.o, call = (a, body) => api(`/api/rider/orders/${id}/${a}`, { body: body || {} });
+      const act = async (a, body) => { try { const r = await call(a, body); if (r && r.note) toast(r.note); await refresh(true); } catch (er) { toast(er.message, 'bad'); if (er.status === 423 || er.status === 409) refresh(true); } };
       $$('[data-pick]', box).forEach((b) => b.addEventListener('click', () => act('pickup', { partnerId: Number(b.dataset.pick) })));
+      $$('[data-report]', box).forEach((b) => b.addEventListener('click', async () => { const note = prompt('Add a short note for the desk (optional)', ''); if (note === null) return; act('report', { type: b.dataset.report, note }); }));
+      const pf = $('.proofin', box); if (pf) pf.addEventListener('change', () => { $('.proofnote', box).textContent = pf.files[0] ? '📷 ' + pf.files[0].name : ''; });
       $$('[data-act]', box).forEach((b) => b.addEventListener('click', async () => {
-        if (b.dataset.act === 'complete') { const code = $('.codein', box).value.trim(); if (!/^\d{6}$/.test(code)) return toast('Enter the 6-digit code from the customer.', 'bad'); const p = await here(); const nm = $('.namein', box); if (nm && nm.value.trim().length < 3) return toast('Ask for the buyer\'s full name and enter it.', 'bad'); return act('complete', { code, ...(nm ? { recipientName: nm.value.trim() } : {}), ...(p || {}) }); }
-        act(b.dataset.act);
+        if (b.dataset.act !== 'complete') return act(b.dataset.act);
+        const code = $('.codein', box).value.trim(); if (!/^\d{6}$/.test(code)) return toast('Enter the 6-digit code from the customer.', 'bad');
+        const nm = $('.namein', box); if (nm && nm.value.trim().length < 3) return toast('Ask for the buyer\'s full name and enter it.', 'bad');
+        b.disabled = true; let proofImage = '';
+        try { if (pf && pf.files[0]) proofImage = (await api('/api/rider/photo', { body: { data: await blobToData(await prepImage(pf.files[0])) } })).url; } catch (er) { toast(er.message, 'bad'); b.disabled = false; return; }
+        const p = T.pos ? { lat: T.pos.coords.latitude, lng: T.pos.coords.longitude } : {};
+        b.disabled = false; act('complete', { code, proofImage, ...(nm ? { recipientName: nm.value.trim() } : {}), ...p });
       }));
     });
+    const mf = $('#mf', main);
+    if (mf) {
+      const send = async (text, attachment) => { try { await api('/api/rider/messages', { body: { text, attachment: attachment || '' } }); await loadMsgs(); paintMsgs(); } catch (er) { toast(er.message, 'bad'); } };
+      mf.addEventListener('submit', (ev) => { ev.preventDefault(); const t = $('#mt').value.trim(); if (!t) return; $('#mt').value = ''; send(t); });
+      $('#mphoto').addEventListener('change', async (ev) => { const f = ev.target.files[0]; if (!f) return; try { const url = (await api('/api/rider/photo', { body: { data: await blobToData(await prepImage(f)) } })).url; await send($('#mt').value.trim() || 'Photo', url); $('#mt').value = ''; } catch (er) { toast(er.message, 'bad'); } });
+      $$('[data-q]', main).forEach((b) => b.addEventListener('click', () => send(b.dataset.q)));
+    }
+    const pi = $('#pimg', main); if (pi) pi.addEventListener('change', async (ev) => { const f = ev.target.files[0]; if (!f) return; try { await api('/api/rider/photo', { body: { data: await blobToData(await prepImage(f)), profile: true } }); await refresh(true); toast('Profile photo updated'); } catch (er) { toast(er.message, 'bad'); } });
+    const lo = $('#rlo', main); if (lo) lo.addEventListener('click', async () => { if (on() && !confirm('You are online. Signing out will not stop the desk seeing you as online. Go offline first?')) return; stop(); await api('/api/auth/logout', { body: {} }); store.user = null; location.href = '/rider/login'; });
   };
-  await refresh();
-  // Send the rider's position about every 15 seconds, only for deliveries that are on the way.
-  const tick = async () => {
-    if (!main.isConnected) return clearInterval(timer);
-    const road = orders.filter((o) => o.status === 'shipped'); if (!road.length) return;
-    const p = await here(); if (p) for (const o of road) call(o.id, 'location', p).catch(() => {});
+  const paintMsgs = () => { const b = $('#msgs', main); if (b) { b.innerHTML = S.msgs.map(msgHtml).join('') || '<p class="mu">No messages yet.</p>'; b.scrollTop = b.scrollHeight; } };
+
+  /* ---- live updates from the server, with a slow poll as a safety net ---- */
+  const connect = () => {
+    if (dead || typeof EventSource === 'undefined') return;
+    es = new EventSource('/api/rider/stream');
+    const again = (async () => { if (!alive()) return; if (S.tab === 'chat') { await loadMsgs().catch(() => {}); api('/api/rider/messages/read', { body: {} }).catch(() => {}); if (!typing()) paintMsgs(); } await refresh(false).catch(() => {}); });
+    for (const k of ['offer', 'offer_closed', 'assignment', 'availability', 'delivery', 'rider_updated', 'message', 'read', 'tracking']) es.addEventListener(k, () => { if (k === 'offer') { try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch { /* optional */ } } again(); });
   };
-  const timer = setInterval(tick, 15000);
-  const poll = setInterval(() => { if (!main.isConnected) return clearInterval(poll); if (!document.querySelector('.codein:focus, .namein:focus')) refresh().catch(() => {}); }, 45000);
+  const tickTimer = setInterval(() => {
+    if (!alive()) return clearInterval(tickTimer);
+    S.now = Math.floor(Date.now() / 1000);
+    $$('[data-to]', main).forEach((c) => { const l = Math.max(0, Number(c.dataset.to) - S.now); c.textContent = `${Math.floor(l / 60)}:${String(l % 60).padStart(2, '0')}`; if (l === 0) refresh(true).catch(() => {}); });
+    paintBar();
+  }, 1000);
+  const slow = setInterval(() => { if (!alive()) return clearInterval(slow); refresh(false).catch(() => {}); }, 60000);
+
+  try { await load(); } catch (er) { if (er.status === 401) { store.user = null; location.href = '/rider/login'; return 'Rider'; } throw er; }
+  if (S.tab === 'chat') await loadMsgs().catch(() => {});
+  paint(true); syncTracking(); connect();
   return 'Rider';
 }
 
@@ -1317,6 +1535,7 @@ async function route() {
   // Fresh node for every page: page views attach their own click/submit listeners, and reusing one node would stack them up.
   { const fresh = main.cloneNode(false); main.replaceWith(fresh); main = fresh; }
   main.innerHTML = '<div class="loading-page"></div>';
+  document.body.classList.toggle('is-rider', seg[0] === 'rider');
   try {
     let storeSlug = null;
     if (seg[0] === 'd' && seg[1]) storeSlug = seg[1];
@@ -1841,8 +2060,8 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['staff', '👤', 'Employees & roles'], ['notifications', '🔔', 'Notifications']];
-const NAVMOD = { dashboard: 'any', notifications: 'any', orders: 'orders', products: 'catalog', catalogio: 'catalog', categories: 'catalog', reviews: 'catalog', customers: 'customers', messages: 'customers', coupons: 'marketing', marketing: 'marketing', deliveries: 'delivery', partners: 'delivery', vendors: 'partners', wholesale: 'wholesale', warehouse: 'warehouse', rfq: 'rfq' };
+const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['riders', '📍', 'Riders live'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['staff', '👤', 'Employees & roles'], ['notifications', '🔔', 'Notifications']];
+const NAVMOD = { dashboard: 'any', notifications: 'any', orders: 'orders', products: 'catalog', catalogio: 'catalog', categories: 'catalog', reviews: 'catalog', customers: 'customers', messages: 'customers', coupons: 'marketing', marketing: 'marketing', deliveries: 'delivery', riders: 'delivery', partners: 'delivery', vendors: 'partners', wholesale: 'wholesale', warehouse: 'warehouse', rfq: 'rfq' };
 const can = (m, w) => { const p = (me && me.perms) || []; return p.includes('*') || p.includes(m + (w ? ':edit' : ':view')); };
 const visible = (k) => (me && me.role === 'admin') || (NAVMOD[k] === 'any') || (NAVMOD[k] && can(NAVMOD[k], false));
 async function shell(page, body, unread) {
@@ -2342,6 +2561,193 @@ views.deliveries = async () => {
 };
 
 /* ---------------- pickup points & riders ---------------- */
+/* ---------------- riders: live map, dispatch, chat, performance (/admin/riders) ---------------- */
+const RS = { tab: 'map', f: { q: '', availability: '', gps: '', freshness: '', area: '', delivery: '' }, sel: null, riders: [], info: null, map: null, L: null, markers: {}, es: null, t: 0, chat: [], cmd: [] };
+const MARK = { available: ['#16a34a', 'Available'], assigned: ['#2563eb', 'Assigned'], on_delivery: ['#7c3aed', 'On delivery'], busy: ['#d97706', 'Busy'], unavailable: ['#d97706', 'Break'], offline: ['#9ca3af', 'Offline'], stale: ['#dc2626', 'Stale GPS'], suspended: ['#111827', 'Suspended'] };
+const agoS = (s) => (s == null ? '—' : s < 5 ? 'just now' : s < 90 ? s + 's ago' : s < 5400 ? Math.round(s / 60) + ' min ago' : Math.round(s / 3600) + ' h ago');
+const mkPill = (k) => { const m = MARK[k] || MARK.offline; return `<span class="rk-pill" style="background:${m[0]}">${m[1]}</span>`; };
+const RIDER_API = '/api/admin/rider-ops';
+const rq = (qs) => Object.entries(qs).filter(([, v]) => v).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
+
+views.riders = async () => {
+  if (RS.es) { RS.es.close(); RS.es = null; }
+  mn(hd('Riders · live', `<span class="mu2" id="rk-sum"></span> <button class="btn ghost sm" id="rk-set">Dispatch settings</button>`) + `
+   <div class="rk-tabs">${[['map', '🗺 Map'], ['list', '📋 List'], ['dispatch', '📦 Dispatch'], ['perf', '📈 Performance'], ['ai', '🤖 AI commands']].map(([k, l]) => `<button data-rt="${k}" class="${RS.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+   <div class="tbar" id="rk-filters"><input id="rf-q" placeholder="Search name, phone or rider ID" value="${e(RS.f.q)}"><select id="rf-a"><option value="">Any status</option>${['available', 'on_delivery', 'busy', 'unavailable', 'offline'].map((s) => `<option value="${s}" ${RS.f.availability === s ? 'selected' : ''}>${s.replace('_', ' ')}</option>`).join('')}</select>
+    <select id="rf-d"><option value="">Any delivery state</option><option value="1" ${RS.f.delivery === '1' ? 'selected' : ''}>On a delivery</option><option value="0" ${RS.f.delivery === '0' ? 'selected' : ''}>No delivery</option></select>
+    <select id="rf-g"><option value="">Any GPS</option><option value="active" ${RS.f.gps === 'active' ? 'selected' : ''}>GPS active</option><option value="inactive" ${RS.f.gps === 'inactive' ? 'selected' : ''}>GPS inactive</option></select>
+    <select id="rf-f"><option value="">Any freshness</option>${[['live', 'Live'], ['recent', 'Recently updated'], ['stale', 'Stale'], ['gps_disabled', 'GPS disabled'], ['permission_denied', 'Permission denied'], ['offline', 'Offline']].map(([k, l]) => `<option value="${k}" ${RS.f.freshness === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <input id="rf-s" placeholder="Service area" value="${e(RS.f.area)}" style="max-width:150px"></div>
+   <div id="rk-body"></div>`);
+  const fl = () => { RS.f = { q: $('#rf-q').value.trim(), availability: $('#rf-a').value, delivery: $('#rf-d').value, gps: $('#rf-g').value, freshness: $('#rf-f').value, area: $('#rf-s').value.trim() }; return rkLoad(); };
+  let tmr; on('#rf-q', 'input', () => { clearTimeout(tmr); tmr = setTimeout(guard(fl), 350); }); on('#rf-s', 'input', () => { clearTimeout(tmr); tmr = setTimeout(guard(fl), 350); });
+  for (const id of ['#rf-a', '#rf-d', '#rf-g', '#rf-f']) on(id, 'change', fl);
+  onAll('[data-rt]', 'click', (el) => { RS.tab = el.dataset.rt; RS.map = null; RS.markers = {}; return views.riders(); });
+  on('#rk-set', 'click', rkSettings);
+  RS.map = null; RS.markers = {};
+  await rkLoad();
+  rkConnect();
+};
+
+async function rkLoad() {
+  const d = await api(RIDER_API + '/riders?' + rq(RS.f)); RS.riders = d.riders; RS.cfg = d;
+  const all = d.riders, n = (f) => all.filter(f).length;
+  const sum = $('#rk-sum'); if (sum) sum.textContent = `${n((r) => r.availability !== 'offline')} online · ${n((r) => r.availability === 'available')} available · ${n((r) => r.availability === 'on_delivery')} on delivery · ${n((r) => r.marker === 'stale')} stale GPS`;
+  const body = $('#rk-body'); if (!body) return;
+  $('#rk-filters').style.display = ['map', 'list'].includes(RS.tab) ? '' : 'none';
+  if (RS.tab === 'map') return rkMap(body);
+  if (RS.tab === 'list') return rkList(body);
+  if (RS.tab === 'dispatch') return rkDispatch(body);
+  if (RS.tab === 'perf') return rkPerf(body);
+  return rkAi(body);
+}
+function rkRow(r, extra = '') {
+  const a = r.assignment;
+  return `<tr class="click" data-rider="${r.id}"><td><b>${e(r.code)}</b></td><td>${e(r.name)}${r.unread ? ` <span class="dot">${r.unread}</span>` : ''}<br><span class="mu2">${e(r.phone)}</span></td><td>${mkPill(r.marker)}</td><td>${e(r.gps_label)}<br><span class="mu2">${r.position ? agoS(r.position.age_s) : '—'}</span></td><td>${a ? `<b>${e(a.order_ref)}</b><br><span class="mu2">${e(a.status.replace('_', ' '))}${a.straight_km != null ? ' · ' + a.straight_km + ' km away' : ''}</span>` : '<span class="mu2">—</span>'}</td><td>${r.active_deliveries}/${r.capacity}</td>${extra}</tr>`;
+}
+function rkList(body) {
+  body.innerHTML = `<div class="panel"><div class="tw"><table class="t"><tr><th>ID</th><th>Rider</th><th>Status</th><th>Location</th><th>Delivery</th><th>Load</th></tr>${RS.riders.map((r) => rkRow(r)).join('') || '<tr><td colspan="6" class="mu2">No riders match.</td></tr>'}</table></div></div>`;
+  onAll('[data-rider]', 'click', (el) => rkPanel(Number(el.dataset.rider)));
+}
+async function rkMap(body) {
+  if (!RS.map) {
+    body.innerHTML = `<div class="rk-split"><div id="rk-map" class="rk-map"></div><div class="rk-side"><div class="rk-legend">${Object.entries(MARK).map(([k, m]) => `<span><i style="background:${m[0]}"></i>${m[1]}</span>`).join('')}</div><div id="rk-mini"></div></div></div><p class="mu2">Only riders whose phone has sent a position are drawn. A faded marker with a red ring has not updated recently: its position is the last one known, not a live one.</p>`;
+    const first = RS.riders.find((r) => r.position);
+    const { L, map } = await makeMap($('#rk-map'), { tiles: RS.cfg.tiles, attribution: RS.cfg.attribution }, first ? [first.position.lat, first.position.lng] : [6.5244, 3.3792], 12);
+    RS.L = L; RS.map = map; RS.fit = true; map.scrollWheelZoom.enable();
+  }
+  const L = RS.L, seen = new Set();
+  for (const r of RS.riders) {
+    if (!r.position) continue; seen.add(r.id);
+    const m = MARK[r.marker] || MARK.offline, stale = r.gps === 'stale';
+    const icon = L.divIcon({ className: '', iconSize: [34, 34], iconAnchor: [17, 17], html: `<div class="rk-mk ${stale ? 'stale' : ''}" style="background:${m[0]}">${e(r.code.replace('SB-', ''))}</div>` });
+    let mk = RS.markers[r.id];
+    if (!mk) { mk = RS.markers[r.id] = L.marker([r.position.lat, r.position.lng], { icon }).addTo(RS.map); mk.on('click', () => rkPanel(r.id)); }
+    else { mk.setLatLng([r.position.lat, r.position.lng]); mk.setIcon(icon); }
+    mk.bindTooltip(`${r.name} · ${m[1]} · ${agoS(r.position.age_s)}`);
+  }
+  for (const id of Object.keys(RS.markers)) if (!seen.has(Number(id))) { RS.map.removeLayer(RS.markers[id]); delete RS.markers[id]; }
+  if (RS.fit && seen.size) { RS.fit = false; RS.map.fitBounds(L.latLngBounds([...seen].map((id) => { const p = RS.riders.find((r) => r.id === id).position; return [p.lat, p.lng]; })).pad(0.2), { maxZoom: 15 }); }
+  $('#rk-mini').innerHTML = `<div class="tw"><table class="t">${RS.riders.map((r) => `<tr class="click" data-rider="${r.id}"><td><b>${e(r.code)}</b> ${e(r.name)}<br><span class="mu2">${e(r.gps_label)}${r.position ? ' · ' + agoS(r.position.age_s) : ''}</span></td><td>${mkPill(r.marker)}</td></tr>`).join('') || '<tr><td class="mu2">No riders yet.</td></tr>'}</table></div>`;
+  onAll('[data-rider]', 'click', (el) => { const id = Number(el.dataset.rider), r = RS.riders.find((x) => x.id === id); if (r && r.position && RS.map) RS.map.setView([r.position.lat, r.position.lng], Math.max(RS.map.getZoom(), 14)); rkPanel(id); });
+}
+
+/* ---- one rider: details, route and time, performance, history, chat, actions ---- */
+async function rkPanel(id) {
+  RS.sel = id;
+  const d = (await api(`${RIDER_API}/riders/${id}`)).rider, a = d.assignment, p = d.performance, pr = d.profile;
+  const ms = (await api(`${RIDER_API}/riders/${id}/messages`)).messages;
+  openModal(`<div class="rk-panel"><div class="rk-ph"><div><h2 style="margin:0">${e(d.name)} ${mkPill(d.marker)}</h2><div class="mu2">${e(d.code)} · <a href="tel:${e(d.phone)}">${e(d.phone)}</a> · ${e(d.vehicle)}${d.plate ? ' ' + e(d.plate) : ''} · ${e(pr.verification_status)}${d.suspended ? ' · <b style="color:var(--bad)">SUSPENDED: ' + e(pr.suspended_reason || '') + '</b>' : ''}</div></div><button class="btn ghost sm" id="rp-x">Close</button></div>
+   <div class="rk-cols"><div>
+    <h4>Status and location</h4><table class="t"><tr><td>Availability</td><td>${e(d.availability.replace('_', ' '))}</td></tr><tr><td>GPS</td><td>${e(d.gps_label)}${d.gps === 'stale' ? ' <b style="color:var(--bad)">· old position, not live</b>' : ''}</td></tr>
+     <tr><td>Position</td><td>${d.position ? `${d.position.lat.toFixed(5)}, ${d.position.lng.toFixed(5)} <a href="https://www.google.com/maps?q=${d.position.lat},${d.position.lng}" target="_blank" rel="noopener">map</a>` : 'Not available'}</td></tr>
+     <tr><td>Last update</td><td>${d.position ? agoS(d.position.age_s) + ' · accuracy ±' + Math.round(d.position.accuracy || 0) + ' m' + (d.position.movement ? ' · ' + e(d.position.movement) : '') : '—'}</td></tr>
+     <tr><td>Load</td><td>${d.active_deliveries} of ${d.capacity} deliveries</td></tr></table>
+    <h4>Current delivery</h4>${a ? `<table class="t"><tr><td>Order</td><td><b>${e(a.order_ref)}</b> · ${e(a.status.replace('_', ' '))} (order ${e(a.order_status)})</td></tr><tr><td>Customer</td><td>${e(a.customer)}</td></tr><tr><td>Destination</td><td>${e(a.destination)}</td></tr>
+      <tr><td>Distance to destination</td><td>${d.route ? d.route.km + ' km by road' : a.straight_km != null ? a.straight_km + ' km straight line' : 'unknown (no fresh GPS)'}</td></tr><tr><td>Estimated travel</td><td>${d.route ? '~' + d.route.minutes + ' min' + (d.route.approx ? ' (rough)' : '') : 'not available'}</td></tr></table>
+      <div class="acts"><button class="btn ghost sm" id="rp-rel">Take delivery back…</button></div>` : '<p class="mu2">No delivery in hand.</p>'}
+    <h4>Performance</h4><div class="rk-perf">${[['Assigned', p.total_assignments], ['Accepted', p.accepted], ['Rejected', p.rejected + p.expired], ['Completed', p.completed], ['Failed', p.failed], ['Avg pickup', p.avg_pickup_min == null ? '—' : p.avg_pickup_min + ' min'], ['Avg delivery', p.avg_delivery_min == null ? '—' : p.avg_delivery_min + ' min'], ['On time', p.on_time_pct == null ? '—' : p.on_time_pct + '%'], ['Rating', p.rating == null ? '—' : p.rating + '★'], ['Complaints', p.complaints], ['GPS reliability', p.gps_plausible_pct == null ? '—' : p.gps_plausible_pct + '%']].map(([l, v]) => `<div><b>${v}</b><span>${l}</span></div>`).join('')}</div><div class="mu2">${e(p.score_basis)}</div>
+    <h4>Recent deliveries</h4>${d.history.length ? `<table class="t">${d.history.map((h) => `<tr><td>${e(h.ref)}</td><td>${e(h.status.replace('_', ' '))}${h.excused ? ' (excused)' : ''}</td><td class="mu2">${dt(h.delivered_at || h.assigned_at)}</td></tr>`).join('')}</table>` : '<p class="mu2">None yet.</p>'}
+    <div class="acts" style="flex-wrap:wrap">${d.suspended ? '<button class="btn sm" id="rp-react">Reactivate</button>' : '<button class="btn ghost sm" id="rp-susp">Suspend</button>'}${d.availability !== 'offline' ? '<button class="btn ghost sm" id="rp-off">Force offline</button>' : ''}<button class="btn ghost sm" id="rp-edit">Edit profile & capacity</button><button class="btn ghost sm" id="rp-trail">Show last 2 h trail</button><button class="btn ghost sm" id="rp-fb">Record rating / complaint</button></div></div>
+   <div><h4>Chat</h4><div class="rd-msgs" id="rp-msgs">${ms.map(rkMsg).join('') || '<p class="mu2">No messages.</p>'}</div><form id="rp-form" class="rd-compose"><input id="rp-t" maxlength="2000" placeholder="Message to ${e(d.name)}…" autocomplete="off"><button class="btn">Send</button></form><button class="btn ghost sm" id="rp-ask" style="margin-top:6px">Ask for a delivery update</button><div id="rp-tm" class="rk-tmap hide"></div></div></div></div>`, true);
+  const box = $('#rp-msgs'); if (box) box.scrollTop = box.scrollHeight;
+  $('#rp-x').addEventListener('click', () => { RS.sel = null; closeModal(); });
+  $('#rp-form').addEventListener('submit', guard(async (ev) => { ev.preventDefault(); const t = $('#rp-t').value.trim(); if (!t) return; $('#rp-t').value = ''; await api(`${RIDER_API}/riders/${id}/messages`, { body: { text: t, orderId: a ? a.order_id : undefined } }); await rkRefreshChat(id); }));
+  $('#rp-ask').addEventListener('click', guard(async () => { const r = await api(RIDER_API + '/command', { body: { text: `Ask rider ${d.code} for a delivery update` } }); toast(r.reply.slice(0, 120)); await rkRefreshChat(id); }));
+  const dlg = (title, fields, ok) => new Promise((res) => { openModal(`<h2>${title}</h2>${fields}<div class="acts"><button class="btn ghost" id="dg-c">Cancel</button><button class="btn" id="dg-ok">Confirm</button></div>`); $('#dg-c').addEventListener('click', () => { closeModal(); res(null); }); $('#dg-ok').addEventListener('click', guard(async () => { await ok(); closeModal(); res(true); })); });
+  const again = () => rkPanel(id);
+  const susp = $('#rp-susp'); if (susp) susp.addEventListener('click', () => dlg(`Suspend ${e(d.name)}`, '<label class="f">Reason (kept in the log)<input id="dg-r" maxlength="200"></label><p class="mu2">They are signed out, taken offline and receive no new orders. This is refused while they hold a delivery.</p>', async () => { await api(`${RIDER_API}/riders/${id}/suspend`, { body: { reason: $('#dg-r').value } }); await rkLoad(); }).then(again));
+  const react = $('#rp-react'); if (react) react.addEventListener('click', guard(async () => { await api(`${RIDER_API}/riders/${id}/reactivate`, { body: {} }); await rkLoad(); again(); }));
+  const off = $('#rp-off'); if (off) off.addEventListener('click', () => dlg(`Force ${e(d.name)} offline`, '<label class="f">Reason<input id="dg-r" maxlength="200"></label>', async () => { await api(`${RIDER_API}/riders/${id}/force-offline`, { body: { reason: $('#dg-r').value } }); await rkLoad(); }).then(again));
+  const rel = $('#rp-rel'); if (rel) rel.addEventListener('click', () => dlg(`Take ${e(a.order_ref)} back from ${e(d.name)}`, `<label class="f">Where is the parcel?<select id="dg-c2"><option value="">Not collected yet</option><option value="returned_to_store">Returned to the store</option><option value="with_new_rider">Handed to a new rider</option><option value="lost">Lost or unaccounted for</option></select></label><label class="f">Reason<input id="dg-r" maxlength="200"></label><label class="chk"><input type="checkbox" id="dg-x"> Not the rider's fault (excluded from their performance)</label>`, async () => { await api(`${RIDER_API}/assignments/${a.id}/release`, { body: { custody: $('#dg-c2').value, reason: $('#dg-r').value, excused: $('#dg-x').checked, outcome: $('#dg-c2').value === 'lost' ? 'failed' : 'reassigned' } }); await rkLoad(); }).then(again));
+  $('#rp-edit').addEventListener('click', () => dlg('Edit rider', `<div class="fgrid"><label class="f">Vehicle<select id="ed-v">${['bicycle', 'motorcycle', 'tricycle', 'car', 'van', 'truck'].map((v) => `<option ${d.vehicle === v ? 'selected' : ''}>${v}</option>`).join('')}</select></label><label class="f">Registration<input id="ed-p" value="${e(d.plate || '')}" maxlength="30"></label><label class="f">Capacity (deliveries at once)<input id="ed-c" type="number" min="1" max="20" value="${d.capacity}"></label><label class="f">Verification<select id="ed-s">${['verified', 'pending', 'rejected'].map((v) => `<option ${pr.verification_status === v ? 'selected' : ''}>${v}</option>`).join('')}</select></label><label class="f full">Service areas (comma separated)<input id="ed-a" value="${e(d.service_areas || '')}"></label></div>`, async () => { await api(`${RIDER_API}/riders/${id}`, { method: 'PUT', body: { vehicle_type: $('#ed-v').value, vehicle_registration: $('#ed-p').value, maximum_delivery_capacity: Number($('#ed-c').value), verification_status: $('#ed-s').value, service_areas: $('#ed-a').value } }); await rkLoad(); }).then(again));
+  $('#rp-fb').addEventListener('click', () => dlg('Rating or complaint', '<label class="f">Rating (1-5, optional)<input id="fb-r" type="number" min="1" max="5"></label><label class="f">Complaint (optional)<input id="fb-c" maxlength="500"></label><label class="f">Order number (optional)<input id="fb-o" maxlength="20"></label>', async () => { await api(`${RIDER_API}/riders/${id}/feedback`, { body: { rating: $('#fb-r').value, complaint: $('#fb-c').value, order_ref: $('#fb-o').value } }); }).then(again));
+  $('#rp-trail').addEventListener('click', guard(async () => {
+    const t = (await api(`${RIDER_API}/riders/${id}/trail?hours=2`)).points, m = $('#rp-tm'); m.classList.remove('hide'); m.innerHTML = '';
+    if (!t.length) { m.innerHTML = '<p class="mu2">No positions in the last 2 hours.</p>'; return; }
+    const { L, map } = await makeMap(m, { tiles: RS.cfg.tiles, attribution: RS.cfg.attribution }, [t[0].lat, t[0].lng], 13);
+    const line = L.polyline(t.filter((x) => x.plausible).map((x) => [x.lat, x.lng]), { color: '#7c3aed', weight: 4 }).addTo(map); map.fitBounds(line.getBounds().pad(0.2), { maxZoom: 16 });
+  }));
+}
+const rkMsg = (m) => `<div class="rd-msg ${m.from !== 'rider' ? 'me' : ''}"><div class="who">${m.from === 'rider' ? 'Rider' : m.from === 'ai' ? e(m.sender) + ' · AI' : e(m.sender || 'Desk')}${m.order_ref ? ' · ' + e(m.order_ref) : ''}</div>${m.attachment ? `<a href="${e(m.attachment)}" target="_blank" rel="noopener"><img src="${e(m.attachment)}" alt="Photo" loading="lazy"></a>` : ''}<div>${e(m.text)}</div><div class="t">${dt(m.at)}${m.from !== 'rider' ? (m.read ? ' ✓✓ read' : ' ✓ sent') : ''}</div></div>`;
+async function rkRefreshChat(id) { const ms = (await api(`${RIDER_API}/riders/${id}/messages`)).messages, b = $('#rp-msgs'); if (b) { b.innerHTML = ms.map(rkMsg).join('') || '<p class="mu2">No messages.</p>'; b.scrollTop = b.scrollHeight; } }
+
+/* ---- dispatch: orders waiting for a rider, the AI's ranking, and who has been offered what ---- */
+async function rkDispatch(body) {
+  const d = await api(RIDER_API + '/awaiting'), mode = RS.cfg.settings.mode;
+  body.innerHTML = `<div class="panel"><h3>Orders ready for dispatch</h3><p class="mu2">Dispatch mode: <b>${e(mode)}</b>. ${mode === 'auto' ? 'The AI offers each order to the best-scoring rider.' : mode === 'recommend' ? 'The AI ranks riders and tells you who it recommends; you press Assign.' : 'The AI makes no offers; you assign riders yourself.'} Orders wait here until a rider is eligible; the desk is told when none is.</p>
+   ${d.awaiting.length ? `<div class="tw"><table class="t"><tr><th>Order</th><th>Customer</th><th>Where</th><th>Promised</th><th></th></tr>${d.awaiting.map((o) => `<tr><td><b>${e(o.ref)}</b></td><td>${e(o.name)}</td><td>${e(o.city || '')} ${e(o.state || '')}</td><td>${o.promised_at ? dt(o.promised_at) : '—'}</td><td><button class="btn sm" data-rank="${o.id}" data-ref="${e(o.ref)}">Find best rider</button></td></tr>`).join('')}</table></div>` : '<p class="mu2">No order is waiting for a rider.</p>'}</div>
+   <div class="panel"><h3>Offers waiting for an answer</h3>${d.offered.length ? `<div class="tw"><table class="t"><tr><th>Order</th><th>Rider</th><th>Offered by</th><th>Time left</th></tr>${d.offered.map((o) => `<tr><td><b>${e(o.ref)}</b></td><td>${e(o.code)} ${e(o.full_name)}</td><td>${o.offered_by === 'ai' ? 'AI' : 'Desk'}</td><td>${o.timeout_at ? Math.max(0, o.timeout_at - Math.floor(Date.now() / 1000)) + ' s' : 'waits for rider'}</td></tr>`).join('')}</table></div>` : '<p class="mu2">None.</p>'}</div>
+   <div class="panel"><h3>Review a past delivery</h3><form id="hf" class="tbar"><input id="hf-r" placeholder="Order number, e.g. SB-ABC123"><button class="btn sm">Show history</button></form><div id="hf-out"></div></div>`;
+  onAll('[data-rank]', 'click', (el) => rkRank(Number(el.dataset.rank), el.dataset.ref));
+  on('#hf', 'submit', async (ev) => { ev.preventDefault(); const h = await api(`${RIDER_API}/orders/${encodeURIComponent($('#hf-r').value.trim())}/history`); $('#hf-out').innerHTML = rkHistory(h); });
+}
+const rkHistory = (h) => `<h4>${e(h.order.ref)} · ${e(h.order.status)}</h4><table class="t"><tr><th>Rider</th><th>Result</th><th>Offered</th><th>Accepted</th><th>Collected</th><th>Delivered</th></tr>${h.assignments.map((a) => `<tr><td>${e(a.code)} ${e(a.full_name)}<br><span class="mu2">${a.offered_by === 'ai' ? 'AI offer' : 'desk offer'}${a.score != null ? ' · score ' + a.score : ''}</span></td><td>${e(a.status.replace('_', ' '))}${a.reject_reason ? '<br><span class="mu2">' + e(a.reject_reason) + '</span>' : ''}${a.closed_reason ? '<br><span class="mu2">' + e(a.closed_reason) + '</span>' : ''}${a.excused ? ' <span class="mu2">(excused)</span>' : ''}</td><td>${a.assigned_at ? dt(a.assigned_at) : ''}</td><td>${a.accepted_at ? dt(a.accepted_at) : ''}</td><td>${a.pickup_at ? dt(a.pickup_at) : ''}</td><td>${a.delivered_at ? dt(a.delivered_at) : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="mu2">No rider was assigned.</td></tr>'}</table>
+  <h4>Steps</h4><table class="t">${h.steps.map((s) => `<tr><td>${e(s.status.replace(/_/g, ' '))}</td><td>${e(s.note || '')}</td><td class="mu2">${s.lat != null ? Number(s.lat).toFixed(4) + ', ' + Number(s.lng).toFixed(4) : ''}</td><td class="mu2">${dt(s.at)}</td></tr>`).join('') || '<tr><td class="mu2">No steps.</td></tr>'}</table>
+  <h4>Messages and AI actions</h4><table class="t">${h.messages.map((m) => `<tr><td>${e(m.sender_kind)}</td><td>${e(m.message)}</td><td class="mu2">${dt(m.created_at)}</td></tr>`).join('')}${h.ops.map((o) => `<tr><td>${e(o.actor)}</td><td><i>${e(o.action)}</i></td><td class="mu2">${dt(o.created_at)}</td></tr>`).join('')}</table>
+  ${h.proof ? `<h4>Proof of delivery</h4><p>Code verified: <b>${h.proof.otp_verified ? 'yes' : 'no'}</b>${h.proof.recipient_confirmation ? ' · received by ' + e(h.proof.recipient_confirmation) : ''} · ${dt(h.proof.delivery_timestamp)}${h.proof.proof_image_url ? `<br><a href="${e(h.proof.proof_image_url)}" target="_blank" rel="noopener"><img src="${e(h.proof.proof_image_url)}" alt="Proof" style="max-width:240px;border-radius:8px;margin-top:6px"></a>` : ''}</p>` : ''}`;
+async function rkRank(orderId, ref) {
+  const r = await api(`${RIDER_API}/orders/${orderId}/ranking`);
+  openModal(`<h2>Best rider for ${e(ref)}</h2><p class="mu2">Score out of 100 using your weights. Distances are by road where the map service answers${r.ranking.some((x) => x.approx) ? '; rows marked ~ are straight-line estimates' : ''}. Riders without a fresh location or who are offline are left out, with the reason.</p>
+   ${r.ranking.length ? `<div class="tw"><table class="t"><tr><th>#</th><th>Rider</th><th>Score</th><th>To pickup</th><th>To customer</th><th>Est. time</th><th>Load</th><th>Why</th><th></th></tr>${r.ranking.map((x, i) => `<tr><td>${i + 1}</td><td><b>${e(x.code)}</b> ${e(x.name)}<br><span class="mu2">${e(x.vehicle || '')}</span></td><td><b>${x.score}</b></td><td>${x.pickup_km != null ? (x.approx ? '~' : '') + x.pickup_km + ' km' : '—'}</td><td>${x.delivery_km != null ? x.delivery_km + ' km' : '—'}</td><td>${x.eta_min != null ? x.eta_min + ' min' : '—'}</td><td>${x.active_deliveries ?? 0}/${x.capacity ?? '?'}</td><td class="mu2" style="font-size:11px">${Object.entries(x.parts || {}).map(([k, v]) => `${k} ${v}`).join(' · ')}</td><td><button class="btn sm" data-offer="${x.rider_id}">Assign</button></td></tr>`).join('')}</table></div>` : '<p><b>No eligible rider right now.</b> The order stays waiting and the AI keeps checking.</p>'}
+   ${r.excluded.length ? `<details><summary class="mu2">${r.excluded.length} riders left out</summary><table class="t">${r.excluded.map((x) => `<tr><td>${e(x.code)} ${e(x.name)}</td><td class="mu2">${e(x.reasons.join('; '))}</td></tr>`).join('')}</table></details>` : ''}
+   <div class="acts"><button class="btn ghost" id="rk-c">Close</button>${r.ranking.length ? '<button class="btn ghost" id="rk-auto">Let the AI offer it to the top rider</button>' : ''}</div>`, true);
+  $('#rk-c').addEventListener('click', closeModal);
+  const ra = $('#rk-auto'); if (ra) ra.addEventListener('click', guard(async () => { const x = await api(`${RIDER_API}/orders/${orderId}/auto`, { body: {} }); toast(x.offered ? `Offered to ${x.rider.name}` : 'Not offered: ' + (x.reason || 'the AI is in recommend mode; use Assign')); closeModal(); await rkLoad(); }));
+  $$('[data-offer]', $('#modal')).forEach((b) => b.addEventListener('click', guard(async () => { await api(`${RIDER_API}/orders/${orderId}/offer`, { body: { riderId: Number(b.dataset.offer) } }); toast('Offer sent to the rider'); closeModal(); await rkLoad(); })));
+}
+
+function rkPerf(body) {
+  api(RIDER_API + '/performance').then((d) => {
+    body.innerHTML = `<div class="panel"><h3>Compare riders</h3><div class="tw"><table class="t"><tr><th>Rider</th><th>Assigned</th><th>Accepted</th><th>Rejected</th><th>Completed</th><th>Failed</th><th>Avg pickup</th><th>Avg delivery</th><th>On time</th><th>Rating</th><th>Complaints</th><th>GPS reliability</th></tr>${d.riders.map((r) => `<tr class="click" data-rider="${r.id}"><td><b>${e(r.code)}</b> ${e(r.name)}</td><td>${r.total_assignments}</td><td>${r.accepted}</td><td>${r.rejected + r.expired}</td><td>${r.completed}</td><td>${r.failed}${r.failed_excused ? ' <span class="mu2">(+' + r.failed_excused + ' excused)</span>' : ''}</td><td>${r.avg_pickup_min == null ? '—' : r.avg_pickup_min + ' min'}</td><td>${r.avg_delivery_min == null ? '—' : r.avg_delivery_min + ' min'}</td><td>${r.on_time_pct == null ? '—' : r.on_time_pct + '%'}</td><td>${r.rating == null ? '—' : r.rating + '★'}</td><td>${r.complaints}</td><td>${r.gps_plausible_pct == null ? '—' : r.gps_plausible_pct + '%'}</td></tr>`).join('')}</table></div><p class="mu2">Figures come from recorded assignments, answers and proofs. Deliveries delayed by the customer or by something the rider reported, and marked excused, are left out of on-time and failure counts. Riders with fewer than 5 assignments get a neutral score for dispatch.</p></div>`;
+    onAll('[data-rider]', 'click', (el) => rkPanel(Number(el.dataset.rider)));
+  }).catch((er) => { body.innerHTML = `<p class="err">${e(er.message)}</p>`; });
+}
+
+/* ---- AI command centre ---- */
+function rkAi(body) {
+  const eg = ['Show me all available riders', 'How many riders are online right now?', 'Show riders closest to the central warehouse', 'Find all riders currently on delivery', 'Show riders whose GPS has stopped updating', 'Show me all deliveries currently delayed', 'Show the current location of all active delivery riders'];
+  body.innerHTML = `<div class="panel"><h3>Shopbeta AI Operations Manager</h3><p class="mu2">Ask in plain words. Answers are read from the live rider records and show when they were read. Anything that changes an assignment asks you to confirm first.</p>
+   <form id="cf" class="tbar"><input id="ci" placeholder="e.g. Which rider is closest to order SB-1020?" style="flex:1" maxlength="300"><button class="btn">Ask</button></form><div class="rk-eg">${eg.map((t) => `<button class="btn ghost sm" data-eg="${e(t)}">${e(t)}</button>`).join('')}</div><div id="cout">${RS.cmd.map(rkCmdHtml).join('')}</div></div>`;
+  const ask = guard(async (t) => { if (!t) return; $('#ci').value = ''; const r = await api(RIDER_API + '/command', { body: { text: t } }); RS.cmd.unshift({ q: t, r }); RS.cmd = RS.cmd.slice(0, 20); $('#cout').innerHTML = RS.cmd.map(rkCmdHtml).join(''); bindCmd(); });
+  const bindCmd = () => $$('[data-confirm]', $('#cout')).forEach((b) => b.addEventListener('click', guard(async () => { const x = await api(RIDER_API + '/command/confirm', { body: { id: b.dataset.confirm } }); const it = RS.cmd.find((c) => c.r.pending && String(c.r.pending.id) === b.dataset.confirm); if (it) { it.r = { ...it.r, pending: null, reply: x.reply || 'Done.' }; } $('#cout').innerHTML = RS.cmd.map(rkCmdHtml).join(''); bindCmd(); })));
+  $('#cf').addEventListener('submit', (ev) => { ev.preventDefault(); ask($('#ci').value.trim()); });
+  $$('[data-eg]', body).forEach((b) => b.addEventListener('click', () => ask(b.dataset.eg)));
+  bindCmd();
+}
+const rkCmdHtml = (c) => `<div class="rk-cmd"><div class="q">You: ${e(c.q)}</div><div class="a"><b>AI Operations Manager</b><div style="white-space:pre-wrap">${e(c.r.reply)}</div>${c.r.pending ? `<button class="btn sm" data-confirm="${e(c.r.pending.id)}">Confirm: offer ${e(c.r.pending.order)} to ${e(c.r.pending.rider_name)}</button>` : ''}<div class="mu2">Source: ${e(c.r.source || 'live database')}${c.r.at ? ' · read ' + dt(c.r.at) : ''}</div></div></div>`;
+
+/* ---- settings ---- */
+async function rkSettings() {
+  const d = await api(RIDER_API + '/settings'), c = d.settings, w = c.weights;
+  const num = (id, label, v, unit) => `<label class="f">${label}${unit ? ' (' + unit + ')' : ''}<input id="${id}" type="number" value="${e(v)}"></label>`;
+  openModal(`<h2>Dispatch settings</h2><div class="fgrid"><label class="f full">Dispatch mode<select id="s-mode">${[['manual', 'Manual: the AI makes no offers'], ['recommend', 'Recommend: the AI ranks, you press Assign'], ['auto', 'Automatic: the AI offers to the best rider']].map(([k, l]) => `<option value="${k}" ${c.rider_dispatch_mode === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+   <div class="full"><b>Scoring weights</b> <span class="mu2">(relative; they do not have to add up to 100)</span></div>
+   ${[['proximity', 'Proximity to pickup'], ['availability', 'Availability'], ['eta', 'Estimated delivery time'], ['workload', 'Current workload'], ['performance', 'Delivery performance']].map(([k, l]) => num('w-' + k, l, w[k], '%')).join('')}
+   ${num('s-to', 'Offer timeout', c.rider_offer_timeout_s, 'seconds')}${num('s-live', 'Position is "live" for', c.rider_live_s, 'seconds')}${num('s-stale', 'Position is "stale" after', c.rider_stale_s, 'seconds')}${num('s-ii', 'Update every, waiting', c.rider_interval_idle_s, 'seconds')}${num('s-ia', 'Update every, assigned', c.rider_interval_assigned_s, 'seconds')}${num('s-iv', 'Update every, on delivery', c.rider_interval_active_s, 'seconds')}${num('s-km', 'Longest pickup distance', c.rider_max_pickup_km, 'km')}${num('s-acc', 'Ignore fixes worse than', c.rider_max_accuracy_m, 'metres')}${num('s-ack', 'Wait for a rider reply', c.rider_ack_s, 'seconds')}${num('s-grace', 'Delayed after promised time', c.rider_overdue_grace_min, 'minutes')}${num('s-ret', 'Keep location history', c.rider_retention_days, 'days')}
+   <label class="chk full"><input type="checkbox" id="s-nogps" ${Number(c.rider_allow_no_gps) ? 'checked' : ''}> Allow riders with no usable location to be offered orders (they score zero for distance)</label></div>
+   <div class="acts"><button class="btn ghost" id="s-c">Cancel</button><button class="btn" id="s-ok">Save</button></div>`, true);
+  $('#s-c').addEventListener('click', closeModal);
+  $('#s-ok').addEventListener('click', guard(async () => {
+    const g = (id) => Number($('#' + id).value);
+    await api(RIDER_API + '/settings', { method: 'PUT', body: { rider_dispatch_mode: $('#s-mode').value, weights: { proximity: g('w-proximity'), availability: g('w-availability'), eta: g('w-eta'), workload: g('w-workload'), performance: g('w-performance') }, rider_offer_timeout_s: g('s-to'), rider_live_s: g('s-live'), rider_stale_s: g('s-stale'), rider_interval_idle_s: g('s-ii'), rider_interval_assigned_s: g('s-ia'), rider_interval_active_s: g('s-iv'), rider_max_pickup_km: g('s-km'), rider_max_accuracy_m: g('s-acc'), rider_ack_s: g('s-ack'), rider_overdue_grace_min: g('s-grace'), rider_retention_days: g('s-ret'), rider_allow_no_gps: $('#s-nogps').checked } });
+    toast('Settings saved'); closeModal(); await rkLoad();
+  }));
+}
+
+/* ---- live updates ---- */
+function rkConnect() {
+  if (typeof EventSource === 'undefined') return;
+  const es = RS.es = new EventSource(RIDER_API + '/stream');
+  const kick = (k) => () => {
+    if (!$('#rk-body')) { es.close(); RS.es = null; return; }
+    if (RS.sel && (k === 'message' || k === 'read')) rkRefreshChat(RS.sel).catch(() => {});
+    if (RS.t) return;   // one refresh is already queued; a steady stream of positions must not keep postponing it
+    RS.t = setTimeout(() => { RS.t = 0; if ($('#rk-body') && !(document.activeElement && /INPUT|SELECT/.test(document.activeElement.tagName) && $('#rk-filters').contains(document.activeElement))) rkLoad().catch(() => {}); }, k === 'location' ? 2500 : 600);
+  };
+  for (const k of ['availability', 'location', 'assignment', 'offer', 'offer_closed', 'message', 'read', 'delivery', 'rider_updated', 'tracking']) es.addEventListener(k, kick(k));
+}
+
 views.partners = async () => {
   const [p, r] = await Promise.all([api('/api/admin/partners'), api('/api/admin/riders')]);
   mn(hd('Pickup points & riders', '<button class="btn" id="padd">Add pickup point</button> <button class="btn ghost" id="radd">Add rider</button>') + `
@@ -2752,6 +3158,7 @@ views.pharmacy = async () => {
 
 /* ---------------- boot ---------------- */
 async function boot() {
+  if (/^\/admin\/riders\/?$/.test(location.pathname) && !location.hash) location.hash = '#/riders';
   try { const m = await api('/api/me'); me = m.user && (m.user.role === 'admin' || m.user.role === 'staff') ? m.user : null; } catch { me = null; }
   if (!me) return loginView();
   try { const c = await api('/api/config'); cfgStores = c.stores; } catch { /* retry in views */ }

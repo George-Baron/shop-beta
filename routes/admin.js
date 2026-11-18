@@ -377,13 +377,18 @@ router.post('/riders', ah(async (req, res) => {
   { const bad = PW.check(b.password, { email, name, min: PW.STAFF_MIN }); if (bad) fail(400, bad); }
   if (await get('SELECT 1 x FROM users WHERE email=?', email)) fail(409, 'That email already has an account.');
   const r = await run("INSERT INTO users (name,email,phone,password,role,coverage,gdp,created) VALUES (?,?,?,?, 'rider', ?, ?, ?)", name, email, phone, await A.hashPassword(b.password), str(b.coverage, 300), b.gdp ? 1 : 0, now());
+  await require('../lib/riders').ensureProfile({ id: r.lastInsertRowid, name, email, phone }, { vehicle_type: b.vehicle_type, vehicle_registration: b.vehicle_registration, service_areas: b.service_areas, verification_status: 'verified' });   // an administrator creating the account vouches for the rider
   res.json({ ok: true, id: r.lastInsertRowid });
 }));
 router.put('/riders/:id', ah(async (req, res) => {
   const b = req.body || {}, id = int(req.params.id);
   const r = await run("UPDATE users SET gdp=COALESCE(?::int, gdp), coverage=?, active=?, phone=COALESCE(NULLIF(?, ''), phone) WHERE id=? AND role='rider'", 'gdp' in b ? (b.gdp ? 1 : 0) : null, str(b.coverage, 300), b.active === false || b.active === 0 ? 0 : 1, str(b.phone, 30), id);
   if (!r.changes) fail(404, 'Rider not found.');
-  if (b.active === false || b.active === 0) await A.dropUserSessions(id);
+  if (b.active === false || b.active === 0) {
+    await A.dropUserSessions(id);
+    const RD = require('../lib/riders'), rp = await RD.riderOfUser(id);
+    if (rp) await RD.goOffline(rp, { force: true, by: req.user.name || req.user.email, reason: 'account switched off' }).catch((e) => console.error('Could not take rider offline:', e.message));
+  }
   res.json({ ok: true });
 }));
 
@@ -397,10 +402,12 @@ router.put('/orders/:id/rider', ah(async (req, res) => {
     const rd = await get("SELECT name FROM users WHERE id=? AND role='rider' AND active=1", riderId);
     if (!rd) fail(400, 'Choose an active rider.');
     if (o.is_pharmacy) await require('../lib/pharmacy').checkRider(o, riderId);
-    await run('UPDATE orders SET rider_id=?, accepted_at=NULL WHERE id=?', riderId, o.id);
     await D.issueCode(o.id);
+    // The rider is offered the delivery and must accept (within the timeout). The old behaviour of attaching the order straight to the rider is kept, so the order is on their screen at once.
+    await require('../lib/dispatch').manualAssign(o.id, riderId, req.user.name || req.user.email, req.user.id);
+    await run('UPDATE orders SET rider_id=? WHERE id=? AND accepted_at IS NULL', riderId, o.id);
     await S.addEvent(o.id, o.status, `Assigned to rider ${rd.name}`);
-  } else { await run('UPDATE orders SET rider_id=NULL, accepted_at=NULL WHERE id=? AND status<>\'shipped\'', o.id); await S.addEvent(o.id, o.status, 'Rider removed'); }
+  } else { await require('../lib/dispatch').unassign(o.id, req.user.name || req.user.email); }
   res.json({ ok: true });
 }));
 router.post('/orders/:id/handover', ah(async (req, res) => {
