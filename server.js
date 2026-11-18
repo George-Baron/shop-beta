@@ -62,6 +62,9 @@ app.use((req, res, next) => {
   next();
 });
 
+// Static brand artwork (home banner).
+app.use('/brand', express.static(path.join(__dirname, 'views', 'brand'), { maxAge: '7d', index: false, dotfiles: 'ignore', setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff') }));
+
 /* ---------- uploads ---------- */
 // Leaflet (the map library) is served from here, not from a third-party CDN.
 app.use('/vendor/leaflet', express.static(path.join(__dirname, 'node_modules', 'leaflet', 'dist'), { maxAge: '30d', index: false, dotfiles: 'ignore', setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff') }));
@@ -126,7 +129,7 @@ app.get('/sitemap.xml', ah(async (req, res) => {
 /* ---------- pages (one HTML shell, filled in per URL for search engines and link previews) ---------- */
 const TEMPLATE = fs.readFileSync(path.join(__dirname, 'views', 'index.html'), 'utf8');
 const PAGES = { about: 'About us', faq: 'Frequently asked questions', shipping: 'Shipping & Returns', privacy: 'Privacy policy', terms: 'Terms of service', contact: 'Contact us' };
-const NOINDEX = new Set(['rider', 'pharmacist', 'partner', 'wholesale', 'checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
+const NOINDEX = new Set(['rider', 'pharmacist', 'partner', 'wholesale', 'import-export', 'dropshipping', 'checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
 const clip = (s, n) => { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s; };
 const absUrl = (u) => (!u ? '' : /^https?:\/\//.test(u) ? u : BASE_URL + u);
 
