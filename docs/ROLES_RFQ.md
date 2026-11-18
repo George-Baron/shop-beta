@@ -31,3 +31,7 @@ Phase 4 reports (sales, stock, partner and wholesale performance exports).
 - RFQ stock checks and the product matcher read **wholesale warehouse stock**, never the retail `products.stock`.
 - `lib/xlsx.js` (fflate) is used for RFQ Excel files; the catalogue import uses `exceljs`. Two spreadsheet libraries: worth merging into one later.
 - The partner-side catalogue import and its import-notification to staff were part of the old copy of the import code and are not on main; add them when partner imports are built.
+
+## Emailed invitations (employees)
+Adding an employee now emails them a link to choose their own password (valid 3 days, works once, stored hashed). The owner never sees a password. "Email invitation" on the employee's Manage window sends a fresh link; it also replaces any older one.
+If email (RESEND_API_KEY) is not set up, nothing is sent and the owner is shown the link once to pass on by hand. Typing a password in the form, or unticking the box, keeps the old temporary-password way. Test: `npm run test:staff-invite`.

@@ -14,6 +14,7 @@ router.put('/roles/:id', ah(async (req, res) => res.json({ ok: true, id: await S
 router.delete('/roles/:id', ah(async (req, res) => { await St.deleteRole(S.int(req.params.id)); res.json({ ok: true }); }));
 router.put('/:id', ah(async (req, res) => { await St.updateStaff(S.int(req.params.id), req.body || {}, req.user); res.json({ ok: true }); }));
 router.post('/:id/reset-password', ah(async (req, res) => res.json({ ok: true, ...(await St.resetPassword(S.int(req.params.id), req.user)) })));
+router.post('/:id/invite', ah(async (req, res) => res.json({ ok: true, ...(await St.resendInvite(S.int(req.params.id), req.user)) })));
 router.get('/:id/logins', ah(async (req, res) => res.json({ logins: await St.loginHistory(S.int(req.params.id)) })));
 router.get('/:id/activity', ah(async (req, res) => res.json({ activity: await St.activity(S.int(req.params.id)) })));
 

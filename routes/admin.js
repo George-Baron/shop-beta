@@ -52,15 +52,7 @@ router.post('/setup', A.limiter('setup', 5, 3600000), ah(async (req, res) => {
 router.use(A.requireBackoffice, require('../lib/staff').gate);
 
 // Activity log: every change an admin makes (not reads) is written down with who, what and from where. Passwords are never recorded.
-router.use((req, res, next) => {
-  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
-  res.on('finish', () => {
-    let detail = '';
-    try { const b = { ...(req.body || {}) }; for (const k of Object.keys(b)) if (/pass|token|secret|data$/i.test(k)) b[k] = '[hidden]'; detail = JSON.stringify(b).slice(0, 600); } catch { /* ignore */ }
-    run('INSERT INTO audit_log (user_id,user_name,method,path,status,detail,ip,created) VALUES (?,?,?,?,?,?,?,?)', req.user ? req.user.id : null, req.user ? String(req.user.name || req.user.email).slice(0, 80) : '', req.method, req.originalUrl.slice(0, 200), res.statusCode, detail, String(req.clientIp || '').slice(0, 60), now()).catch((e) => console.error('Audit log failed:', e.message));
-  });
-  next();
-});
+router.use(require('../lib/audit').activity('staff'));
 // Sub-areas (mounted after the activity log above, so their changes are recorded too).
 router.post('/announce', ah(async (req, res) => { const b = req.body || {}; res.json({ ok: true, ...(await require('../lib/notify').announce(b.audience, b, req.user.name)) }); }));
 router.use('/staff', A.requireAdmin, require('./staff-admin'));
@@ -70,7 +62,12 @@ router.use('/catalog', require('./catalog-admin'));
 router.use('/rfq', require('./rfq-admin'));
 router.use('/commercial', require('./commercial-admin'));
 router.use('/warehouse', require('./warehouse'));
-router.get('/audit', ah(async (req, res) => res.json({ log: await all('SELECT id, user_name, method, path, status, detail, ip, created FROM audit_log ORDER BY id DESC LIMIT 300') })));
+router.get('/audit', ah(async (req, res) => {
+  const w = [], a = [];
+  if (['staff', 'partner', 'buyer'].includes(req.query.actor)) { w.push('actor=?'); a.push(req.query.actor); }
+  if (req.query.q) { w.push("(lower(user_name) LIKE ? OR lower(path) LIKE ?)"); const t = '%' + String(req.query.q).toLowerCase().replace(/[\\%_]/g, '').slice(0, 60) + '%'; a.push(t, t); }
+  res.json({ log: await all(`SELECT id, user_name, actor, method, path, status, detail, ip, created FROM audit_log ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY id DESC LIMIT 300`, ...a) });
+}));
 
 /* ---------- dashboard ---------- */
 router.get('/dashboard', ah(async (req, res) => {
