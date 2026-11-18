@@ -1205,8 +1205,12 @@ async function riderApp(main) {
      <div class="rd-stats">${stat(p.total_assignments ?? 0, 'Deliveries assigned')}${stat(p.completed ?? 0, 'Successful')}${stat(p.failed ?? 0, 'Failed')}${stat(p.avg_delivery_min == null ? '—' : p.avg_delivery_min + ' min', 'Average delivery')}${stat(p.rating == null ? '—' : p.rating + ' ★', 'Rating')}${stat(p.on_time_pct == null ? '—' : p.on_time_pct + '%', 'On time')}</div>
      <div class="card"><b>Your location</b><p class="mu" style="font-size:13px">Tracking runs only while you are online, and only while this page is open. Going offline stops it straight away. Your own status above always shows what is being shared.</p><button class="btn ghost block" id="rlo">Sign out</button></div>`;
   };
+  // What the screen actually shows. A repaint rebuilds the page (and its map), so it only happens when this changes
+  // or the rider did something; live position pings and timer ticks must not redraw it.
+  const sigOf = () => JSON.stringify([S.tab, S.me.rider, S.me.stats, S.me.unread, S.me.tracking.active, S.me.tracking.status === 'live' || S.me.tracking.status === 'recent', S.offers.map((o) => o.id), S.orders, S.tab === 'chat' ? S.msgs.length : 0]);
   const paint = (force) => {
     if (!alive()) return; if (!force && typing()) return;
+    const sg = sigOf(); if (!force && sg === S.sig) return; S.sig = sg;
     const u = S.me.unread || 0, n = S.offers.length;
     main.innerHTML = `<div class="rd"><div class="rd-top"><b>🛵 ${e(S.me.rider.full_name)}</b><span class="mu">${e(S.me.rider.code)}</span></div><div class="rd-bar" id="rbar">${barHtml()}</div><div class="rd-body">${S.tab === 'home' ? homeTab() : S.tab === 'orders' ? delTab() : S.tab === 'chat' ? chatTab() : profTab()}</div>
       <nav class="rd-tabs">${[['home', '🏠', 'Home', n], ['orders', '📦', 'Deliveries', S.orders.length], ['chat', '💬', 'Chat', u], ['me', '👤', 'Profile', 0]].map(([k, ic, l, c]) => `<button data-tab="${k}" class="${S.tab === k ? 'on' : ''}">${ic}<span>${l}</span>${c ? `<i>${c}</i>` : ''}</button>`).join('')}</nav></div>`;
@@ -1284,7 +1288,7 @@ async function riderApp(main) {
   const tickTimer = setInterval(() => {
     if (!alive()) return clearInterval(tickTimer);
     S.now = Math.floor(Date.now() / 1000);
-    $$('[data-to]', main).forEach((c) => { const l = Math.max(0, Number(c.dataset.to) - S.now); c.textContent = `${Math.floor(l / 60)}:${String(l % 60).padStart(2, '0')}`; if (l === 0) refresh(true).catch(() => {}); });
+    $$('[data-to]', main).forEach((c) => { const l = Math.max(0, Number(c.dataset.to) - S.now); c.textContent = `${Math.floor(l / 60)}:${String(l % 60).padStart(2, '0')}`; if (l === 0 && !c.dataset.done) { c.dataset.done = '1'; refresh(true).catch(() => {}); } });
     paintBar();
   }, 1000);
   const slow = setInterval(() => { if (!alive()) return clearInterval(slow); refresh(false).catch(() => {}); }, 60000);

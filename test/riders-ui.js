@@ -111,6 +111,10 @@ const SHOTS = process.env.SHOTS_DIR || os.tmpdir();
   });
   await test('the rider follows the steps: arrive, collect, on the way, then completes with the customer\'s code', async () => {
     await seen(rp, '[data-map]'); await rp.waitForSelector('.leaflet-container', { timeout: 15000 }); await rp.screenshot({ path: path.join(SHOTS, 'rider-delivery.png'), fullPage: true });
+    // live events must not rebuild the page and its map (that made the map shake)
+    await rp.evaluate(() => { document.querySelector('.leaflet-container').dataset.keep = '1'; });
+    for (let i = 0; i < 3; i++) { await q("INSERT INTO rider_events (rider_id, audience, kind, payload, created_at) VALUES ((SELECT id FROM riders LIMIT 1), 'rider', 'availability', '{}', $1)", [Math.floor(Date.now() / 1000)]); await rp.waitForTimeout(900); }
+    assert.strictEqual(await rp.evaluate(() => { const c = document.querySelector('.leaflet-container'); return c && c.dataset.keep; }), '1', 'the map was rebuilt by a live update');
     await rp.click('[data-act="arrived"]'); await seen(rp, '[data-pick]'); await rp.click('[data-pick]'); await seen(rp, '[data-act="start"]'); await rp.click('[data-act="start"]');
     await seen(rp, '.codein'); const code = (await call('POST', '/api/orders/lookup', { ref: order.ref, email: 'cust@example.com', token: order.access_token })).j.order.handover_code;
     await rp.fill('.codein', '000000'); await rp.click('[data-act="complete"]'); await txt(rp, 'wrong', 8000).catch(() => {});
