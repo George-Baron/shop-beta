@@ -34,6 +34,7 @@ async function buildConfig() {
   const stores = await all(`SELECT * FROM stores s WHERE active=1 AND ${PC.storeVisibleSql('s')} ORDER BY sort, slug`);
   const slugs = new Set(stores.map((s) => s.slug));
   const settings = { ...S }; delete settings.demo_seeded; delete settings.pod_enabled; delete settings.paystack_enabled; delete settings.assistant_notes;
+  for (const k of Object.keys(settings)) if (k.startsWith('rider_')) delete settings[k];   // dispatch rules are internal
   if (!PC.enabled()) for (const k of Object.keys(settings)) if (k.startsWith('pharm_')) delete settings[k];
   const categories = (await all('SELECT id, store, slug, name, icon FROM categories ORDER BY sort, id')).filter((c) => slugs.has(c.store));
   const zones = (await all('SELECT state, fee, eta, pod FROM zones ORDER BY sort, state')).map((z) => ({ ...z, pod: z.pod && S.pod_enabled === '1' ? 1 : 0 }));
