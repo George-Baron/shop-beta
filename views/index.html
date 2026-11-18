@@ -345,7 +345,7 @@ async function prepImage(file) {
   if (blob.size > 1.95e6) throw new Error(`"${file.name}" is still too large after resizing. Try a simpler photo.`);
   return blob;
 }
-function uploadImage(path, blob, onProgress) {
+function uploadImage(path, blob, onProgress, extra) {
   return new Promise((resolve, reject) => {
     const rd = new FileReader();
     rd.onerror = () => reject(new Error('Could not read the photo.'));
@@ -359,7 +359,7 @@ function uploadImage(path, blob, onProgress) {
       };
       x.onerror = () => reject(new Error('Network problem. Check your connection and try again.'));
       x.ontimeout = () => reject(new Error('The upload took too long. Check your connection and try again.'));
-      x.send(JSON.stringify({ data: rd.result }));
+      x.send(JSON.stringify({ ...(extra || {}), data: rd.result }));
     };
     rd.readAsDataURL(blob);
   });
@@ -1503,9 +1503,22 @@ async function partnerPortal(main) {
       wrap(`<div class="card"><h3>Add many products from Excel</h3><p class="mu">Fill in our template, one product per row. Photos are added afterwards, product by product. Your products go to our team for review before customers see them. You can only use your store's own departments.</p>
         <a class="btn ghost sm" href="/api/partner/catalog/template.xlsx" download>Download Excel template</a>
         <div style="margin:12px 0"><label class="chk"><input type="radio" name="imode" value="create" ${imp.mode === 'create' ? 'checked' : ''}> Add new products</label> <label class="chk" style="margin-left:14px"><input type="radio" name="imode" value="update" ${imp.mode === 'update' ? 'checked' : ''}> Update products I already have (matched by Internal Reference or Barcode)</label></div>
-        <label class="btn" style="cursor:pointer">Choose .xlsx or .csv file<input type="file" id="ifile" accept=".xlsx,.csv" style="display:none"></label> <span class="mu">Up to 5,000 rows, 5 MB.</span></div>` + exportBox + histBox);
+        <label class="btn" style="cursor:pointer">Choose .xlsx or .csv file<input type="file" id="ifile" accept=".xlsx,.csv" style="display:none"></label> <span class="mu">Up to 5,000 rows, 5 MB.</span></div>` + `<div class="card" style="margin-top:12px"><h3>Add many photos at once</h3><p class="mu">Name each photo after the product's Internal Reference or Barcode, for example <b>RICE-001.jpg</b>. More photos of the same product: <b>RICE-001_2.jpg</b>, <b>RICE-001_3.jpg</b>. Photos are added to the product (up to 8) and nothing is removed. You can choose hundreds of photos at once; they are shrunk on your device first.</p><label class="btn" style="cursor:pointer">Choose photos<input type="file" id="pfiles" accept="${IMG_ACCEPT}" multiple style="display:none"></label><div id="pres" style="margin-top:10px"></div></div>` + exportBox + histBox);
       wire();
       $$('[name=imode]', main).forEach((r) => r.addEventListener('change', () => { imp.mode = r.value; }));
+      $('#pfiles').addEventListener('change', run(async (ev) => {
+        const key = (f) => { const st = f.name.replace(/\.[A-Za-z0-9]{2,5}$/, ''), m = /^(.*?)(?:[ _]+\(?(\d{1,2})\)?)$/.exec(st); return m && m[1].trim() ? [m[1].trim().toLowerCase(), Number(m[2])] : [st.toLowerCase(), 0]; };
+        const files = [...ev.target.files].sort((a, b) => { const x = key(a), y = key(b); return x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] - y[1]; });   // the plain name first (it becomes the main photo), then _2, _3 ev.target.value = ''; if (!files.length) return;
+        const box = $('#pres'); let ok = 0, bad = 0; const lines = [];
+        const paint = (n) => { box.innerHTML = `<p><b>${n}</b> of ${files.length} done · <span style="color:var(--ok,green)">${ok} added</span> · <span style="color:var(--danger,#b42318)">${bad} not added</span></p>` + (lines.length ? `<div style="max-height:260px;overflow:auto;font-size:13px">${lines.join('')}</div>` : ''); };
+        paint(0);
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i];
+          try { const r = await uploadImage('/api/partner/photos', await prepImage(f), null, { filename: f.name }); ok++; lines.push(`<div>✓ ${e(f.name)} → ${e(r.product)} (${r.count} photo${r.count === 1 ? '' : 's'})</div>`); }
+          catch (x) { bad++; lines.push(`<div style="color:var(--danger,#b42318)">✗ ${e(f.name)}: ${e(x.message)}</div>`); if (x.status === 401 || x.status === 429) { lines.push('<div>Stopped. Sign in again or wait a little, then choose the remaining photos.</div>'); paint(i + 1); return; } }
+          paint(i + 1);
+        }
+      }));
       $('#ifile').addEventListener('change', run(async (ev) => {
         const file = ev.target.files[0]; if (!file) return;
         if (file.size > 5 * 1024 * 1024) throw new Error('That file is over 5 MB. Split it into smaller files.');
@@ -1907,7 +1920,7 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['commercial', '🧭', 'Commercial operations'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['staff', '👤', 'Employees & roles'], ['notifications', '🔔', 'Notifications']];
+const NAV = [['dashboard', '📊', 'Dashboard'], ['commercial', '🧭', 'Commercial operations'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['activity', '🕵️', 'Activity log'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['staff', '👤', 'Employees & roles'], ['notifications', '🔔', 'Notifications']];
 const NAVMOD = { dashboard: 'any', notifications: 'any', orders: 'orders', products: 'catalog', catalogio: 'catalog', categories: 'catalog', reviews: 'catalog', customers: 'customers', messages: 'customers', coupons: 'marketing', marketing: 'marketing', deliveries: 'delivery', partners: 'delivery', vendors: 'partners', wholesale: 'wholesale', warehouse: 'warehouse', rfq: 'rfq' };
 const can = (m, w) => { const p = (me && me.perms) || []; return p.includes('*') || p.includes(m + (w ? ':edit' : ':view')); };
 const visible = (k) => k === 'commercial' ? !!(me && (me.role === 'admin' || can('partners') || can('rfq') || can('reports') || can('finance'))) : (me && me.role === 'admin') || (NAVMOD[k] === 'any') || (NAVMOD[k] && can(NAVMOD[k], false));
@@ -2069,7 +2082,7 @@ const sstate = { tab: 'staff', days: 30 };
 const permMatrix = (mods, sel) => `<table class="t pm"><tr><th>Area</th><th>View</th><th>Edit</th></tr>${mods.map((m) => `<tr><td><b>${e(m.label)}</b><div class="mu2">${e(m.about)}</div></td><td><input type="checkbox" data-pv="${m.key}" ${sel.includes(m.key + ':view') ? 'checked' : ''}></td><td><input type="checkbox" data-pe="${m.key}" ${sel.includes(m.key + ':edit') ? 'checked' : ''}></td></tr>`).join('')}</table>`;
 const wirePerms = (root) => { $$('[data-pe]', root).forEach((c) => c.addEventListener('change', () => { if (c.checked) $(`[data-pv="${c.dataset.pe}"]`, root).checked = true; })); $$('[data-pv]', root).forEach((c) => c.addEventListener('change', () => { if (!c.checked) $(`[data-pe="${c.dataset.pv}"]`, root).checked = false; })); };
 const readPerms = (root) => [...$$('[data-pv]:checked', root).map((c) => c.dataset.pv + ':view'), ...$$('[data-pe]:checked', root).map((c) => c.dataset.pe + ':edit')];
-const showSecret = (title, pw) => openModal(`<h3 style="margin-top:0">${e(title)}</h3><p>Give this temporary password to the person. It is shown <b>only once</b>.</p><p style="font-size:20px;font-family:monospace;user-select:all;background:var(--surface-2);padding:10px;border-radius:8px">${e(pw)}</p><button class="btn" id="mx">Done</button>`) || $('#mx').addEventListener('click', closeModal);
+const showSecret = (title, pw) => openModal(`<h3 style="margin-top:0">${e(title)}</h3><p>Give this to the person. It is shown <b>only once</b>.</p><p style="font-size:20px;font-family:monospace;user-select:all;background:var(--surface-2);padding:10px;border-radius:8px">${e(pw)}</p><button class="btn" id="mx">Done</button>`) || $('#mx').addEventListener('click', closeModal);
 views.staff = async () => {
   const d = await api('/api/admin/staff'), tabs = [['staff', 'Employees'], ['roles', 'Roles & permissions'], ['perf', 'Performance']];
   let body = '';
@@ -2819,6 +2832,16 @@ views.pharmacy = async () => {
 
 /* ---------------- commercial operations ---------------- */
 const cs = { tab: 'work', from: '', to: '', officer: '', pstatus: '', rstatus: '', rep: '', report: null };
+const acts = { actor: '', q: '' };
+views.activity = async () => {
+  const d = await api('/api/admin/audit?' + new URLSearchParams({ ...(acts.actor ? { actor: acts.actor } : {}), ...(acts.q ? { q: acts.q } : {}) }));
+  const who = { staff: 'Employee / owner', partner: 'Partner store', buyer: 'Wholesale buyer' };
+  mn(hd('Activity log', '') + `<p class="mu">Every change made by employees, partner stores and wholesale buyers: who, what, from where. Passwords, bank details and file contents are never recorded. The last 300 entries are shown; entries are kept for a year.</p>
+    <div class="tbar"><select id="aa"><option value="">Everyone</option>${Object.entries(who).map(([k, v]) => `<option value="${k}" ${acts.actor === k ? 'selected' : ''}>${v}</option>`).join('')}</select><input id="aq" placeholder="Search a name or action" value="${e(acts.q)}"></div>
+    <div class="tw"><table class="t"><tr><th>When</th><th>Who</th><th>Type</th><th>Action</th><th>Result</th><th>Details</th><th>From</th></tr>${d.log.map((l) => `<tr><td>${dt(l.created)}</td><td>${e(l.user_name)}</td><td>${e(who[l.actor] || l.actor)}</td><td><b>${e(l.method)}</b> ${e(l.path)}</td><td>${l.status < 400 ? 'Done' : '<span style="color:var(--danger,#b42318)">Refused (' + l.status + ')</span>'}</td><td style="max-width:320px;overflow-wrap:anywhere;font-size:12px">${e(l.detail || '')}</td><td>${e(l.ip || '')}</td></tr>`).join('') || '<tr><td colspan="7" class="mu">Nothing recorded yet.</td></tr>'}</table></div>`);
+  $('#aa').addEventListener('change', (ev) => { acts.actor = ev.target.value; route(); });
+  $('#aq').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { acts.q = ev.target.value; route(); } });
+};
 views.commercial = async () => {
   const canRep = can('reports') || can('finance');
   const hasWork = can('partners') || can('rfq');

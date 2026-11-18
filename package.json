@@ -42,6 +42,7 @@
     "test:security-review": "node --disable-warning=ExperimentalWarning test/security-review.js",
     "test:commercial": "node --disable-warning=ExperimentalWarning test/commercial.js",
     "test:staff-invite": "node --disable-warning=ExperimentalWarning test/staff-invite.js",
+    "test:photos-audit": "node --disable-warning=ExperimentalWarning test/photos-audit.js",
     "test:roles": "node --disable-warning=ExperimentalWarning test/roles.js",
     "test:catalog": "node --disable-warning=ExperimentalWarning test/catalog-io.js"
   },

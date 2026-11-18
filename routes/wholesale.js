@@ -8,7 +8,7 @@ const R = require('../lib/rfq');
 
 const router = express.Router();
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-router.use(A.requireUser, (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+router.use(A.requireUser, (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); }, require('../lib/audit').activity('buyer'));
 
 router.get('/me', ah(async (req, res) => res.json({ account: await W.me(req.user), terms: await W.cfg().then((c) => ({ eval_days: c.eval_days, valid_days: c.valid_days, pay_days: c.pay_days, service_pct: c.service_pct })) })));
 router.post('/apply', A.limiter('wholesale-apply', 5, 3600000), ah(async (req, res) => { await W.apply(req.user, req.body || {}); res.json({ ok: true, account: await W.me(req.user) }); }));
