@@ -97,7 +97,7 @@ router.post('/:id/approve', ah(async (req, res) => {
     await run('UPDATE products SET partner_id=? WHERE vendor_id=?', pid, v.id);
   });
   cache.clear();
-  await mail(v, 'Your Shop-Beta partner store is approved', `<p>Hi ${S.esc(v.contact_name)}, <b>${S.esc(v.name)}</b> is approved as a Shop-Beta partner store. Products you add are shown to customers once our team has reviewed each one. Sign in at ${S.BASE_URL}/partner.</p>`);
+  await mail(v, 'Your VELTO-MART partner store is approved', `<p>Hi ${S.esc(v.contact_name)}, <b>${S.esc(v.name)}</b> is approved as a VELTO-MART partner store. Products you add are shown to customers once our team has reviewed each one. Sign in at ${S.BASE_URL}/partner.</p>`);
   res.json({ ok: true, vendor: await row(await load(v.id)) });
 }));
 const setStatus = (status, subject) => ah(async (req, res) => {
@@ -109,8 +109,8 @@ const setStatus = (status, subject) => ah(async (req, res) => {
   if (subject) await mail(v, subject, `<p>Hi ${S.esc(v.contact_name)}, ${S.esc(note || 'please contact us for details.')}</p>`);
   res.json({ ok: true, vendor: await row(await load(v.id)) });
 });
-router.post('/:id/reject', setStatus('rejected', 'About your Shop-Beta partner application'));
-router.post('/:id/suspend', setStatus('suspended', 'Your Shop-Beta partner store is paused'));
+router.post('/:id/reject', setStatus('rejected', 'About your VELTO-MART partner application'));
+router.post('/:id/suspend', setStatus('suspended', 'Your VELTO-MART partner store is paused'));
 router.post('/:id/reinstate', ah(async (req, res) => {
   const v = await load(req.params.id);
   if (v.status !== 'suspended') fail(400, 'Only a paused store can be reinstated.');

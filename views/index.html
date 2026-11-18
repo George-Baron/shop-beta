@@ -19,18 +19,18 @@
 <style>
 :root{
  --bg:#fff;--surface:#fff;--surface-2:#f6f7f9;--text:#16181d;--muted:#667085;--border:#e5e8ee;
- --accent:#f26a21;--accent-ink:#fff;--accent-soft:#fff0e6;--accent-2:#ffb27a;
- --head-bg:#fff;--head-ink:#16181d;--hero-bg:linear-gradient(135deg,#fdeee3,#fff 70%);--hero-ink:#16181d;--hero-muted:#5b6270;
+ --accent:#f5b301;--accent-ink:#0b1b3a;--accent-soft:#fff6d6;--accent-2:#ffd34d;
+ --head-bg:#0b1b3a;--head-ink:#fff;--hero-bg:linear-gradient(135deg,#fff6d6,#fff 70%);--hero-ink:#16181d;--hero-muted:#5b6270;
  --radius:14px;--radius-sm:10px;--shadow:0 1px 2px rgba(16,24,40,.06),0 6px 20px rgba(16,24,40,.06);
  --font:'Plus Jakarta Sans',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;--display:var(--font);--ok:#16a34a;--warn:#d97706;--bad:#dc2626;
 }
-[data-store=fashion]{--accent:#f26a21;--accent-soft:#fff0e6;--hero-bg:linear-gradient(120deg,#fff1e6 0%,#fffaf6 55%,#fff 100%)}
+[data-store=fashion]{--accent:#f5b301;--accent-ink:#0b1b3a;--accent-soft:#fff6d6;--hero-bg:linear-gradient(120deg,#fff3c4 0%,#fffbea 55%,#fff 100%)}
 [data-store=supermarket]{--accent:#16a34a;--accent-soft:#e3f6ea;--accent-2:#facc15;--head-bg:#0b4a2a;--head-ink:#fff;--hero-bg:linear-gradient(120deg,#0b4a2a,#13803f 85%);--hero-ink:#fff;--hero-muted:#cfeedd;--radius:12px}
 [data-store=beauty]{--accent:#d6246e;--accent-soft:#fde7f1;--accent-2:#7c3aed;--hero-bg:linear-gradient(120deg,#fde9ee,#f7e6f6 60%,#fff);--display:'Playfair Display',Georgia,serif;--radius:18px}
 [data-store=electronics]{--bg:#0a0d0c;--surface:#121715;--surface-2:#0e1311;--text:#f2f6f4;--muted:#9aa8a1;--border:#232b28;--accent:#22c55e;--accent-ink:#04130a;--accent-soft:#0f2a1a;--head-bg:#0a0d0c;--head-ink:#f2f6f4;--hero-bg:radial-gradient(ellipse at 80% 20%,#0f3d22,#0a0d0c 65%);--hero-ink:#f2f6f4;--hero-muted:#a9b8b0;--shadow:0 1px 0 rgba(255,255,255,.03),0 8px 24px rgba(0,0,0,.5)}
 [data-store=pharmacy]{--accent:#2563eb;--accent-soft:#e6efff;--surface-2:#f3f7ff;--hero-bg:linear-gradient(120deg,#d7e8ff,#eef5ff 70%,#fff);--radius:12px}
 [data-store=food]{--accent:#f97316;--accent-soft:#fff0dd;--accent-2:#facc15;--bg:#fffaf0;--surface-2:#fff4dc;--hero-bg:linear-gradient(120deg,#fde58a,#fff3c4 70%,#fffaf0);--radius:22px;--display:'Poppins','Plus Jakarta Sans',system-ui,sans-serif}
-[data-mode=dark]:not([data-store=electronics]){--bg:#0f1114;--surface:#171a1f;--surface-2:#12151a;--text:#eef0f4;--muted:#98a2b3;--border:#272c34;--head-bg:#12151a;--head-ink:#eef0f4;--hero-ink:#eef0f4;--hero-muted:#a8b0bd;--hero-bg:linear-gradient(120deg,#1b1f27,#12151a);--accent-soft:#2a1d14;--shadow:0 8px 24px rgba(0,0,0,.45)}
+[data-mode=dark]:not([data-store=electronics]){--bg:#0a1226;--surface:#111b33;--surface-2:#0d1730;--text:#eef0f4;--muted:#98a2b3;--border:#22304f;--head-bg:#0b1b3a;--head-ink:#eef0f4;--hero-ink:#eef0f4;--hero-muted:#a8b0bd;--hero-bg:linear-gradient(120deg,#1b1f27,#12151a);--accent-soft:#2a1d14;--shadow:0 8px 24px rgba(0,0,0,.45)}
 [data-mode=dark][data-store=supermarket]{--head-bg:#06301b}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
 body{margin:0;font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased;transition:background .2s}
@@ -52,7 +52,7 @@ label.f{display:block;font-weight:600;font-size:13px;margin-bottom:12px}label.f>
 .ann{background:var(--accent);color:var(--accent-ink);text-align:center;font-size:13px;font-weight:600;padding:7px 12px}
 .head{background:var(--head-bg);color:var(--head-ink);position:sticky;top:0;z-index:40;border-bottom:1px solid var(--border)}
 .head-in{display:flex;align-items:center;gap:16px;padding:12px 16px;max-width:1200px;margin:0 auto}
-.logo{display:flex;align-items:center;gap:8px;font-weight:800;font-size:20px;font-family:var(--display);white-space:nowrap}.logo .mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:var(--accent);color:var(--accent-ink);font-size:18px}
+.logo{display:flex;align-items:center;gap:8px;font-weight:800;font-size:20px;font-family:var(--display);white-space:nowrap}.logo .mark{display:grid;place-items:center;width:38px;height:38px;flex:none}.logo .mark svg{width:100%;height:100%}.logo .t b{color:var(--accent)}
 .search{flex:1;max-width:560px;position:relative}.search input{border-radius:999px;padding-left:16px;padding-right:44px;background:var(--surface-2)}
 [data-store=supermarket] .search input{background:#fff;color:#16181d}[data-store=supermarket] .search button{color:#16181d}
 .search button{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:0;cursor:pointer;font-size:16px;padding:6px 10px}
@@ -293,7 +293,7 @@ body.is-rider .ann,body.is-rider .head,body.is-rider .foot,body.is-rider .cookie
 .rk-perf{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px}.rk-perf div{background:rgba(0,0,0,.05);border-radius:8px;padding:6px;text-align:center}.rk-perf b{display:block;font-size:18px}.rk-perf span{font-size:11px;opacity:.7}
 .rk-tmap{height:220px;border-radius:10px;margin-top:8px}.rk-eg{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.rk-cmd{border-top:1px solid var(--border,#e5e7eb);padding:10px 0}.rk-cmd .q{font-weight:700}.rk-cmd .a{margin-top:4px}
 </style>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🛍%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b1b3a'/%3E%3Cpath d='M10 14h11l11 27 11-27h11L38 52H26z' fill='%23f5b301'/%3E%3C/svg%3E">
 </head>
 <body>
 <div id="adm"></div>
@@ -494,7 +494,7 @@ function byStore(lines, nameOf = (l) => l.vendorName || l.store || '') {
   for (const l of lines) { const k = nameOf(l); if (!m.has(k)) m.set(k, []); m.get(k).push(l); }
   return [...m.entries()].sort((a, b) => (a[0] === '') - (b[0] === '') || a[0].localeCompare(b[0])).map(([name, ls2]) => ({ name, lines: ls2 }));
 }
-const groupHead = (name, groups) => (groups.length > 1 || name ? `<div class="sgroup">🏪 Sold by ${e(name || 'Shop-Beta')}</div>` : '');
+const groupHead = (name, groups) => (groups.length > 1 || name ? `<div class="sgroup">🏪 Sold by ${e(name || 'VELTO-MART')}</div>` : '');
 
 function setStoreTheme(slug) {
   const r = document.documentElement;
@@ -796,7 +796,7 @@ const none = '<div class="empty"><div class="em">🛒</div><p>Products are comin
 const hero = {
   fashion: (d) => `<div class="hero"><div class="hero-in"><div><h1>${e(d.store.hero_title).replace('In One Place', '<br>In One Place')}</h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('fashion')}</div></div>`,
   supermarket: (d) => `<div class="hero"><div class="hero-in"><div><h1>More Choices,<br><em>Better Living</em></h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('supermarket')}</div></div>`,
-  beauty: (d) => `<div class="hero"><div class="hero-in"><div><div class="eyebrow">Shop-Beta · Beauty</div><h1>${e(d.store.hero_title)}</h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('beauty')}</div></div>`,
+  beauty: (d) => `<div class="hero"><div class="hero-in"><div><div class="eyebrow">VELTO-MART · Beauty</div><h1>${e(d.store.hero_title)}</h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('beauty')}</div></div>`,
   electronics: (d) => `<div class="hero"><div class="hero-in"><div><h1>Premium Products<br><em>Great Prices</em></h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('electronics')}</div></div>`,
   pharmacy: (d) => `<div class="hero"><div class="hero-in"><div><h1>${e(d.store.hero_title)}</h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('pharmacy')}</div></div>`,
   food: (d) => `<div class="hero"><div class="hero-in"><div><h1>${e(d.store.hero_title).replace(', ', ',<br>')}</h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('food')}</div></div><div class="wavy"></div>`,
@@ -1139,7 +1139,7 @@ async function riderApp(main) {
   };
   const askConsent = () => new Promise((res) => {
     const d = document.createElement('div'); d.className = 'rd-sheet';
-    d.innerHTML = `<div class="rd-box"><h2>Share your location?</h2><p>When you go online, Shop-Beta uses your phone's location so the operations team and the AI Operations Manager can see where you are, match you to nearby orders and keep customers updated.</p>
+    d.innerHTML = `<div class="rd-box"><h2>Share your location?</h2><p>When you go online, VELTO-MART uses your phone's location so the operations team and the AI Operations Manager can see where you are, match you to nearby orders and keep customers updated.</p>
       <ul><li>Tracking starts when you tap <b>Go online</b> and stops when you go offline.</li><li>It works while this page is open. Phones may pause it when the screen is off or another app is on top, so keep this page open while you work.</li><li>Only authorised staff can see your position. Old positions are deleted after a short period.</li></ul>
       <button class="btn block lg" id="cy">Agree and go online</button><button class="btn ghost block" id="cn" style="margin-top:8px">Not now</button></div>`;
     document.body.appendChild(d); const done = (v) => { d.remove(); res(v); };
@@ -1574,6 +1574,8 @@ function trackPage() { try { if (window.gtag) window.gtag('event', 'page_view', 
 
 
 /* ===== partner stores: directory, store page, sign-up, portal ===== */
+const BRAND_MARK = '<svg viewBox="0 0 64 66" role="img" aria-label="VELTO-MART"><path d="M4 12h15l13 31 13-31h15L39 57H25z" fill="#f5b301"/><path d="M26 12l6 16 6-16h-5l-1 4-1-4z" fill="#0b1b3a" opacity=".35"/><path d="M2 38C16 26 44 10 62 15" fill="none" stroke="#ffd34d" stroke-width="3" stroke-linecap="round"/><circle cx="27" cy="62" r="3.4" fill="#f5b301"/><circle cx="38" cy="62" r="3.4" fill="#f5b301"/></svg>';
+const brandName = (n) => { const s = String(n || ''); const i = s.indexOf('-'); return i > 0 ? `${e(s.slice(0, i))}<b>${e(s.slice(i))}</b>` : e(s); };   // VELTO white, -MART gold
 const storeCard = (v) => `<a class="scard" href="/store/${e(v.slug)}" data-link><span class="slogo">${v.logo ? `<img src="${e(v.logo)}" alt="" loading="lazy">` : e(v.emoji || '🏪')}</span><span><b>${e(v.name)}</b><br><span class="mu" style="font-size:12px">${e([v.city, v.state].filter(Boolean).join(', '))}${v.products != null ? ' · ' + v.products + ' product' + (v.products === 1 ? '' : 's') : ''}</span></span></a>`;
 
 async function storesView(main, u, cfg) {
@@ -2017,7 +2019,7 @@ function shell() {
   $('#shell').innerHTML = `
   ${s.announcement ? `<div class="ann">${e(s.announcement)}</div>` : ''}
   <header class="head"><div class="head-in">
-    <a class="logo" href="/" data-link><span class="mark">🛍</span><span class="t">${e(s.store_name)}</span></a>
+    <a class="logo" href="/" data-link><span class="mark">${BRAND_MARK}</span><span class="t">${brandName(s.store_name)}</span></a>
     <form class="search" id="sform" role="search"><input id="sq" type="search" placeholder="Search products, brands and more…" aria-label="Search" autocomplete="off"><button aria-label="Search">🔍</button></form>
     <div class="icons">
       <button class="ibtn" id="modeBtn" aria-label="Toggle dark mode">🌓</button>
@@ -2032,7 +2034,7 @@ function shell() {
   <main id="main" tabindex="-1"></main>
   <footer class="foot"><div class="wrap">
     <div class="foot-grid">
-      <div><a class="logo" href="/" data-link><span class="mark">🛍</span><span class="t">${e(s.store_name)}</span></a><p class="mu" style="font-size:14px">${e(s.tagline)}</p>
+      <div><a class="logo" href="/" data-link><span class="mark">${BRAND_MARK}</span><span class="t">${brandName(s.store_name)}</span></a><p class="mu" style="font-size:14px">${e(s.tagline)}</p>
         <form class="news" id="nform"><input type="email" required placeholder="Your email" aria-label="Email for newsletter"><button class="btn sm">Subscribe</button></form></div>
       <div><h4>Shop</h4>${cfg.stores.map((st) => `<a href="/d/${e(st.slug)}" data-link>${e(st.name)}</a>`).join('')}</div>
       <div><h4>Help</h4><a href="/page/faq" data-link>FAQ</a><a href="/page/shipping" data-link>Shipping &amp; Returns</a><a href="/track" data-link>Track an order</a><a href="/page/contact" data-link>Contact us</a></div>
@@ -2135,7 +2137,7 @@ function setupView(needsCode) {
   });
 }
 function loginForm(msg) {
-  root.innerHTML = `<div class="login"><div class="card"><h1 style="font-size:24px">Shop-Beta Admin</h1><p class="mu">Sign in with your administrator or employee account.</p>
+  root.innerHTML = `<div class="login"><div class="card"><h1 style="font-size:24px">VELTO-MART Admin</h1><p class="mu">Sign in with your administrator or employee account.</p>
   <form id="lf" novalidate><label class="f">Email or username<input id="le" type="text" autocomplete="username" required></label><label class="f">Password<input id="lp" type="password" autocomplete="current-password" required></label>
   <p class="err ${msg ? '' : 'hide'}" id="lerr" role="alert">${e(msg || '')}</p><button class="btn block" id="lb">Sign in</button></form><p class="mu2" style="margin-top:12px"><a href="/" style="color:var(--accent);font-weight:700">← Back to the store</a></p></div></div>`;
   $('#lf').addEventListener('submit', async (ev) => {
@@ -2154,7 +2156,7 @@ const NAVMOD = { dashboard: 'any', notifications: 'any', orders: 'orders', produ
 const can = (m, w) => { const p = (me && me.perms) || []; return p.includes('*') || p.includes(m + (w ? ':edit' : ':view')); };
 const visible = (k) => k === 'commercial' ? !!(me && (me.role === 'admin' || can('partners') || can('rfq') || can('reports') || can('finance'))) : (me && me.role === 'admin') || (NAVMOD[k] === 'any') || (NAVMOD[k] && can(NAVMOD[k], false));
 async function shell(page, body, unread) {
-  root.innerHTML = `<div class="adm"><aside class="side"><div class="side-top"><div><b>🛠 Shop-Beta</b><div class="who">${e(me.email)}${me.staff_role && me.role === 'staff' ? ' · ' + e(me.staff_role) : ''}</div></div><div><a class="btn ghost sm" href="/" target="_blank" rel="noopener">View store</a> <button class="btn ghost sm" id="lo">Sign out</button></div></div>
+  root.innerHTML = `<div class="adm"><aside class="side"><div class="side-top"><div><b>🛠 VELTO-MART</b><div class="who">${e(me.email)}${me.staff_role && me.role === 'staff' ? ' · ' + e(me.staff_role) : ''}</div></div><div><a class="btn ghost sm" href="/" target="_blank" rel="noopener">View store</a> <button class="btn ghost sm" id="lo">Sign out</button></div></div>
   <nav>${NAV.filter(([k]) => visible(k)).map(([k, ic, t]) => `<a data-nav="${k}" class="${page === k ? 'on' : ''}">${ic} ${t}${k === 'messages' && unread ? ` <span class="dot">${unread}</span>` : ''}${k === 'notifications' ? ' <span class="dot hide" id="nbadge"></span>' : ''}</a>`).join('')}</nav></aside><main class="main" id="mn">${body}</main></div>`;
   $('#lo').addEventListener('click', async () => { await api('/api/auth/logout', { body: {} }); me = null; loginView(); });
 }
@@ -2406,7 +2408,7 @@ views.catalogio = async () => {
     <div class="radio-row" style="margin-bottom:10px"><label><input type="radio" name="imode" value="create" ${S.mode === 'create' ? 'checked' : ''}> Create new products</label> <label style="margin-left:16px"><input type="radio" name="imode" value="update" ${S.mode === 'update' ? 'checked' : ''}> Update existing products (matched by Internal Reference or Barcode)</label></div>
     <div class="drop" id="idrop" tabindex="0"><div>Drop an .xlsx or .csv file here, or</div><label class="btn sm" style="margin-top:8px">Choose file<input type="file" id="ifile" class="sr" accept=".xlsx,.csv"></label><div class="mu2" style="margin-top:6px">Up to 20,000 rows, 10 MB.</div></div></div>`;
   const stepMap = () => `<div class="panel"><h3 style="margin-top:0">Match your columns</h3><p class="mu2">${e(S.file)} · ${S.parsed.rows.length.toLocaleString('en')} rows. We matched what we could. Check the rest.</p>
-    <div class="tw"><table class="t"><tr><th>Shop-Beta field</th><th>Your column</th></tr>${meta.fields.map((f) => `<tr><td><b>${e(f.header)}</b>${f.need ? ' <span class="mu2">(' + e(f.need) + ')</span>' : ''}</td><td><select data-map="${e(f.key)}"><option value="">(not in my file)</option>${S.parsed.headers.map((h) => `<option ${S.mapping[f.key] === h ? 'selected' : ''}>${e(h)}</option>`).join('')}</select></td></tr>`).join('')}</table></div>
+    <div class="tw"><table class="t"><tr><th>VELTO-MART field</th><th>Your column</th></tr>${meta.fields.map((f) => `<tr><td><b>${e(f.header)}</b>${f.need ? ' <span class="mu2">(' + e(f.need) + ')</span>' : ''}</td><td><select data-map="${e(f.key)}"><option value="">(not in my file)</option>${S.parsed.headers.map((h) => `<option ${S.mapping[f.key] === h ? 'selected' : ''}>${e(h)}</option>`).join('')}</select></td></tr>`).join('')}</table></div>
     <div style="margin-top:12px"><button class="btn" id="imapok">Check my rows</button> <button class="btn ghost" id="ireset">Start over</button></div></div>`;
   const stepPreview = () => {
     const v = S.v, sm = v.summary, bad = v.results.filter((r) => r.errors.length), warn = v.results.filter((r) => !r.errors.length && r.warnings.length), upd = v.results.filter((r) => r.action === 'update' && r.changes && r.changes.length);
@@ -2527,7 +2529,7 @@ async function productForm(id) {
     <label class="f">Unit of measure (pcs, kg, pack…)<input id="punit" value="${e(p.unit || '')}" maxlength="20"></label><label class="f">Tax %<input id="ptax" type="number" min="0" max="100" step="0.01" value="${e(p.tax_pct || 0)}"></label>
     <label class="f">Weight (kg)<input id="pwt" type="number" min="0" step="0.001" value="${p.weight_kg == null ? '' : e(p.weight_kg)}"></label>
     <label class="f">Emoji (shown if no photo)<input id="pe" value="${e(p.emoji)}" maxlength="8"></label><label class="f">Stock ${variants.length ? '(from variants)' : ''}<input id="pstock" type="number" min="0" value="${e(p.stock)}" ${variants.length ? 'disabled' : ''}></label>
-    <label class="f full">Pickup point (where the rider collects this item)<select id="ppartner"><option value="">Shop-Beta main store (nearest)</option>${partners.map((x) => `<option value="${x.id}" ${Number(p.partner_id) === Number(x.id) ? 'selected' : ''}>${e(x.name)}</option>`).join('')}</select></label>
+    <label class="f full">Pickup point (where the rider collects this item)<select id="ppartner"><option value="">VELTO-MART main store (nearest)</option>${partners.map((x) => `<option value="${x.id}" ${Number(p.partner_id) === Number(x.id) ? 'selected' : ''}>${e(x.name)}</option>`).join('')}</select></label>
     <label class="f full">Description<textarea id="pd" rows="4" maxlength="4000">${e(p.description)}</textarea></label>
     <div class="full"><b style="font-size:13px">Photos</b> <span class="mu2">The first photo is the main one. JPG, PNG or WEBP; big photos are resized for you.</span>
       <div class="drop" id="pdrop" tabindex="0" role="button" aria-label="Add photos">📷 Drag photos here, or <u>choose from your device</u><input type="file" id="pfile" class="sr" accept="${IMG_ACCEPT}" multiple></div>

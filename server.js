@@ -245,7 +245,7 @@ let server;
   await bootstrapAdmin();
   cache.watch(); // notice edits made on other instances
   server = app.listen(PORT, process.env.HOST || '0.0.0.0', async () => {
-    console.log(`\nShop-Beta is running at ${BASE_URL}`);
+    console.log(`\nVELTO-MART is running at ${BASE_URL}`);
     const hasAdmin = await get("SELECT 1 x FROM users WHERE role='admin'").catch(() => null);
     console.log(`Admin dashboard:   ${BASE_URL}/admin${hasAdmin ? '' : '   (open it now to create your admin account)'}`);
     console.log(S.paystackLive() ? 'Paystack: LIVE keys are set.' : 'Paystack: no PAYSTACK_SECRET_KEY set, so online payment runs in demo mode (no real money).');
