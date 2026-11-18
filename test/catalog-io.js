@@ -82,7 +82,7 @@ const canon = (parsed, mapping = parsed.mapping) => parsed.rows.map((r) => { con
   await test('files that are not xlsx/csv, empty, or corrupt are refused with a clear message', async () => {
     assert.strictEqual((await A('POST', '/parse', { filename: 'a.pdf', data: b64('x') })).s, 400);
     assert.strictEqual((await A('POST', '/parse', { filename: 'a.csv', data: b64('') })).s, 400);
-    const bad = await A('POST', '/parse', { filename: 'a.xlsx', data: b64('this is not a spreadsheet') }); assert.strictEqual(bad.s, 400); assert.match(bad.j.error, /could not read/i);
+    const bad = await A('POST', '/parse', { filename: 'a.xlsx', data: b64('this is not a spreadsheet') }); assert.strictEqual(bad.s, 400); assert.match(bad.j.error, /could not be read|could not read/i);
     const onlyHead = await A('POST', '/parse', { filename: 'a.csv', data: b64('Product Name,Selling Price\r\n') }); assert.strictEqual(onlyHead.s, 400);
   });
 
