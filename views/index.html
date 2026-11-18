@@ -1630,6 +1630,7 @@ async function partnerPortal(main) {
   }
   const P = (p, o) => api('/api/partner' + p, o);
   let tab = 'products', editing = null;
+  const imp = { parsed: null, mapping: {}, rows: [], mode: 'create', v: null, confirm: false, done: null, file: null, fields: null }, rep = { name: 'sales-by-product', from: '', to: '' };
   const run = (fn) => async (ev) => { try { await fn(ev); } catch (x) { toast(x.message, 'bad'); } };
   const upload = async (file) => (await uploadImage('/api/partner/upload', await prepImage(file))).url;   // resized in the browser, with the same checks as the admin form
   const LIST = { pending: ['Waiting for our review', 'mu'], approved: ['Live', 'ok'], rejected: ['Needs changes', 'err'] };
@@ -1637,7 +1638,7 @@ async function partnerPortal(main) {
     const me = (await P('/me')).store;
     const banner = me.status === 'pending' ? `<div class="note">Your application is being evaluated. Customers cannot see your store yet. You can prepare your store page and products meanwhile. ${e(me.status_note)}</div>`
       : me.status === 'approved' ? '' : `<div class="note" style="border-color:var(--bad,#c33)">Your store is <b>${e(me.status)}</b>. ${e(me.status_note)} Please contact us.</div>`;
-    const tabs = [['products', 'Products'], ['orders', 'Orders'], ['earnings', 'Earnings'], ['store', 'Store page']];
+    const tabs = [['products', 'Products'], ['import', 'Import / export'], ['orders', 'Orders'], ['earnings', 'Earnings'], ['reports', 'Reports'], ['store', 'Store page']];
     const wrap = (inner) => draw(`<p class="mu">${e(me.name)} · ${e(me.status)} · <button class="btn ghost sm" id="plo">Sign out</button> ${me.status === 'approved' ? `<a class="btn ghost sm" href="/store/${e(me.slug)}" data-link>View my page</a>` : ''}</p>${banner}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">${tabs.map(([k, t]) => `<button class="btn ${tab === k ? '' : 'ghost'} sm" data-tab="${k}">${t}</button>`).join('')}</div>${inner}`);
     const wire = () => { $('#plo').addEventListener('click', async () => { await api('/api/auth/logout', { body: {} }); location.reload(); }); $$('[data-tab]', main).forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; editing = null; show(); })); };
@@ -1681,6 +1682,71 @@ async function partnerPortal(main) {
       const r = await P('/orders');
       wrap(r.orders.length ? r.orders.map((o) => `<div class="card" style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;gap:8px"><b>${e(o.ref)}</b><span class="mu">${e(o.status)} · ${fmt(o.created)}</span></div>${o.items.map((i) => `<div style="font-size:14px">${i.qty} × ${e(i.name)}${i.variant ? ' (' + e(i.variant) + ')' : ''} · ${naira(i.price * i.qty)}</div>`).join('')}<div class="mu" style="font-size:13px;margin-top:4px">Sales ${naira(o.gross)} · our commission ${naira(o.commission)} · yours ${naira(o.net)}</div></div>`).join('') + '<p class="mu" style="font-size:12px">Our rider collects the order from you. Customer details stay with us.</p>' : '<div class="card"><p class="mu">No orders yet.</p></div>');
       wire(); return;
+    }
+    if (tab === 'import') {
+      const f = imp.fields || (imp.fields = await P('/catalog/fields')), hist = (await P('/catalog/history')).history;
+      const b64 = (buf) => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
+      const reset = () => { Object.assign(imp, { parsed: null, mapping: {}, rows: [], v: null, confirm: false, done: null, file: null }); show(); };
+      const histBox = `<div class="card" style="margin-top:12px"><h3>Past imports and exports</h3>${hist.length ? hist.map((h) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;flex-wrap:wrap"><span>${fmt(h.created)} · ${h.kind === 'export' ? 'Export' : h.mode === 'update' ? 'Import (update)' : 'Import (new products)'} ${e(h.filename || '')}</span><span class="mu">${h.kind === 'export' ? h.total + ' products' : `${h.created_n} new, ${h.updated_n} changed, ${h.failed_n} failed`} ${h.has_errors && h.kind === 'import' ? `<a href="/api/partner/catalog/history/${h.id}/errors.csv" download>Error report</a>` : ''}</span></div>`).join('') : '<p class="mu">Nothing yet.</p>'}</div>`;
+      const exportBox = `<div class="card" style="margin-top:12px"><h3>Export my products</h3><p class="mu">Download your catalogue to edit in Excel and upload again with "Update existing products".</p><a class="btn ghost sm" href="/api/partner/catalog/export?format=xlsx" download>Excel</a> <a class="btn ghost sm" href="/api/partner/catalog/export?format=csv" download>CSV</a></div>`;
+      if (imp.done) { const d = imp.done; wrap(`<div class="card"><h3>Import finished</h3><p><b>${d.created}</b> new, <b>${d.updated}</b> changed, <b>${d.failed}</b> failed.</p><p class="mu">New and changed products wait for our review before customers see them. Add photos to each product from the Products tab.</p>${d.failed ? `<p><a class="btn ghost sm" href="/api/partner/catalog/history/${d.importId}/errors.csv" download>Download error report</a></p>` : ''}<button class="btn" id="irs">Import another file</button></div>` + histBox); wire(); $('#irs').addEventListener('click', reset); return; }
+      if (imp.v) {
+        const sm = imp.v.summary, bad = imp.v.results.filter((r) => r.errors.length), good = sm.create + sm.update, upd = imp.v.results.filter((r) => r.action === 'update' && r.changes && r.changes.length);
+        wrap(`<div class="card"><h3>Preview <span class="mu" style="font-weight:400">(nothing is saved yet)</span></h3><p><b>${sm.ok}</b> ready · <b>${sm.warn}</b> with warnings · <b style="color:var(--bad,#c33)">${sm.error}</b> with errors (skipped)</p>
+          ${bad.length ? `<div style="max-height:300px;overflow:auto"><table class="t"><tr><th>Line</th><th>Product</th><th>Problem</th></tr>${bad.slice(0, 100).map((r) => `<tr><td>${r.line}</td><td>${e(r.name)}</td><td style="color:var(--bad,#c33)">${r.errors.map(e).join('<br>')}</td></tr>`).join('')}</table></div><p class="mu">Fix these lines in your file and upload it again, or import the good rows now and use the error report afterwards.</p>` : ''}
+          ${imp.mode === 'update' && upd.length ? `<h4>What will change</h4><div style="max-height:260px;overflow:auto">${upd.slice(0, 100).map((r) => `<div style="padding:3px 0"><b>${e(r.name)}</b>: ${r.changes.map((c) => `${e(c.label)} ${e(String(c.from))} → <b>${e(String(c.to))}</b>`).join(', ')}</div>`).join('')}</div><label class="chk" style="margin-top:8px"><input type="checkbox" id="icf" ${imp.confirm ? 'checked' : ''}> I understand this changes ${sm.update} existing product${sm.update === 1 ? '' : 's'}. Changing a name, brand, description or department sends that product back for our review.</label>` : ''}
+          <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="igo" ${!good || (imp.mode === 'update' && !imp.confirm) ? 'disabled' : ''}>${imp.mode === 'create' ? `Import ${good} product${good === 1 ? '' : 's'}` : `Apply ${good} change${good === 1 ? '' : 's'}`}</button><button class="btn ghost" id="iback">Back</button></div><p class="mu" id="iprog"></p></div>`);
+        wire(); $('#iback').addEventListener('click', () => { imp.v = null; show(); });
+        const cf = $('#icf'); if (cf) cf.addEventListener('change', () => { imp.confirm = cf.checked; $('#igo').disabled = !cf.checked; });
+        $('#igo').addEventListener('click', run(async () => {
+          $('#igo').disabled = true; let importId, created = 0, updated = 0, failed = 0;
+          for (let i = 0; i < imp.rows.length; i += 500) {
+            const r = await P('/catalog/commit', { body: { rows: imp.rows.slice(i, i + 500), mode: imp.mode, importId, filename: imp.file, total: imp.rows.length, confirmUpdate: imp.mode === 'update' ? true : undefined } });
+            importId = r.importId; created += r.created; updated += r.updated; failed += r.failed; $('#iprog').textContent = `${Math.min(imp.rows.length, i + 500)} of ${imp.rows.length} rows processed. Please keep this page open.`;
+          }
+          imp.done = { importId, created, updated, failed }; show();
+        }));
+        return;
+      }
+      if (imp.parsed) {
+        wrap(`<div class="card"><h3>Match your columns</h3><p class="mu">${e(imp.file)} · ${imp.parsed.rows.length} rows</p><table class="t"><tr><th>Our field</th><th>Your column</th></tr>${f.fields.map((x) => `<tr><td><b>${e(x.header)}</b></td><td><select data-map="${e(x.key)}"><option value="">(not in my file)</option>${imp.parsed.headers.map((h) => `<option ${imp.mapping[x.key] === h ? 'selected' : ''}>${e(h)}</option>`).join('')}</select></td></tr>`).join('')}</table>
+          <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="imap">Check my rows</button><button class="btn ghost" id="irs">Start over</button></div></div>`);
+        wire(); $('#irs').addEventListener('click', reset);
+        $$('[data-map]', main).forEach((s) => s.addEventListener('change', () => { imp.mapping[s.dataset.map] = s.value; }));
+        $('#imap').addEventListener('click', run(async () => {
+          imp.rows = imp.parsed.rows.map((r) => { const o = { line: r.__line }; f.fields.forEach((x) => { const h = imp.mapping[x.key]; o[x.key] = h ? (r[h] || '') : ''; }); return o; });
+          imp.v = await P('/catalog/validate', { body: { rows: imp.rows, mode: imp.mode } }); imp.confirm = false; show();
+        }));
+        return;
+      }
+      wrap(`<div class="card"><h3>Add many products from Excel</h3><p class="mu">Fill in our template, one product per row. Photos are added afterwards, product by product. Your products go to our team for review before customers see them. You can only use your store's own departments.</p>
+        <a class="btn ghost sm" href="/api/partner/catalog/template.xlsx" download>Download Excel template</a>
+        <div style="margin:12px 0"><label class="chk"><input type="radio" name="imode" value="create" ${imp.mode === 'create' ? 'checked' : ''}> Add new products</label> <label class="chk" style="margin-left:14px"><input type="radio" name="imode" value="update" ${imp.mode === 'update' ? 'checked' : ''}> Update products I already have (matched by Internal Reference or Barcode)</label></div>
+        <label class="btn" style="cursor:pointer">Choose .xlsx or .csv file<input type="file" id="ifile" accept=".xlsx,.csv" style="display:none"></label> <span class="mu">Up to 5,000 rows, 5 MB.</span></div>` + exportBox + histBox);
+      wire();
+      $$('[name=imode]', main).forEach((r) => r.addEventListener('change', () => { imp.mode = r.value; }));
+      $('#ifile').addEventListener('change', run(async (ev) => {
+        const file = ev.target.files[0]; if (!file) return;
+        if (file.size > 5 * 1024 * 1024) throw new Error('That file is over 5 MB. Split it into smaller files.');
+        imp.parsed = await P('/catalog/parse', { body: { filename: file.name, data: b64(await file.arrayBuffer()) } }); imp.file = file.name; imp.mapping = { ...imp.parsed.mapping }; show();
+      }));
+      return;
+    }
+    if (tab === 'reports') {
+      const list = (await P('/reports')).reports; if (!list.some((x) => x.name === rep.name)) rep.name = list[0].name;
+      const cur = list.find((x) => x.name === rep.name), r = (await P('/reports/' + rep.name + '?' + new URLSearchParams(cur.dated ? { ...(rep.from ? { from: rep.from } : {}), ...(rep.to ? { to: rep.to } : {}) } : {}))).report;
+      const val = (v, t) => v == null || v === '' ? '' : t === 'money' ? naira(v) : t === 'int' ? Number(v).toLocaleString('en-NG') : t === 'date' ? fmt(v) : e(v);
+      const dl = (k) => `/api/partner/reports/${rep.name}/download?${new URLSearchParams({ format: k, ...(cur.dated ? { from: r.from, to: r.to } : {}) })}`;
+      wrap(`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px"><label class="f" style="margin:0">Report<select id="rrp">${list.map((x) => `<option value="${x.name}" ${x.name === rep.name ? 'selected' : ''}>${e(x.title)}</option>`).join('')}</select></label>
+        ${cur.dated ? `<label class="f" style="margin:0">From<input type="date" id="rrf" value="${e(r.from)}"></label><label class="f" style="margin:0">To<input type="date" id="rrt" value="${e(r.to)}"></label>` : ''}
+        <a class="btn ghost sm" href="${dl('xlsx')}" download>Download Excel</a><a class="btn ghost sm" href="${dl('csv')}" download>Download CSV</a></div>
+        <h3 style="margin:6px 0">${e(r.title)}</h3><p class="mu">${e(r.note || '')}</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">${r.summary.map((s) => `<div class="card" style="margin:0;min-width:130px"><div class="mu" style="font-size:12px">${e(s.label)}</div><b>${val(s.value, s.type)}</b></div>`).join('')}</div>
+        <div class="card" style="overflow:auto"><table class="t"><tr>${r.columns.map((c) => `<th${['money', 'int'].includes(c.type) ? ' style="text-align:right"' : ''}>${e(c.label)}</th>`).join('')}</tr>${r.rows.map((row) => `<tr>${r.columns.map((c) => `<td${['money', 'int'].includes(c.type) ? ' style="text-align:right"' : ''}>${val(row[c.key], c.type)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${r.columns.length}" class="mu">Nothing to show.</td></tr>`}</table></div>`);
+      wire();
+      $('#rrp').addEventListener('change', () => { rep.name = $('#rrp').value; show(); });
+      const rf = $('#rrf'); if (rf) { rf.addEventListener('change', () => { rep.from = rf.value; show(); }); $('#rrt').addEventListener('change', () => { rep.to = $('#rrt').value; show(); }); }
+      return;
     }
     if (tab === 'earnings') {
       const r = await P('/earnings');
@@ -2060,10 +2126,10 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['riders', '📍', 'Riders live'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['staff', '👤', 'Employees & roles'], ['notifications', '🔔', 'Notifications']];
+const NAV = [['dashboard', '📊', 'Dashboard'], ['commercial', '🧭', 'Commercial operations'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['riders', '📍', 'Riders live'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['staff', '👤', 'Employees & roles'], ['notifications', '🔔', 'Notifications']];
 const NAVMOD = { dashboard: 'any', notifications: 'any', orders: 'orders', products: 'catalog', catalogio: 'catalog', categories: 'catalog', reviews: 'catalog', customers: 'customers', messages: 'customers', coupons: 'marketing', marketing: 'marketing', deliveries: 'delivery', riders: 'delivery', partners: 'delivery', vendors: 'partners', wholesale: 'wholesale', warehouse: 'warehouse', rfq: 'rfq' };
 const can = (m, w) => { const p = (me && me.perms) || []; return p.includes('*') || p.includes(m + (w ? ':edit' : ':view')); };
-const visible = (k) => (me && me.role === 'admin') || (NAVMOD[k] === 'any') || (NAVMOD[k] && can(NAVMOD[k], false));
+const visible = (k) => k === 'commercial' ? !!(me && (me.role === 'admin' || can('partners') || can('rfq') || can('reports') || can('finance'))) : (me && me.role === 'admin') || (NAVMOD[k] === 'any') || (NAVMOD[k] && can(NAVMOD[k], false));
 async function shell(page, body, unread) {
   root.innerHTML = `<div class="adm"><aside class="side"><div class="side-top"><div><b>🛠 Shop-Beta</b><div class="who">${e(me.email)}${me.staff_role && me.role === 'staff' ? ' · ' + e(me.staff_role) : ''}</div></div><div><a class="btn ghost sm" href="/" target="_blank" rel="noopener">View store</a> <button class="btn ghost sm" id="lo">Sign out</button></div></div>
   <nav>${NAV.filter(([k]) => visible(k)).map(([k, ic, t]) => `<a data-nav="${k}" class="${page === k ? 'on' : ''}">${ic} ${t}${k === 'messages' && unread ? ` <span class="dot">${unread}</span>` : ''}${k === 'notifications' ? ' <span class="dot hide" id="nbadge"></span>' : ''}</a>`).join('')}</nav></aside><main class="main" id="mn">${body}</main></div>`;
@@ -2092,13 +2158,13 @@ const onAll = (sel, ev, fn) => $$(sel, $('#mn')).forEach((el) => el.addEventList
 views.dashboard = async () => {
   const d = await api('/api/admin/dashboard'); unreadCount = d.unread;
   const max = Math.max(1, ...d.days.map((x) => x.rev));
-  const stat = (l, x) => `<div class="stat"><div class="l">${l}</div><div class="v">${naira(x.rev)}</div><div class="s">${x.n} order${x.n === 1 ? '' : 's'}</div></div>`;
+  const stat = (l, x) => `<div class="stat"><div class="l">${l}</div><div class="v">${x.rev == null ? '—' : naira(x.rev)}</div><div class="s">${x.n == null ? '' : x.n + ' order' + (x.n === 1 ? '' : 's')}</div></div>`;
   const by = Object.fromEntries(d.byStatus.map((s) => [s.status, s.n]));
   await shell('dashboard', hd('Dashboard') + `<div class="grid4">${stat('Today', d.today)}${stat('Last 7 days', d.week)}${stat('Last 30 days', d.month)}${stat('All time', d.all)}
-   <div class="stat"><div class="l">Customers</div><div class="v">${d.customers}</div><div class="s">${by.pending || 0} pending · ${by.paid || 0} to process</div></div></div>
+   <div class="stat"><div class="l">Customers</div><div class="v">${d.customers == null ? '—' : d.customers}</div><div class="s">${by.pending || 0} pending · ${by.paid || 0} to process</div></div></div>
    <div class="cols"><div><div class="panel"><h3>Revenue, last 14 days</h3><div class="rbar">${d.days.map((x) => `<i style="height:${Math.round((x.rev / max) * 100)}%" title="${dshort(x.t)}: ${naira(x.rev)}"></i>`).join('')}</div><div class="barx">${d.days.map((x, i) => `<span>${i % 2 === 0 ? dshort(x.t).split(' ')[0] : ''}</span>`).join('')}</div></div>
-   <div class="panel"><h3>Recent orders</h3><div class="tw"><table class="t"><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th>When</th></tr>${d.recent.map((o) => `<tr class="click" data-order="${o.id}"><td><b>${e(o.ref)}</b></td><td>${e(o.name)}</td><td>${naira(o.total)}</td><td>${pill(o.status)}</td><td class="mu2">${dt(o.created)}</td></tr>`).join('') || '<tr><td colspan="5" class="mu">No orders yet.</td></tr>'}</table></div></div></div>
-   <div><div class="panel"><h3>Top products</h3>${d.top.map((t) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><span>${e(t.name)}</span><span class="mu2">${t.qty} sold · ${naira(t.rev)}</span></div>`).join('') || '<p class="mu">Sales will appear here.</p>'}</div>
+   <div class="panel"><h3>Recent orders</h3><div class="tw"><table class="t"><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th>When</th></tr>${d.recent.map((o) => `<tr class="click" data-order="${o.id}"><td><b>${e(o.ref)}</b></td><td>${e(o.name)}</td><td>${o.total == null ? '' : naira(o.total)}</td><td>${pill(o.status)}</td><td class="mu2">${dt(o.created)}</td></tr>`).join('') || '<tr><td colspan="5" class="mu">No orders yet.</td></tr>'}</table></div></div></div>
+   <div><div class="panel"><h3>Top products</h3>${d.top.map((t) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><span>${e(t.name)}</span><span class="mu2">${t.qty} sold · ${t.rev == null ? '' : naira(t.rev)}</span></div>`).join('') || '<p class="mu">Sales will appear here.</p>'}</div>
    <div class="panel"><h3>Low stock</h3>${d.low.map((p) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><a href="#/products" data-edit="${p.id}" style="cursor:pointer">${e(p.name)}</a><span class="pill low">${p.stock} left</span></div>`).join('') || '<p class="mu">All products are well stocked.</p>'}</div></div></div>`, d.unread);
   onAll('[data-order]', 'click', (el) => orderModal(el.dataset.order));
   onAll('[data-edit]', 'click', (el, ev) => { ev.preventDefault(); location.hash = '#/products'; setTimeout(() => productForm(el.dataset.edit), 400); });
@@ -3155,6 +3221,76 @@ views.pharmacy = async () => {
   const ret = (sel, status) => onAll(sel, 'click', async (el) => { const resolution = prompt('What was decided? (refund, replacement, or why refused)'); if (!resolution) return; await P('/returns/' + (el.dataset.ra || el.dataset.rj), { method: 'PUT', body: { status, resolution } }); route(); });
   ret('[data-ra]', 'approved'); ret('[data-rj]', 'rejected');
 };
+
+/* ---------------- commercial operations ---------------- */
+const cs = { tab: 'work', from: '', to: '', officer: '', pstatus: '', rstatus: '', rep: '', report: null };
+views.commercial = async () => {
+  const canRep = can('reports') || can('finance');
+  const hasWork = can('partners') || can('rfq');
+  if (!hasWork && canRep) cs.tab = 'reports';
+  const tabs = [...(hasWork ? [['work', 'Workspace']] : []), ...(canRep || can('partners') || can('rfq') ? [['reports', 'Reports']] : [])];
+  if (!tabs.some(([k]) => k === cs.tab)) cs.tab = tabs[0][0];
+  const body = cs.tab === 'work' ? await commWork() : await commReports();
+  mn(hd('Commercial operations') + `<div class="tbar" role="tablist">${tabs.map(([k, l]) => `<button class="btn ${cs.tab === k ? '' : 'ghost'} sm" data-ctab="${k}" role="tab">${l}</button>`).join('')}</div>` + body);
+  onAll('[data-ctab]', 'click', (el) => { cs.tab = el.dataset.ctab; return views.commercial(); });
+  if (cs.tab === 'work') bindCommWork(); else bindCommReports();
+};
+const cfmt = (v, t) => v == null || v === '' ? '' : t === 'money' ? naira(v) : t === 'int' ? Number(v).toLocaleString('en-NG') : t === 'hours' ? Number(v).toFixed(1) + ' h' : t === 'date' ? new Date(v * 1000).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' }) : e(v);
+const cCard = (label, v, hint) => `<div class="panel" style="min-width:140px;margin:0"><div class="mu2">${e(label)}</div><b style="font-size:20px">${e(v)}</b>${hint ? `<div class="mu2">${e(hint)}</div>` : ''}</div>`;
+const RSTAT = { submitted: 'Submitted', received: 'Received', review: 'Under review', sourcing: 'Sourcing', quote_prepared: 'Quote prepared', quote_sent: 'Quote sent', accepted: 'Accepted', rejected: 'Rejected', converted: 'Converted to order', completed: 'Completed' };
+async function commWork() {
+  const q = new URLSearchParams({ ...(cs.from ? { from: cs.from } : {}), ...(cs.to ? { to: cs.to } : {}), ...(cs.officer ? { officer: cs.officer } : {}), ...(cs.pstatus ? { pstatus: cs.pstatus } : {}), ...(cs.rstatus ? { rstatus: cs.rstatus } : {}) });
+  const d = await api('/api/admin/commercial/overview?' + q); cs.data = d;
+  const P = d.sections.find((s) => s.key === 'partners'), R = d.sections.find((s) => s.key === 'rfq');
+  const officerOpts = (sel) => `<option value="">Nobody</option>${d.officers.map((o) => `<option value="${o.id}" ${Number(sel) === o.id ? 'selected' : ''}>${e(o.name)}</option>`).join('')}`;
+  let h = `<div class="tbar" style="flex-wrap:wrap;gap:8px"><label style="width:auto">From<input type="date" id="cf" value="${e(cs.from || d.from)}"></label><label style="width:auto">To<input type="date" id="ct" value="${e(cs.to || d.to)}"></label>
+    <label style="width:auto">Officer<select id="co"><option value="">Everyone</option><option value="none" ${cs.officer === 'none' ? 'selected' : ''}>Unassigned</option>${d.officers.map((o) => `<option value="${o.id}" ${String(cs.officer) === String(o.id) ? 'selected' : ''}>${e(o.name)}</option>`).join('')}</select></label>
+    ${P ? `<label style="width:auto">Partner status<select id="cps"><option value="">All</option>${['pending', 'approved', 'rejected', 'suspended'].map((s) => `<option value="${s}" ${cs.pstatus === s ? 'selected' : ''}>${s === 'pending' ? 'under evaluation' : s}</option>`).join('')}</select></label>` : ''}
+    ${R ? `<label style="width:auto">Request status<select id="crs"><option value="">All</option>${Object.entries(RSTAT).map(([k, l]) => `<option value="${k}" ${cs.rstatus === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>` : ''}</div>`;
+  if (P) {
+    const c = P.counts;
+    h += `<h3 style="margin:14px 0 6px">Partner stores</h3><div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">${cCard('Under evaluation', c.pending)}${cCard('Approved', c.approved)}${cCard('No officer yet', c.unassigned)}${cCard('Products awaiting review', c.productsAwaiting)}${cCard('Suspended', c.suspended)}</div>
+    <div class="panel"><div class="tw"><table class="t"><tr><th>Store</th><th>Status</th><th>Place</th><th>Relationship officer</th><th style="text-align:right">Awaiting review</th><th style="text-align:right">Live products</th>${P.rows.some((r) => r.sales != null) ? '<th style="text-align:right">Sales (period)</th>' : ''}</tr>
+    ${P.rows.map((r) => `<tr><td><a href="#/vendors"><b>${e(r.name)}</b></a></td><td><span class="pill ${r.status === 'approved' ? 'ok' : r.status === 'pending' ? '' : 'bad'}">${r.status === 'pending' ? 'evaluating' : e(r.status)}</span></td><td>${e(r.place)}</td>
+      <td>${can('partners', true) ? `<select data-vo="${r.id}" aria-label="Officer for ${e(r.name)}">${officerOpts(r.officerId)}</select>` : e(r.officer || 'Nobody')}</td><td style="text-align:right">${r.awaiting}</td><td style="text-align:right">${r.live}</td>${r.sales != null ? `<td style="text-align:right">${naira(r.sales)}</td>` : ''}</tr>`).join('') || '<tr><td colspan="7" class="mu2">No partner stores match.</td></tr>'}</table></div></div>`;
+  }
+  if (R) {
+    const c = R.counts;
+    h += `<h3 style="margin:14px 0 6px">Quotation requests</h3><div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">${cCard('Waiting for an officer', c.unassigned)}${cCard('Assigned to me', c.mine)}${cCard('Quote sent, awaiting buyer', c.quote_sent || 0)}${cCard('Accepted', c.accepted || 0)}${cCard('Converted to orders', c.converted || 0)}</div>
+    <div class="panel"><div class="tw"><table class="t"><tr><th>Request</th><th>Buyer</th><th>Status</th><th>Officer</th><th style="text-align:right">Lines</th><th style="text-align:right">Quotation</th><th>Created</th></tr>
+    ${R.rows.map((r) => `<tr><td><a href="#/rfq"><b>${e(r.ref)}</b></a></td><td>${e(r.company)}</td><td><span class="pill ${['accepted', 'converted', 'completed'].includes(r.status) ? 'ok' : r.status === 'rejected' ? 'bad' : ''}">${e(r.expired ? 'Quote expired' : RSTAT[r.status] || r.status)}</span></td>
+      <td>${can('rfq', true) ? `<select data-ro="${e(r.ref)}" aria-label="Officer for ${e(r.ref)}">${officerOpts(r.officerId)}</select>` : e(r.officer || 'Nobody')}</td><td style="text-align:right">${r.items}</td><td style="text-align:right">${r.total ? naira(r.total) : ''}</td><td>${cfmt(r.created, 'date')}</td></tr>`).join('') || '<tr><td colspan="7" class="mu2">No requests match.</td></tr>'}</table></div></div>`;
+  }
+  return h;
+}
+function bindCommWork() {
+  const re = () => views.commercial();
+  on('#cf', 'change', () => { cs.from = $('#cf').value; return re(); }); on('#ct', 'change', () => { cs.to = $('#ct').value; return re(); });
+  on('#co', 'change', () => { cs.officer = $('#co').value; return re(); }); on('#cps', 'change', () => { cs.pstatus = $('#cps').value; return re(); }); on('#crs', 'change', () => { cs.rstatus = $('#crs').value; return re(); });
+  onAll('[data-vo]', 'change', async (el) => { await api('/api/admin/commercial/partners/' + el.dataset.vo + '/officer', { body: { user_id: el.value ? Number(el.value) : null } }); toast('Officer updated'); return re(); });
+  onAll('[data-ro]', 'change', async (el) => { await api('/api/admin/rfq/' + encodeURIComponent(el.dataset.ro) + '/assign', { body: { user_id: el.value ? Number(el.value) : null } }); toast('Officer updated'); return re(); });
+}
+let commList = null;
+async function commReports() {
+  commList = commList || (await api('/api/admin/commercial/reports')).reports;
+  const moneyOk = can('reports') || can('finance');
+  const list = commList.filter((r) => (moneyOk || !r.money) && (r.name !== 'employee-performance' || can('reports', true)));
+  if (!list.length) return '<div class="panel"><p class="mu2">Your role does not include any reports.</p></div>';
+  if (!list.some((r) => r.name === cs.rep)) cs.rep = list[0].name;
+  const cur = list.find((r) => r.name === cs.rep), qs = new URLSearchParams({ ...(cs.from ? { from: cs.from } : {}), ...(cs.to ? { to: cs.to } : {}) });
+  const r = (await api('/api/admin/commercial/reports/' + cs.rep + '?' + qs)).report; cs.report = r;
+  const dl = (f) => `/api/admin/commercial/reports/${cs.rep}/download?${new URLSearchParams({ format: f, ...(cur.dated ? { from: r.from, to: r.to } : {}) })}`;
+  return `<div class="tbar" style="flex-wrap:wrap;gap:8px"><label style="width:auto">Report<select id="crp">${list.map((x) => `<option value="${x.name}" ${x.name === cs.rep ? 'selected' : ''}>${e(x.title)}</option>`).join('')}</select></label>
+    ${cur.dated ? `<label style="width:auto">From<input type="date" id="crf" value="${e(r.from)}"></label><label style="width:auto">To<input type="date" id="crt" value="${e(r.to)}"></label>` : ''}
+    <a class="btn ghost sm" href="${dl('xlsx')}" download>Download Excel</a><a class="btn ghost sm" href="${dl('csv')}" download>Download CSV</a></div>
+  <h3 style="margin:8px 0 4px">${e(r.title)}</h3>${r.note ? `<p class="mu2">${e(r.note)}</p>` : ''}
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0">${r.summary.map((s) => cCard(s.label, s.value == null ? '—' : cfmt(s.value, s.type))).join('')}</div>
+  <div class="panel"><div class="tw"><table class="t"><tr>${r.columns.map((c) => `<th${['money', 'int', 'hours'].includes(c.type) ? ' style="text-align:right"' : ''}>${e(c.label)}</th>`).join('')}</tr>${r.rows.map((row) => `<tr>${r.columns.map((c) => `<td${['money', 'int', 'hours'].includes(c.type) ? ' style="text-align:right"' : ''}>${cfmt(row[c.key], c.type)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${r.columns.length}" class="mu2">Nothing in this period.</td></tr>`}</table></div></div>`;
+}
+function bindCommReports() {
+  on('#crp', 'change', () => { cs.rep = $('#crp').value; return views.commercial(); });
+  on('#crf', 'change', () => { cs.from = $('#crf').value; return views.commercial(); }); on('#crt', 'change', () => { cs.to = $('#crt').value; return views.commercial(); });
+}
 
 /* ---------------- boot ---------------- */
 async function boot() {

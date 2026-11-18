@@ -68,11 +68,16 @@ router.use('/vendors', require('./vendors-admin'));
 router.use('/wholesale', require('./wholesale-admin'));
 router.use('/catalog', require('./catalog-admin'));
 router.use('/rfq', require('./rfq-admin'));
+router.use('/commercial', require('./commercial-admin'));
 router.use('/warehouse', require('./warehouse'));
 router.get('/audit', ah(async (req, res) => res.json({ log: await all('SELECT id, user_name, method, path, status, detail, ip, created FROM audit_log ORDER BY id DESC LIMIT 300') })));
 
 /* ---------- dashboard ---------- */
 router.get('/dashboard', ah(async (req, res) => {
+  // Every employee may open the dashboard, but sees only the parts their role allows: money needs Finance or Reports, orders and top products need Orders,
+  // the customer count and unread messages need Customers, low stock needs Catalogue. The owner sees everything.
+  const P = await require('../lib/staff').permsOf(req.user), has = (...m) => P.includes('*') || m.some((x) => P.includes(x + ':view'));
+  const okMoney = has('finance', 'reports'), okOrders = has('orders'), okCust = has('customers'), okStock = has('catalog');
   const t = now(), ds = dayStart(t);
   const sales = async (from, to = t + 86400) => get(`SELECT COALESCE(SUM(o.total),0) rev, COUNT(*) n FROM orders o WHERE o.created >= ? AND o.created < ? AND ${SALE}`, from, to);
   const days = [];
@@ -84,7 +89,12 @@ router.get('/dashboard', ah(async (req, res) => {
   const top = await all(`SELECT MAX(oi.name) AS name, SUM(oi.qty) qty, SUM(oi.price*oi.qty) rev FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${SALE} GROUP BY oi.product_id ORDER BY qty DESC LIMIT 5`);
   const low = await all('SELECT id, name, stock FROM products WHERE active=1 AND stock<=5 ORDER BY stock, id LIMIT 8');
   const unread = (await get('SELECT COUNT(*) n FROM messages WHERE read=0')).n;
-  res.json({ today, week, month, all: allTime, customers, byStatus, days, recent, top, low, unread });
+  const cut = (x) => ({ rev: okMoney ? x.rev : null, n: okOrders ? x.n : null });
+  res.json({
+    today: cut(today), week: cut(week), month: cut(month), all: cut(allTime), customers: okCust ? customers : null,
+    byStatus: okOrders ? byStatus : [], days: okMoney ? days : [], recent: okOrders ? recent.map((o) => (okMoney ? o : { ...o, total: null })) : [],
+    top: okOrders ? top.map((x) => (okMoney ? x : { ...x, rev: null })) : [], low: okStock ? low : [], unread: okCust ? unread : 0, hide: { money: !okMoney, orders: !okOrders, customers: !okCust, stock: !okStock },
+  });
 }));
 
 /* ---------- orders ---------- */
