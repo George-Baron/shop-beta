@@ -68,7 +68,7 @@ const SHOTS = process.env.SHOTS_DIR || os.tmpdir();
   const rows = await q("SELECT id FROM products WHERE active=1 AND stock>=30 AND id NOT IN (SELECT product_id FROM variants) ORDER BY id LIMIT 1"); const PA = Number(rows[0].id); await q('UPDATE products SET stock=500 WHERE id=$1', [PA]);
   await call('PUT', '/api/admin/settings', { settings: { open_hour: 0, cutoff_hour: 24, prep_minutes: 20, max_distance_km: 60 } }, admin);
   await call('PUT', '/api/admin/rider-ops/settings', { rider_dispatch_mode: 'auto' }, admin);
-  await call('POST', '/api/admin/partners', { name: 'Shop-Beta Main Store', address: 'Ikeja, Lagos', state: 'Lagos', phone: '08000000001', lat: 6.6018, lng: 3.3515, radius_km: 40, is_default: true }, admin);
+  await call('POST', '/api/admin/partners', { name: 'VELTO-MART Main Store', address: 'Ikeja, Lagos', state: 'Lagos', phone: '08000000001', lat: 6.6018, lng: 3.3515, radius_km: 40, is_default: true }, admin);
   await call('POST', '/api/admin/riders', { name: 'Ade Rider', email: 'ade@example.com', phone: '08033334001', password: 'RiderPass123', coverage: 'Lagos' }, admin);
   const browser = await chromium.launch();
   const base = 'http://127.0.0.1:' + P1;
@@ -135,7 +135,7 @@ const SHOTS = process.env.SHOTS_DIR || os.tmpdir();
     await rp.fill('#mt', 'Hello desk, delivery done'); await rp.click('#mf button.btn:not(.ghost)'); await txt(rp, 'Hello desk, delivery done');
     await ap.click('.rk-mk, [data-rider]'); await txt(ap, 'Hello desk, delivery done');
     await ap.fill('#rp-t', 'Thanks, well done'); await ap.click('#rp-form button'); await txt(rp, 'Thanks, well done', 15000);
-    await txt(rp, 'Shopbeta AI Operations Manager', 5000).catch(() => {});
+    await txt(rp, 'VELTO-MART AI Operations Manager', 5000).catch(() => {});
     await rp.screenshot({ path: path.join(SHOTS, 'rider-chat.png') });
   });
   await test('going offline stops tracking and the admin sees the rider offline', async () => {

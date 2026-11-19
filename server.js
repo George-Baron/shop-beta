@@ -1,5 +1,5 @@
 'use strict';
-// Shop-Beta server: serves the single-page storefront + admin, and the JSON API behind them.
+// VELTO-MART server: serves the single-page storefront + admin, and the JSON API behind them.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');

@@ -14,7 +14,7 @@ scrypt (N=65536, r=8, p=2, 16-byte salt), stored as `scrypt$N$r$p$salt$hash`. Ol
 Keyed by the person (email, or phone with +234 / 0 / spaces normalised), plus a loose per-IP ceiling because many phones share one mobile-network IP. Checkout 10/hour per phone and per email; sign-in 8 per 15 minutes per email; registration, reset, contact, newsletter, reviews, order lookup and cancel also per person. The counters live in Postgres so both instances share them. Per-IP ceilings are adjustable with `RATE_IP_<NAME>`. Trade-off: counting every sign-in attempt on an email lets someone lock a known email out for 15 minutes.
 
 ## CSRF, cookies, headers
-- Requests that change data and carry a cookie must come from our own origin (Origin / Sec-Fetch-Site) and send `X-Requested-With: shop-beta`. The Paystack webhook is exempt (it is protected by its HMAC signature).
+- Requests that change data and carry a cookie must come from our own origin (Origin / Sec-Fetch-Site) and send `X-Requested-With: velto-mart`. The Paystack webhook is exempt (it is protected by its HMAC signature).
 - On https the cookie is `__Host-sb_sid` (Secure, HttpOnly, SameSite=Lax, no Domain). A plain-named cookie is ignored on https. Changing a password ends the person's other sessions.
 - Headers: strict CSP with a per-page nonce, no framing, nosniff, referrer policy, permissions policy, COOP/CORP, HSTS on https, no server banner, `no-store` on API answers.
 

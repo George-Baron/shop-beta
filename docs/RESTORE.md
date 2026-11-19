@@ -1,4 +1,4 @@
-# Backups and restoring Shop-Beta
+# Backups and restoring VELTO-MART
 
 Read this once now, not for the first time on a bad day. Practise a restore before launch (section 4).
 
@@ -33,7 +33,7 @@ Always restore into a **new, empty** Supabase project or database. Never on top 
 3. On your computer (Node 22 and this repo installed with `npm install`):
 
    ```
-   DATABASE_URL="postgres://..."  BACKUP_PASSPHRASE="your passphrase"  npm run restore -- shop-beta-2026....json.gz.enc
+   DATABASE_URL="postgres://..."  BACKUP_PASSPHRASE="your passphrase"  npm run restore -- velto-mart-2026....json.gz.enc
    ```
 
    Leave `BACKUP_PASSPHRASE` out if the file does not end in `.enc`. The tool runs the database migrations, loads everything in one transaction (all or nothing), and fixes the id counters so new orders continue after the old ones.

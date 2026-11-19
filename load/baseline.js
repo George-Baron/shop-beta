@@ -1,4 +1,4 @@
-// k6 load test for Shop-Beta (steps 1, 4, 9).  Run through load/run-staging.js, or by hand:
+// k6 load test for VELTO-MART (steps 1, 4, 9).  Run through load/run-staging.js, or by hand:
 //   k6 run -e PROFILE=mixed -e VUS=2000 -e RATE=100 -e BASE=http://localhost:3100 -e PS_SECRET=sk_test_x load/baseline.js
 // PROFILE=browse   shoppers with think time (2-6 s between pages), ramps to VUS then holds. This is what "N concurrent shoppers" means.
 // PROFILE=stress   VUS connections hammering with no think time (raw capacity).
@@ -26,7 +26,7 @@ const errors = new Rate('app_errors');
 const accepted = new Counter('orders_accepted');
 const refused = new Counter('orders_refused_sold_out');
 
-const HEAD = { 'Content-Type': 'application/json', 'X-Requested-With': 'shop-beta' };
+const HEAD = { 'Content-Type': 'application/json', 'X-Requested-With': 'velto-mart' };
 const scenarios = {
   browse: { executor: 'ramping-vus', startVUs: 0, stages: [{ duration: RAMP, target: VUS }, { duration: HOLD, target: VUS }, { duration: '10s', target: 0 }], exec: 'browse' },
   stress: { executor: 'constant-vus', vus: VUS, duration: HOLD, exec: 'stress' },

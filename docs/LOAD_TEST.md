@@ -1,4 +1,4 @@
-# Load testing Shop-Beta
+# Load testing VELTO-MART
 
 ## What was measured
 

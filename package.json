@@ -1,7 +1,7 @@
 {
-  "name": "shop-beta",
+  "name": "velto-mart",
   "version": "1.0.0",
-  "description": "Shop-Beta online store: storefront, checkout, admin dashboard",
+  "description": "VELTO-MART online store: storefront, checkout, admin dashboard",
   "main": "server.js",
   "private": true,
   "engines": {

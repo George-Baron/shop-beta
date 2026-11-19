@@ -13,7 +13,7 @@ const big = express.json({ limit: '14mb' });
 
 router.get('/template.xlsx', ah(async (req, res) => {
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', 'attachment; filename="shop-beta-product-import-template.xlsx"');
+  res.setHeader('Content-Disposition', 'attachment; filename="velto-mart-product-import-template.xlsx"');
   res.send(await IO.template());
 }));
 router.get('/fields', ah(async (req, res) => res.json({ fields: IO.FIELDS.map((f) => ({ key: f.key, header: f.header, need: f.need || '', help: f.help })), lookups: await IO.lookups().then((l) => ({ departments: l.stores.map((s) => s.name), categories: l.cats.map((c) => ({ id: c.id, store: c.store, name: c.name })), partners: l.partners.map((p) => ({ id: p.id, name: p.name })) })) })));
@@ -45,7 +45,7 @@ router.get('/export', ah(async (req, res) => {
   const out = await IO.exportBuffer(filters, fmt);
   await IO.logExport(req.user, fmt, { filter: filters.filter || 'all', category: filters.category, brand: filters.brand, partner: filters.partner, ids: filters.ids.length || undefined }, out.count);
   res.setHeader('Content-Type', out.type);
-  res.setHeader('Content-Disposition', `attachment; filename="shop-beta-products-${new Date().toISOString().slice(0, 10)}.${out.ext}"`);
+  res.setHeader('Content-Disposition', `attachment; filename="velto-mart-products-${new Date().toISOString().slice(0, 10)}.${out.ext}"`);
   res.setHeader('X-Row-Count', String(out.count));
   res.send(out.buffer);
 }));

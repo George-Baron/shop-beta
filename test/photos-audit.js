@@ -106,7 +106,7 @@ const X = require('../lib/xlsx');
     const onlyP = (await A('GET', '/api/admin/audit?actor=partner')).j.log; assert.ok(onlyP.length && onlyP.every((l) => l.actor === 'partner'));
     const byName = (await A('GET', '/api/admin/audit?q=alpha')).j.log; assert.ok(byName.every((l) => /alpha/i.test(l.user_name + l.path)));
     assert.strictEqual((await call('GET', '/api/admin/audit')).s, 401); assert.ok([401, 403].includes((await call('GET', '/api/admin/audit', undefined, va.c)).s));
-    await A('PUT', '/api/admin/settings', { store_name: 'Shop-Beta' });
+    await A('PUT', '/api/admin/settings', { store_name: 'VELTO-MART' });
     assert.ok((await q("SELECT 1 FROM audit_log WHERE actor='staff' AND path LIKE '/api/admin/settings%'")).length >= 1, 'staff changes still recorded');
   });
 

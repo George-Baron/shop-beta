@@ -109,7 +109,7 @@ async function listProducts(q) {
   // Which stores the matching products come from (before the store filter is applied), so the customer can pick a store.
   const fromBase = `FROM products p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN vendors vd ON vd.id = p.vendor_id ${RATING_JOIN}`;
   const storeFacet = (words.length || store || category) && !q.nostores
-    ? (await all(`SELECT COALESCE(vd.slug,'') AS slug, COALESCE(vd.name,'') AS name, COUNT(*) AS n ${fromBase} WHERE ${where.join(' AND ')} GROUP BY 1,2 ORDER BY n DESC, 2 LIMIT 12`, ...args)).map((r) => ({ slug: r.slug, name: r.name || 'Shop-Beta', n: Number(r.n) })) : [];
+    ? (await all(`SELECT COALESCE(vd.slug,'') AS slug, COALESCE(vd.name,'') AS name, COUNT(*) AS n ${fromBase} WHERE ${where.join(' AND ')} GROUP BY 1,2 ORDER BY n DESC, 2 LIMIT 12`, ...args)).map((r) => ({ slug: r.slug, name: r.name || 'VELTO-MART', n: Number(r.n) })) : [];
   const vslug = str(q.vendor, 80);
   if (vslug === 'ours') where.push('p.vendor_id IS NULL'); else if (vslug) { where.push('vd.slug=?'); args.push(vslug); }
   const from = `${fromBase} WHERE ${where.join(' AND ')}`;
