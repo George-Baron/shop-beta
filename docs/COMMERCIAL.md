@@ -21,3 +21,8 @@ Migration 016 adds `vendors.officer_id`. Tests: `npm run test:commercial`.
 
 ## Not built
 Partner-side bulk catalogue upload by partners themselves; PDF output; scheduled/emailed reports.
+
+## PDF reports and reports by email
+- Every report (commercial, partner, warehouse) now has **Download PDF** next to Excel and CSV (A4 landscape, headline figures, repeating table header, page numbers). It uses the standard PDF fonts, so the naira sign prints as "NGN" and characters outside Western European letters print as "?". Excel and CSV keep the exact text.
+- **Reports by email** (Commercial operations, Reports tab, bottom): schedule a report daily (yesterday), every Monday (the previous Monday to Sunday) or on the 1st (the previous month), sent shortly after 07:00 Lagos time. Needs Reports: Edit (or the owner) to change; Reports: View can look. The email has the headline figures and a link, never rows or customer details and no attachment; sign in for the full report and its PDF/Excel.
+- Recipients can only be active employees or the owner, and each must be allowed to see that report (checked when you schedule and again at every send; a switched-off employee or one who lost access stops receiving it). "Send now" tests a schedule. Each schedule sends once per slot even with several servers running. Needs the Resend key to deliver. Test: `npm run test:report-schedule`.

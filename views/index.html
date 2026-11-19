@@ -1797,7 +1797,7 @@ async function partnerPortal(main) {
       const dl = (k) => `/api/partner/reports/${rep.name}/download?${new URLSearchParams({ format: k, ...(cur.dated ? { from: r.from, to: r.to } : {}) })}`;
       wrap(`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px"><label class="f" style="margin:0">Report<select id="rrp">${list.map((x) => `<option value="${x.name}" ${x.name === rep.name ? 'selected' : ''}>${e(x.title)}</option>`).join('')}</select></label>
         ${cur.dated ? `<label class="f" style="margin:0">From<input type="date" id="rrf" value="${e(r.from)}"></label><label class="f" style="margin:0">To<input type="date" id="rrt" value="${e(r.to)}"></label>` : ''}
-        <a class="btn ghost sm" href="${dl('xlsx')}" download>Download Excel</a><a class="btn ghost sm" href="${dl('csv')}" download>Download CSV</a></div>
+        <a class="btn ghost sm" href="${dl('pdf')}" download>Download PDF</a><a class="btn ghost sm" href="${dl('xlsx')}" download>Download Excel</a><a class="btn ghost sm" href="${dl('csv')}" download>Download CSV</a></div>
         <h3 style="margin:6px 0">${e(r.title)}</h3><p class="mu">${e(r.note || '')}</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">${r.summary.map((s) => `<div class="card" style="margin:0;min-width:130px"><div class="mu" style="font-size:12px">${e(s.label)}</div><b>${val(s.value, s.type)}</b></div>`).join('')}</div>
         <div class="card" style="overflow:auto"><table class="t"><tr>${r.columns.map((c) => `<th${['money', 'int'].includes(c.type) ? ' style="text-align:right"' : ''}>${e(c.label)}</th>`).join('')}</tr>${r.rows.map((row) => `<tr>${r.columns.map((c) => `<td${['money', 'int'].includes(c.type) ? ' style="text-align:right"' : ''}>${val(row[c.key], c.type)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${r.columns.length}" class="mu">Nothing to show.</td></tr>`}</table></div>`);
@@ -3352,12 +3352,31 @@ async function commReports() {
   const dl = (f) => `/api/admin/commercial/reports/${cs.rep}/download?${new URLSearchParams({ format: f, ...(cur.dated ? { from: r.from, to: r.to } : {}) })}`;
   return `<div class="tbar" style="flex-wrap:wrap;gap:8px"><label style="width:auto">Report<select id="crp">${list.map((x) => `<option value="${x.name}" ${x.name === cs.rep ? 'selected' : ''}>${e(x.title)}</option>`).join('')}</select></label>
     ${cur.dated ? `<label style="width:auto">From<input type="date" id="crf" value="${e(r.from)}"></label><label style="width:auto">To<input type="date" id="crt" value="${e(r.to)}"></label>` : ''}
-    <a class="btn ghost sm" href="${dl('xlsx')}" download>Download Excel</a><a class="btn ghost sm" href="${dl('csv')}" download>Download CSV</a></div>
+    <a class="btn ghost sm" href="${dl('pdf')}" download>Download PDF</a><a class="btn ghost sm" href="${dl('xlsx')}" download>Download Excel</a><a class="btn ghost sm" href="${dl('csv')}" download>Download CSV</a></div>
   <h3 style="margin:8px 0 4px">${e(r.title)}</h3>${r.note ? `<p class="mu2">${e(r.note)}</p>` : ''}
   <div style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0">${r.summary.map((s) => cCard(s.label, s.value == null ? '—' : cfmt(s.value, s.type))).join('')}</div>
-  <div class="panel"><div class="tw"><table class="t"><tr>${r.columns.map((c) => `<th${['money', 'int', 'hours'].includes(c.type) ? ' style="text-align:right"' : ''}>${e(c.label)}</th>`).join('')}</tr>${r.rows.map((row) => `<tr>${r.columns.map((c) => `<td${['money', 'int', 'hours'].includes(c.type) ? ' style="text-align:right"' : ''}>${cfmt(row[c.key], c.type)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${r.columns.length}" class="mu2">Nothing in this period.</td></tr>`}</table></div></div>`;
+  <div class="panel"><div class="tw"><table class="t"><tr>${r.columns.map((c) => `<th${['money', 'int', 'hours'].includes(c.type) ? ' style="text-align:right"' : ''}>${e(c.label)}</th>`).join('')}</tr>${r.rows.map((row) => `<tr>${r.columns.map((c) => `<td${['money', 'int', 'hours'].includes(c.type) ? ' style="text-align:right"' : ''}>${cfmt(row[c.key], c.type)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${r.columns.length}" class="mu2">Nothing in this period.</td></tr>`}</table></div></div>
+  <h3 style="margin:18px 0 4px">Reports by email</h3><p class="mu2">Send a report to employees on a schedule: every day (yesterday), every Monday (last week) or on the 1st (last month), shortly after 7am Lagos time. The email carries the headline figures and a link; sign in for every row and the PDF or Excel download.</p><div id="csched"></div>`;
+}
+async function loadSched() {
+  const box = $('#csched'); if (!box) return;
+  const d = await api('/api/admin/commercial/schedules');
+  const rows = d.schedules.map((x) => `<tr><td>${e(x.title)}${x.source === 'warehouse' ? ' <span class="mu2">(warehouse)</span>' : ''}</td><td>${e(x.when)}</td><td>${x.recipients.map((r) => e(r.name)).join(', ') || '<span class="mu2">nobody left</span>'}</td><td class="mu2">${x.last_sent ? dt(x.last_sent) + '<br>' + e(x.last_note) : 'Not sent yet'}</td><td style="white-space:nowrap"><button class="btn ghost sm" data-sn="${x.id}">Send now</button> <button class="btn ghost sm" data-st="${x.id}" data-on="${x.active ? 1 : 0}">${x.active ? 'Pause' : 'Resume'}</button> <button class="btn ghost sm" data-sd="${x.id}">Delete</button></td></tr>`).join('');
+  box.innerHTML = `<div class="panel"><div class="tw"><table class="t"><tr><th>Report</th><th>When</th><th>Sent to</th><th>Last send</th><th></th></tr>${rows || '<tr><td colspan="5" class="mu2">No scheduled reports yet.</td></tr>'}</table></div></div>
+    <div class="tbar" style="flex-wrap:wrap;gap:8px;margin-top:10px"><label style="width:auto">Report<select id="sr">${d.reports.map((r) => `<option value="${r.source}|${r.name}">${e(r.title)}${r.source === 'warehouse' ? ' (warehouse)' : ''}</option>`).join('')}</select></label>
+    <label style="width:auto">How often<select id="sf">${Object.entries(d.frequencies).map(([k, v]) => `<option value="${k}">${e(v)}</option>`).join('')}</select></label>
+    <label style="width:auto">Send to<select id="sp" multiple size="4">${d.people.map((p) => `<option value="${p.id}">${e(p.name)}${p.owner ? ' (owner)' : ''}</option>`).join('')}</select></label>
+    <button class="btn" id="sadd2">Schedule it</button></div>`;
+  $('#sadd2').addEventListener('click', guard(async () => {
+    const [source, report] = $('#sr').value.split('|'), recipients = [...$('#sp').selectedOptions].map((o) => Number(o.value));
+    await api('/api/admin/commercial/schedules', { body: { source, report, frequency: $('#sf').value, recipients } }); toast('Scheduled'); loadSched();
+  }));
+  box.querySelectorAll('[data-sn]').forEach((b) => b.addEventListener('click', guard(async () => { const r = await api(`/api/admin/commercial/schedules/${b.dataset.sn}/send`, { body: {} }); toast(r.note); loadSched(); })));
+  box.querySelectorAll('[data-st]').forEach((b) => b.addEventListener('click', guard(async () => { await api(`/api/admin/commercial/schedules/${b.dataset.st}`, { method: 'PUT', body: { active: b.dataset.on !== '1' } }); loadSched(); })));
+  box.querySelectorAll('[data-sd]').forEach((b) => b.addEventListener('click', guard(async () => { if (!confirm('Stop and delete this scheduled report?')) return; await api(`/api/admin/commercial/schedules/${b.dataset.sd}`, { method: 'DELETE' }); loadSched(); })));
 }
 function bindCommReports() {
+  loadSched().catch(() => {});
   on('#crp', 'change', () => { cs.rep = $('#crp').value; return views.commercial(); });
   on('#crf', 'change', () => { cs.from = $('#crf').value; return views.commercial(); }); on('#crt', 'change', () => { cs.to = $('#crt').value; return views.commercial(); });
 }
