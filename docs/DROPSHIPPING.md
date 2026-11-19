@@ -1,6 +1,6 @@
 # Dropshipping
 
-Shop-Beta can sell products it does not hold. A customer orders, the **supplier** ships, and we keep the margin. Suppliers and customers can be in any country.
+VELTO-MART can sell products it does not hold. A customer orders, the **supplier** ships, and we keep the margin. Suppliers and customers can be in any country.
 
 > **Status.** Steps 1 to 4 are built: suppliers, dropship products, pricing, import and review, countries and currencies, and the dropship order flow. Trade documents, reports and the supplier portal come in later steps. **Customers can buy dropship items only when `DROPSHIP_ORDERS_ENABLED=1`.** Until then the product page shows "Not available to order just yet".
 
@@ -106,6 +106,8 @@ Open **Dropshipping > Countries & currencies**. Nothing ships abroad until you s
 3. If they choose a refund, you are emailed and the item shows under *Refunds to pay the customer* with the exact amount. Refund it in your payment dashboard, then enter the reference and press **Record refund**. Refunds are not automatic until step 6.
 
 **Order status.** An order made only of supplier items has no rider and no handover code: its status follows its items (you cannot set it by hand). A mixed order keeps its normal flow, but cannot be marked delivered while a supplier item is still on its way. An order cannot be cancelled once a supplier has been sent it: cancel the items so the supplier is told.
+
+**Riders and staff roles.** Supplier-only orders and orders going abroad are never offered to a local rider (the dispatch rules skip them). The whole Dropshipping area, including costs and margins, is owner-only: no employee role can open it, because the staff role list has no dropshipping module.
 
 **Stuck orders.** An item is flagged if it is paid but not ordered after 24 hours, sent but not confirmed after 3 days, not shipped 3 days after the supplier's processing time, or a customer has not answered a problem for 3 days. You get one email digest at most every 12 hours. The customer is not reminded automatically.
 

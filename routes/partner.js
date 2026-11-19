@@ -9,7 +9,7 @@ const { int } = S;
 
 const router = express.Router();
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-router.use(A.requireVendor);
+router.use(A.requireVendor, require('../lib/audit').activity('partner'));
 
 router.get('/me', ah(async (req, res) => res.json({ store: await V.profile(req.user), max_departments: V.MAX_DEPARTMENTS })));
 router.put('/me', ah(async (req, res) => res.json({ store: await V.saveProfile(req.user, req.body || {}) })));
@@ -28,6 +28,19 @@ router.post('/upload', A.limiter('partner-upload', 120, 3600000), express.json({
   res.json({ url: await CAT.putImage(req.body && req.body.data) });
 }));
 
+// Many photos at once, each named after its product's reference or barcode (see lib/partner-photos.js).
+router.post('/photos', A.limiter('partner-photos', 600, 3600000), express.json({ limit: '4mb' }), ah(async (req, res) => {
+  const b = req.body || {}; res.json({ ok: true, ...(await require('../lib/partner-photos').attach(req.user, b.filename, b.data)) });
+}));
+
+router.use('/catalog', require('./partner-catalog'));
+const PR = require('../lib/partner-reports');
+router.get('/reports', ah(async (req, res) => res.json({ reports: PR.LIST })));
+router.get('/reports/:name', ah(async (req, res) => res.json({ report: await PR.report(req.user, req.params.name, req.query) })));
+router.get('/reports/:name/download', ah(async (req, res) => {
+  const rep = await PR.report(req.user, req.params.name, req.query), f = req.query.format === 'pdf' ? await require('../lib/commercial').fileAs(rep, 'pdf') : PR.file(rep, req.query.format === 'csv' ? 'csv' : 'xlsx');
+  res.set({ 'Content-Type': f.type, 'Content-Disposition': `attachment; filename="${rep.name}-${new Date().toISOString().slice(0, 10)}.${f.ext}"`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' }).send(f.buf);
+}));
 router.get('/orders', ah(async (req, res) => res.json({ orders: await V.myOrders(req.user) })));
 router.get('/earnings', ah(async (req, res) => res.json(await V.myEarnings(req.user))));
 

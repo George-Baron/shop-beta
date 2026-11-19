@@ -290,6 +290,15 @@ const fake = http.createServer((req, res) => {
     assert.strictEqual((await call('POST', '/api/orders/lookup', { ref: mixed.ref, email: 'pat.buyer@example.com' }, cust)).s, 404);
   });
 
+  await test('a supplier-only order is never offered to a rider, a mixed or ordinary order still can be', async () => {
+    const D = require('../lib/dispatch');
+    assert.match(D.readySql, /ds_lines > 0 AND o\.own_lines = 0/);
+    const o = await place([{ productId: P1, qty: 1 }], { name: 'No Rider' }); await payFor(o); o.row = await orderRow(o.ref);
+    assert.strictEqual((await q(`SELECT 1 x FROM orders o WHERE o.id=$1 AND ${D.readySql.replace(/\$\{[^}]*\}/g, "('offered')")}`, [o.row.id])).length, 0, 'supplier-only is not ready for a rider');
+    const m = await place([{ productId: P1, qty: 1 }, { productId: own.id, qty: 1 }], { name: 'Has Rider' }); await payFor(m); m.row = await orderRow(m.ref);
+    assert.strictEqual((await q(`SELECT 1 x FROM orders o WHERE o.id=$1 AND ${D.readySql.replace(/\$\{[^}]*\}/g, "('offered')")}`, [m.row.id])).length, 1, 'an order with our own item is');
+  });
+
   console.log('\nStuck orders');
   await test('an order that sits unplaced is flagged, and the shop gets one digest email, not one every time', async () => {
     const o = await place([{ productId: P1, qty: 1 }], { name: 'Slow Sam' }); await payFor(o); o.row = await orderRow(o.ref);
@@ -302,14 +311,14 @@ const fake = http.createServer((req, res) => {
 
   console.log('\nSafety of the data');
   await test('the migration can run again and changes nothing', async () => {
-    const sql = fs.readFileSync(path.join(__dirname, '..', 'migrations', '013_dropship_orders.sql'), 'utf8');
+    const sql = fs.readFileSync(path.join(__dirname, '..', 'migrations', '026_dropship_orders.sql'), 'utf8');
     const c = async () => (await q('SELECT (SELECT COUNT(*) FROM dropship_lines) l, (SELECT COUNT(*) FROM dropship_events) e, (SELECT COUNT(*) FROM supplier_orders) p'))[0];
     const before = await c(); await q(sql); await q(sql); assert.deepStrictEqual(await c(), before);
   });
   await test('orders that existed before this feature behave exactly as before', async () => {
     const r = await place([{ productId: own.id, qty: 1 }], { name: 'Old Ola' }); assert.strictEqual(r.s, 200); assert.strictEqual(r.row.ds_lines, 0); assert.strictEqual(r.row.own_lines, 1);
     await payFor(r); assert.ok((await orderRow(r.ref)).handover_nonce); assert.strictEqual((await A('PUT', `/api/admin/orders/${r.row.id}`, { status: 'processing' })).s, 200);
-    assert.strictEqual((await q('SELECT COUNT(*) n FROM dropship_lines WHERE order_id=$1', [r.row.id]))[0].n, '0');
+    assert.strictEqual(Number((await q('SELECT COUNT(*) n FROM dropship_lines WHERE order_id=$1', [r.row.id]))[0].n), 0);
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

@@ -15,11 +15,11 @@ router.get('/quotes/:ref', ah(async (req, res) => res.json({ quote: await W.admi
 router.post('/quotes/:ref/send', ah(async (req, res) => { await W.sendQuote(req.params.ref, req.body || {}, by(req)); res.json({ ok: true }); }));
 router.post('/quotes/:ref/transfer', ah(async (req, res) => { await W.markTransferReceived(req.params.ref, req.body && req.body.reference, by(req)); res.json({ ok: true }); }));
 router.post('/quotes/:ref/ship', ah(async (req, res) => { await W.ship(req.params.ref, req.body || {}, by(req)); res.json({ ok: true }); }));
-router.post('/quotes/:ref/deliver', ah(async (req, res) => { await W.deliver(req.params.ref, by(req)); res.json({ ok: true }); }));
+router.post('/quotes/:ref/deliver', ah(async (req, res) => { await W.deliver(req.params.ref, req.body || {}, by(req)); res.json({ ok: true }); }));
 router.post('/quotes/:ref/cancel', ah(async (req, res) => { await W.adminCancel(req.params.ref, String((req.body && req.body.reason) || '').slice(0, 300), by(req)); res.json({ ok: true }); }));
 
 router.get('/products', ah(async (req, res) => res.json({ products: await W.adminProducts(req.query) })));
-router.put('/products/:id', ah(async (req, res) => { await W.setProductPrice(req.params.id, req.body || {}); res.json({ ok: true }); }));
+router.put('/products/:id', ah(async (req, res) => { await W.setProductPrice(req.params.id, req.body || {}, by(req)); res.json({ ok: true }); }));
 
 router.get('/settings', ah(async (req, res) => { const s = await require('../lib/shop').getSettings(); res.json({ defaults: await W.cfg(), settings: Object.fromEntries(W.SETTING_KEYS.map((k) => [k, s[k] || ''])) }); }));
 router.put('/settings', ah(async (req, res) => { await W.saveSettings(req.body || {}); res.json({ ok: true }); }));

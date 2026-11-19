@@ -49,25 +49,33 @@ router.post('/setup', A.limiter('setup', 5, 3600000), ah(async (req, res) => {
   res.json({ user: A.publicUser(await get('SELECT * FROM users WHERE id=?', Number(r.lastInsertRowid))) });
 }));
 
-router.use(A.requireAdmin);
-router.use('/vendors', require('./vendors-admin'));
-router.use('/wholesale', require('./wholesale-admin'));
+router.use(A.requireBackoffice, require('../lib/staff').gate);
 
 // Activity log: every change an admin makes (not reads) is written down with who, what and from where. Passwords are never recorded.
-router.use((req, res, next) => {
-  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
-  res.on('finish', () => {
-    let detail = '';
-    try { const b = { ...(req.body || {}) }; for (const k of Object.keys(b)) if (/pass|token|secret|data$/i.test(k)) b[k] = '[hidden]'; detail = JSON.stringify(b).slice(0, 600); } catch { /* ignore */ }
-    run('INSERT INTO audit_log (user_id,user_name,method,path,status,detail,ip,created) VALUES (?,?,?,?,?,?,?,?)', req.user ? req.user.id : null, req.user ? String(req.user.name || req.user.email).slice(0, 80) : '', req.method, req.originalUrl.slice(0, 200), res.statusCode, detail, String(req.clientIp || '').slice(0, 60), now()).catch((e) => console.error('Audit log failed:', e.message));
-  });
-  next();
-});
-router.use('/dropship', require('./dropship-admin')); // after the activity log on purpose, so supplier changes are recorded
-router.get('/audit', ah(async (req, res) => res.json({ log: await all('SELECT id, user_name, method, path, status, detail, ip, created FROM audit_log ORDER BY id DESC LIMIT 300') })));
+router.use(require('../lib/audit').activity('staff'));
+// Sub-areas (mounted after the activity log above, so their changes are recorded too).
+router.post('/announce', ah(async (req, res) => { const b = req.body || {}; res.json({ ok: true, ...(await require('../lib/notify').announce(b.audience, b, req.user.name)) }); }));
+router.use('/staff', A.requireAdmin, require('./staff-admin'));
+router.use('/vendors', require('./vendors-admin'));
+router.use('/dropship', require('./dropship-admin'));   // suppliers, dropship products, supplier orders, countries: after the activity log on purpose, so changes are recorded
+router.use('/wholesale', require('./wholesale-admin'));
+router.use('/catalog', require('./catalog-admin'));
+router.use('/rfq', require('./rfq-admin'));
+router.use('/commercial', require('./commercial-admin'));
+router.use('/warehouse', require('./warehouse'));
+router.get('/audit', ah(async (req, res) => {
+  const w = [], a = [];
+  if (['staff', 'partner', 'buyer'].includes(req.query.actor)) { w.push('actor=?'); a.push(req.query.actor); }
+  if (req.query.q) { w.push("(lower(user_name) LIKE ? OR lower(path) LIKE ?)"); const t = '%' + String(req.query.q).toLowerCase().replace(/[\\%_]/g, '').slice(0, 60) + '%'; a.push(t, t); }
+  res.json({ log: await all(`SELECT id, user_name, actor, method, path, status, detail, ip, created FROM audit_log ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY id DESC LIMIT 300`, ...a) });
+}));
 
 /* ---------- dashboard ---------- */
 router.get('/dashboard', ah(async (req, res) => {
+  // Every employee may open the dashboard, but sees only the parts their role allows: money needs Finance or Reports, orders and top products need Orders,
+  // the customer count and unread messages need Customers, low stock needs Catalogue. The owner sees everything.
+  const P = await require('../lib/staff').permsOf(req.user), has = (...m) => P.includes('*') || m.some((x) => P.includes(x + ':view'));
+  const okMoney = has('finance', 'reports'), okOrders = has('orders'), okCust = has('customers'), okStock = has('catalog');
   const t = now(), ds = dayStart(t);
   const sales = async (from, to = t + 86400) => get(`SELECT COALESCE(SUM(o.total),0) rev, COUNT(*) n FROM orders o WHERE o.created >= ? AND o.created < ? AND ${SALE}`, from, to);
   const days = [];
@@ -79,7 +87,12 @@ router.get('/dashboard', ah(async (req, res) => {
   const top = await all(`SELECT MAX(oi.name) AS name, SUM(oi.qty) qty, SUM(oi.price*oi.qty) rev FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${SALE} GROUP BY oi.product_id ORDER BY qty DESC LIMIT 5`);
   const low = await all('SELECT id, name, stock FROM products WHERE active=1 AND stock<=5 ORDER BY stock, id LIMIT 8');
   const unread = (await get('SELECT COUNT(*) n FROM messages WHERE read=0')).n;
-  res.json({ today, week, month, all: allTime, customers, byStatus, days, recent, top, low, unread });
+  const cut = (x) => ({ rev: okMoney ? x.rev : null, n: okOrders ? x.n : null });
+  res.json({
+    today: cut(today), week: cut(week), month: cut(month), all: cut(allTime), customers: okCust ? customers : null,
+    byStatus: okOrders ? byStatus : [], days: okMoney ? days : [], recent: okOrders ? recent.map((o) => (okMoney ? o : { ...o, total: null })) : [],
+    top: okOrders ? top.map((x) => (okMoney ? x : { ...x, rev: null })) : [], low: okStock ? low : [], unread: okCust ? unread : 0, hide: { money: !okMoney, orders: !okOrders, customers: !okCust, stock: !okStock },
+  });
 }));
 
 /* ---------- orders ---------- */
@@ -140,12 +153,18 @@ router.get('/products/:id', ah(async (req, res) => {
 }));
 
 const { okImage, readProduct, saveVariants, uniqueSlug } = CAT;
+const EXT_COLS = ['barcode', 'subcategory', 'cost_price', 'min_stock', 'unit', 'tax_pct', 'weight_kg'];
+async function saveExt(id, ext) {
+  const ks = EXT_COLS.filter((k) => ext && ext[k] !== undefined);
+  if (ks.length) await run(`UPDATE products SET ${ks.map((k) => k + '=?').join(',')} WHERE id=?`, ...ks.map((k) => ext[k]), id);
+}
 router.post('/products', ah(async (req, res) => {
   const p = await readProduct(req.body || {});
   const id = await tx(async () => {
     const r = await run('INSERT INTO products (slug,store,category_id,name,brand,description,price,compare_price,stock,sku,emoji,images,size_label,featured,bestseller,new_arrival,active,created) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       await uniqueSlug(p.name), p.store, p.category_id, p.name, p.brand, p.description, p.price, p.compare, p.variants.length ? 0 : p.stock, p.sku, p.emoji, JSON.stringify(p.images), p.size_label, p.featured, p.bestseller, p.new_arrival, p.active, now());
     const pid = Number(r.lastInsertRowid);
+    await saveExt(pid, p.ext);
     if (p.store === PC.PHARMACY_STORE) await run("UPDATE products SET pharm_status='pending' WHERE id=?", pid);
     await saveVariants(pid, p.variants);
     return pid;
@@ -158,12 +177,13 @@ router.put('/products/:id', ah(async (req, res) => {
   if (!cur) fail(404, 'Product not found.');
   if (cur.fulfilment === 'dropship') fail(400, 'This is a dropship product. Edit it under Dropshipping > Products, where the price is calculated and reviewed.');
   if (cur.is_pharmacy && !PC.enabled() && req.body && req.body.active) fail(400, 'The pharmacy department is switched off. Medicines cannot be listed until it is enabled.');
-  const p = await readProduct(req.body || {});
+  const p = await readProduct({ ...(req.body || {}), id });
   await tx(async () => {
     // any edit to a pharmacy product sends it back to our superintendent pharmacist for re-approval
     if (cur.is_pharmacy || p.store === PC.PHARMACY_STORE) await run("UPDATE products SET pharm_status='pending', pharm_approved_by='', pharm_approved_at=NULL WHERE id=? AND pharm_status='approved'", id);
     await run('UPDATE products SET store=?,category_id=?,name=?,brand=?,description=?,price=?,compare_price=?,stock=?,sku=?,emoji=?,images=?,size_label=?,featured=?,bestseller=?,new_arrival=?,active=? WHERE id=?',
       p.store, p.category_id, p.name, p.brand, p.description, p.price, p.compare, p.variants.length ? 0 : p.stock, p.sku, p.emoji, JSON.stringify(p.images), p.size_label, p.featured, p.bestseller, p.new_arrival, p.active, id);
+    await saveExt(id, p.ext);
     await saveVariants(id, p.variants);
   });
   res.json({ ok: true });
@@ -300,7 +320,7 @@ const TEXT_KEYS = ['store_name', 'tagline', 'announcement', 'contact_phone', 'ad
 const URL_KEYS = ['logo_url', 'instagram', 'facebook', 'x_twitter', 'tiktok'];
 router.get('/settings', ah(async (req, res) => {
   const settings = await getSettings(); delete settings.demo_seeded;
-  res.json({ settings, zones: await all('SELECT state, fee, eta, pod FROM zones ORDER BY sort, state'), paystack: { live: S.paystackLive() } });
+  res.json({ settings, zones: await all('SELECT state, fee, eta, pod FROM zones ORDER BY sort, state'), paystack: { live: S.paystackLive() }, assistant: { key: require('../lib/assistant').enabled({ assistant_enabled: '1' }) } });
 }));
 router.put('/settings', ah(async (req, res) => {
   const b = req.body || {}, s = b.settings || {}, out = {};
@@ -315,7 +335,9 @@ router.put('/settings', ah(async (req, res) => {
   for (const [k, lo, hi, d] of [['max_distance_km', 1, 500, 60], ['per_km_fee', 0, 5000, 0], ['free_km', 0, 500, 0], ['prep_minutes', 0, 600, 20], ['open_hour', 0, 23, 8], ['cutoff_hour', 1, 24, 20]]) if (k in s) out[k] = String(Math.min(hi, Math.max(lo, int(s[k], d))));
   if ('return_days' in s) out.return_days = String(Math.min(365, Math.max(0, int(s.return_days))));
   if ('express_multiplier' in s) { const m = Number(s.express_multiplier); out.express_multiplier = String(Number.isFinite(m) ? Math.min(5, Math.max(1, m)) : 1.5); }
-  for (const k of ['pod_enabled', 'paystack_enabled', 'pod_confirm_required']) if (k in s) out[k] = s[k] === '1' || s[k] === true ? '1' : '0';
+  if ('assistant_notes' in s) out.assistant_notes = str(s.assistant_notes, 1500);
+  if ('assistant_daily_cap' in s) out.assistant_daily_cap = String(Math.min(20000, Math.max(10, int(s.assistant_daily_cap, 500))));
+  for (const k of ['pod_enabled', 'paystack_enabled', 'pod_confirm_required', 'assistant_enabled']) if (k in s) out[k] = s[k] === '1' || s[k] === true ? '1' : '0';
   await tx(async () => {
     for (const [k, v] of Object.entries(out)) await run('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', k, v);
     for (const z of (Array.isArray(b.zones) ? b.zones : []).slice(0, 60)) await run('UPDATE zones SET fee=?, eta=?, pod=? WHERE state=?', Math.max(0, int(z.fee)), str(z.eta, 30), z.pod ? 1 : 0, str(z.state, 60));
@@ -364,13 +386,18 @@ router.post('/riders', ah(async (req, res) => {
   { const bad = PW.check(b.password, { email, name, min: PW.STAFF_MIN }); if (bad) fail(400, bad); }
   if (await get('SELECT 1 x FROM users WHERE email=?', email)) fail(409, 'That email already has an account.');
   const r = await run("INSERT INTO users (name,email,phone,password,role,coverage,gdp,created) VALUES (?,?,?,?, 'rider', ?, ?, ?)", name, email, phone, await A.hashPassword(b.password), str(b.coverage, 300), b.gdp ? 1 : 0, now());
+  await require('../lib/riders').ensureProfile({ id: r.lastInsertRowid, name, email, phone }, { vehicle_type: b.vehicle_type, vehicle_registration: b.vehicle_registration, service_areas: b.service_areas, verification_status: 'verified' });   // an administrator creating the account vouches for the rider
   res.json({ ok: true, id: r.lastInsertRowid });
 }));
 router.put('/riders/:id', ah(async (req, res) => {
   const b = req.body || {}, id = int(req.params.id);
   const r = await run("UPDATE users SET gdp=COALESCE(?::int, gdp), coverage=?, active=?, phone=COALESCE(NULLIF(?, ''), phone) WHERE id=? AND role='rider'", 'gdp' in b ? (b.gdp ? 1 : 0) : null, str(b.coverage, 300), b.active === false || b.active === 0 ? 0 : 1, str(b.phone, 30), id);
   if (!r.changes) fail(404, 'Rider not found.');
-  if (b.active === false || b.active === 0) await A.dropUserSessions(id);
+  if (b.active === false || b.active === 0) {
+    await A.dropUserSessions(id);
+    const RD = require('../lib/riders'), rp = await RD.riderOfUser(id);
+    if (rp) await RD.goOffline(rp, { force: true, by: req.user.name || req.user.email, reason: 'account switched off' }).catch((e) => console.error('Could not take rider offline:', e.message));
+  }
   res.json({ ok: true });
 }));
 
@@ -384,10 +411,12 @@ router.put('/orders/:id/rider', ah(async (req, res) => {
     const rd = await get("SELECT name FROM users WHERE id=? AND role='rider' AND active=1", riderId);
     if (!rd) fail(400, 'Choose an active rider.');
     if (o.is_pharmacy) await require('../lib/pharmacy').checkRider(o, riderId);
-    await run('UPDATE orders SET rider_id=?, accepted_at=NULL WHERE id=?', riderId, o.id);
     await D.issueCode(o.id);
+    // The rider is offered the delivery and must accept (within the timeout). The old behaviour of attaching the order straight to the rider is kept, so the order is on their screen at once.
+    await require('../lib/dispatch').manualAssign(o.id, riderId, req.user.name || req.user.email, req.user.id);
+    await run('UPDATE orders SET rider_id=? WHERE id=? AND accepted_at IS NULL', riderId, o.id);
     await S.addEvent(o.id, o.status, `Assigned to rider ${rd.name}`);
-  } else { await run('UPDATE orders SET rider_id=NULL, accepted_at=NULL WHERE id=? AND status<>\'shipped\'', o.id); await S.addEvent(o.id, o.status, 'Rider removed'); }
+  } else { await require('../lib/dispatch').unassign(o.id, req.user.name || req.user.email); }
   res.json({ ok: true });
 }));
 router.post('/orders/:id/handover', ah(async (req, res) => {

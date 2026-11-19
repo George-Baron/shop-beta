@@ -9,7 +9,9 @@ const queue = require('../lib/queue');
 const D = require('../lib/delivery');
 const geo = require('../lib/geo');
 const A = require('../lib/auth');
+const Staff = require('../lib/staff');
 const V = require('../lib/vendors');
+const AS = require('../lib/assistant');
 const { fail, str, int, isEmail, parseImages, card, RATING_JOIN, getSettings, esc } = S_;
 
 const router = express.Router();
@@ -31,7 +33,8 @@ async function buildConfig() {
   const S = await getSettings();
   const stores = await all(`SELECT * FROM stores s WHERE active=1 AND ${PC.storeVisibleSql('s')} ORDER BY sort, slug`);
   const slugs = new Set(stores.map((s) => s.slug));
-  const settings = { ...S }; delete settings.demo_seeded; delete settings.pod_enabled; delete settings.paystack_enabled;
+  const settings = { ...S }; delete settings.demo_seeded; delete settings.pod_enabled; delete settings.paystack_enabled; delete settings.assistant_notes;
+  for (const k of Object.keys(settings)) if (k.startsWith('rider_')) delete settings[k];   // dispatch rules are internal
   if (!PC.enabled()) for (const k of Object.keys(settings)) if (k.startsWith('pharm_')) delete settings[k];
   const categories = (await all('SELECT id, store, slug, name, icon FROM categories ORDER BY sort, id')).filter((c) => slugs.has(c.store));
   const zones = (await all('SELECT state, fee, eta, pod FROM zones ORDER BY sort, state')).map((z) => ({ ...z, pod: z.pod && S.pod_enabled === '1' ? 1 : 0 }));
@@ -40,6 +43,7 @@ async function buildConfig() {
     categories,
     zones,
     pharmacy: PC.enabled(),
+    assistant: AS.enabled(S),
     payments: { paystack: S.paystack_enabled === '1' && (S_.paystackLive() || S_.demoAllowed()), pod: S.pod_enabled === '1', demo: !S_.paystackLive() && S_.demoAllowed(), stripe: require('../lib/stripe').enabled() },
     // Countries and currencies a customer can choose. 'rate' is Naira per unit at the charge rate: used only to show approximate prices; the real amount is fixed by the server at checkout.
     countries: await require('../lib/regions').publicCountries(),
@@ -271,6 +275,11 @@ async function customerOrder(o) {
     return out; // no delivery code and no rider position for a masked view
   }
   out.handover_code = await D.visibleCode(o);
+  if (o.status === 'delivered') {   // the buyer's own delivery rating (the rider's identity is not part of it)
+    const fb = await get("SELECT rating, comment FROM rider_feedback WHERE order_id=? AND source='customer'", o.id);
+    if (fb) out.delivery_rating = { rating: Number(fb.rating), comment: fb.comment };
+    else out.can_rate_delivery = !!(await get("SELECT 1 x FROM rider_assignments WHERE order_id=? AND assignment_status='delivered'", o.id));
+  }
   if (out.delivery_info && o.status === 'shipped' && o.rider_id) {
     const pt = await get('SELECT lat, lng, created FROM rider_points WHERE order_id=? ORDER BY id DESC LIMIT 1', o.id);
     out.rider = pt ? { lat: pt.lat, lng: pt.lng, at: Number(pt.created) } : null;
@@ -279,6 +288,19 @@ async function customerOrder(o) {
 }
 router.post('/orders/lookup', A.limiter('lookup', 40, 600000), ah(async (req, res) => {
   res.json({ order: await customerOrder(await ownedOrder(req, req.body.ref, req.body.email, req.body.token)) });
+}));
+router.post('/orders/:ref/rate-delivery', A.limiter('rate-delivery', 20, 600000), ah(async (req, res) => {
+  const o = await ownedOrder(req, req.params.ref, req.body.email, req.body.token);
+  if (o.view !== 'full') fail(403, 'Open your order from the link in your confirmation email to rate the delivery.');
+  if (o.status !== 'delivered') fail(400, 'You can rate the delivery once the order has arrived.');
+  const a = await get("SELECT rider_id FROM rider_assignments WHERE order_id=? AND assignment_status='delivered' ORDER BY id DESC LIMIT 1", o.id);
+  if (!a) fail(400, 'This order was not delivered by one of our riders.');
+  const rating = int(req.body.rating), comment = str(req.body.comment, 500);
+  if (!(rating >= 1 && rating <= 5)) fail(400, 'Choose a rating from 1 to 5.');
+  try {
+    await run("INSERT INTO rider_feedback (rider_id, order_id, rating, complaint, comment, source, recorded_by, created_at) VALUES (?,?,?,?,?,'customer','customer',?)", a.rider_id, o.id, rating, rating <= 2 ? comment : '', comment, now());
+  } catch (e) { if (e.code === '23505') fail(409, 'You have already rated this delivery. Thank you.'); throw e; }
+  res.json({ ok: true });
 }));
 router.post('/orders/:ref/cancel', A.limiter('cancel', 10, 600000), ah(async (req, res) => {
   const o = await ownedOrder(req, req.params.ref, req.body.email);
@@ -367,13 +389,15 @@ router.post('/auth/login', ah(async (req, res) => {
   // connection can lock out only himself, never you.
   const ip = req.clientIp, kIp = 'login-fail-ip:' + ip, kAcc = `login-fail:${email}:${ip}`;
   if ((await A.over(kIp, 40)) || (await A.over(kAcc, 8))) fail(429, 'Too many sign-in attempts. Please wait 15 minutes and try again.');
-  const u = await get('SELECT * FROM users WHERE email=?', email);
+  const u = await get('SELECT * FROM users WHERE email=? OR (role IN (\'staff\',\'admin\') AND username=?)', email, email);
   const good = u ? await A.checkPassword(pw, u.password) : await A.burn(pw);
-  if (!u || !good) { await A.hit(kIp, 1e9, 900000); await A.hit(kAcc, 1e9, 900000); fail(401, 'That email and password do not match.'); }
-  if (u.active === 0) fail(403, 'This account has been switched off. Please contact the store.');
+  const backoffice = u && (u.role === 'admin' || u.role === 'staff');
+  if (!u || !good) { await A.hit(kIp, 1e9, 900000); await A.hit(kAcc, 1e9, 900000); if (backoffice) await Staff.logLogin(u, email, false, req); fail(401, 'That email and password do not match.'); }
+  if (u.active === 0) { if (backoffice) await Staff.logLogin(u, email, false, req); fail(403, 'This account has been switched off. Please contact the store.'); }
+  if (backoffice) await Staff.logLogin(u, email, true, req);
   if (req.sessionToken) await run('DELETE FROM sessions WHERE id=?', A.sha(req.sessionToken));
   await A.startSession(req, res, u.id, u.role);
-  res.json({ user: A.publicUser(u) });
+  res.json({ user: await Staff.decorate(A.publicUser(u), u) });
 }));
 router.post('/auth/logout', ah(async (req, res) => { await A.endSession(req, res); res.json({ ok: true }); }));
 router.post('/auth/forgot', A.limiter('forgot', 6, 3600000), ah(async (req, res) => {
@@ -400,7 +424,7 @@ router.post('/auth/reset', A.limiter('reset', 15, 3600000), ah(async (req, res) 
   await A.startSession(req, res, r.user_id);
   res.json({ user: A.publicUser(await get('SELECT * FROM users WHERE id=?', r.user_id)) });
 }));
-router.get('/me', (req, res) => res.json({ user: req.user ? A.publicUser(req.user) : null }));
+router.get('/me', ah(async (req, res) => res.json({ user: req.user ? await Staff.decorate(A.publicUser(req.user), req.user) : null })));
 router.put('/me', A.requireUser, ah(async (req, res) => {
   const b = req.body || {}, name = str(b.name, 80), phone = str(b.phone, 30);
   if (!name) fail(400, 'Please enter your name.');
@@ -438,6 +462,12 @@ router.post('/wishlist/:id', A.requireUser, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 router.delete('/wishlist/:id', A.requireUser, ah(async (req, res) => { await run('DELETE FROM wishlist WHERE user_id=? AND product_id=?', req.user.id, int(req.params.id)); res.json({ ok: true }); }));
+
+/* ================= support assistant ================= */
+router.post('/assistant/chat', A.limiter('assistant', 20, 600000), ah(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(await AS.chat(req.body && req.body.messages));
+}));
 
 /* ================= contact & newsletter ================= */
 router.post('/contact', A.limiter('contact', 6, 3600000), ah(async (req, res) => {

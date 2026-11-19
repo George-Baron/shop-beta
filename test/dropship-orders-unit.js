@@ -53,7 +53,7 @@ const ORDER = ['pending_payment', 'paid', 'sent', 'confirmed', 'shipped', 'in_tr
     sup: { name: 'Shenzhen Gadgets Ltd', contact_name: 'Li Wei', address: "Bao'an District", country: 'CN', email: 'li@sz.example', whatsapp: '+86 138 0000 0000', payment_terms: 'Prepaid' },
     o: { name: 'Zoë Ödegård', phone: '+447911123456', address: '10 Downing Street', landmark: '', city: 'London', state: 'England', postcode: 'SW1A 2AA', country: 'GB', email: 'zoe.private@example.com', total: 99999, ref: 'SB-SECRET1' },
     lines: [{ supplier_sku: 'SZ-100', name: 'Zorbix Earbuds Pro', variant_label: 'Black', qty: 2, unit_cost: '100.00', ship_cost: '20.00', sell_price: 43050 }, { supplier_sku: '', name: 'Cable', variant_label: '', qty: 1, unit_cost: '5.50', ship_cost: '0', sell_price: 900 }],
-    store: { store_name: 'Shop-Beta', contact_email: 'hello@shop.example', contact_phone: '+234 800 000 0000', address: 'Lagos' },
+    store: { store_name: 'VELTO-MART', contact_email: 'hello@shop.example', contact_phone: '+234 800 000 0000', address: 'Lagos' },
   };
   await test('the order text has what the supplier needs to ship: destination, phone, items, quantities, cost and a reference to quote', () => {
     const t = DO.poText(d);

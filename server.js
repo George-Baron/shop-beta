@@ -62,6 +62,9 @@ app.use((req, res, next) => {
   next();
 });
 
+// Static brand artwork (home banner).
+app.use('/brand', express.static(path.join(__dirname, 'views', 'brand'), { maxAge: '7d', index: false, dotfiles: 'ignore', setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff') }));
+
 /* ---------- uploads ---------- */
 // Leaflet (the map library) is served from here, not from a third-party CDN.
 app.use('/vendor/leaflet', express.static(path.join(__dirname, 'node_modules', 'leaflet', 'dist'), { maxAge: '30d', index: false, dotfiles: 'ignore', setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff') }));
@@ -88,7 +91,7 @@ app.get('/health', async (req, res) => {
 /* ---------- API ---------- */
 // Request bodies are small by default. The photo upload is the one exception, and it reads its larger body only AFTER the admin check (see routes/admin.js).
 const smallJson = express.json({ limit: '100kb', verify: (req, res, buf) => { req.rawBody = buf; } });
-app.use('/api', (req, res, next) => (req.path === '/admin/upload' || req.path === '/partner/upload' || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) || /^\/admin\/dropship\/(suppliers\/\d+\/documents|import\/(preview|commit))$/.test(req.path) ? next() : smallJson(req, res, next)));
+app.use('/api', (req, res, next) => (req.path === '/admin/upload' || req.path === '/partner/upload' || req.path === '/rider/photo' || req.path === '/admin/rider-ops/upload' || req.path === '/partner/photos' || (req.method === 'POST' && /^\/(admin|partner)\/catalog\/(parse|validate|commit)$/.test(req.path)) || /^\/(wholesale|admin)\/rfq\/(parse|[A-Z0-9-]+\/files)$/.test(req.path) || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) || /^\/admin\/dropship\/(suppliers\/\d+\/documents|import\/(preview|commit))$/.test(req.path) ? next() : smallJson(req, res, next)));
 app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin) {
@@ -98,7 +101,9 @@ app.use('/api', (req, res, next) => {
   next();
 });
 app.use('/api', A.loadUser);
+app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/admin/pharmacy', require('./routes/pharmacy-admin'));
+app.use('/api/admin/rider-ops', require('./routes/rider-admin'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/pharmacy', require('./routes/pharmacy'));
 app.use('/api/rider', require('./routes/rider'));
@@ -124,7 +129,7 @@ app.get('/sitemap.xml', ah(async (req, res) => {
 /* ---------- pages (one HTML shell, filled in per URL for search engines and link previews) ---------- */
 const TEMPLATE = fs.readFileSync(path.join(__dirname, 'views', 'index.html'), 'utf8');
 const PAGES = { about: 'About us', faq: 'Frequently asked questions', shipping: 'Shipping & Returns', privacy: 'Privacy policy', terms: 'Terms of service', contact: 'Contact us' };
-const NOINDEX = new Set(['rider', 'pharmacist', 'partner', 'wholesale', 'checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
+const NOINDEX = new Set(['rider', 'pharmacist', 'partner', 'wholesale', 'import-export', 'dropshipping', 'checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
 const clip = (s, n) => { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s; };
 const absUrl = (u) => (!u ? '' : /^https?:\/\//.test(u) ? u : BASE_URL + u);
 
@@ -239,13 +244,15 @@ let server;
 (async () => {
   await migrate();      // creates or updates the tables (safe to run on every start, and by two instances at once)
   await seed();
+  await require('./lib/staff').seedRoles();
   await bootstrapAdmin();
   cache.watch(); // notice edits made on other instances
   server = app.listen(PORT, process.env.HOST || '0.0.0.0', async () => {
-    console.log(`\nShop-Beta is running at ${BASE_URL}`);
+    console.log(`\nVELTO-MART is running at ${BASE_URL}`);
     const hasAdmin = await get("SELECT 1 x FROM users WHERE role='admin'").catch(() => null);
     console.log(`Admin dashboard:   ${BASE_URL}/admin${hasAdmin ? '' : '   (open it now to create your admin account)'}`);
     console.log(S.paystackLive() ? 'Paystack: LIVE keys are set.' : 'Paystack: no PAYSTACK_SECRET_KEY set, so online payment runs in demo mode (no real money).');
+    console.log(require('./lib/storage').DRIVER === 'supabase' ? 'Photos: saved in Supabase Storage (permanent).' : 'Photos: saved on THIS server\'s disk. They are lost when the server restarts. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.');
     if (!process.env.RESEND_API_KEY) console.log('Email: RESEND_API_KEY not set, so emails are stored in Admin > Marketing > Email outbox instead of being sent.');
     if (process.env.WORKER_ENABLED !== '0') worker.start(); // set WORKER_ENABLED=0 on web instances when you run `npm run worker` separately
   });

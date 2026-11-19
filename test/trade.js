@@ -339,7 +339,7 @@ const sig = (raw, secret = WH, t = Math.floor(Date.now() / 1000)) => `t=${t},v1=
     assert.ok(n >= 10, 'logged ' + n);
   });
   await test('running the migration again changes nothing and keeps the admin\'s edits', async () => {
-    const sql = fs.readFileSync(path.join(__dirname, '..', 'migrations', '012_countries_currencies.sql'), 'utf8');
+    const sql = fs.readFileSync(path.join(__dirname, '..', 'migrations', '025_countries_currencies.sql'), 'utf8');
     const before = (await q('SELECT (SELECT COUNT(*) FROM countries) c, (SELECT COUNT(*) FROM shipping_rates) r, (SELECT COUNT(*) FROM currencies) u, (SELECT enabled FROM countries WHERE code=\'GB\') gb, (SELECT fee FROM shipping_rates r JOIN shipping_zones z ON z.id=r.zone_id WHERE z.name=\'Europe\' AND up_to_kg=0.5) fee'))[0];
     await RG('PUT', '/zones/' + await zoneId('Europe'), { name: 'Europe', active: true, rates: [{ up_to_kg: 0.5, fee: 99999 }] });
     await q(sql); await q(sql);
