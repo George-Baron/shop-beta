@@ -55,5 +55,9 @@ router.get('/invoices/:ref', ah(async (req, res) => {
 /* ---- reports ---- */
 router.get('/reports', ah(async (req, res) => res.json({ reports: R.LIST })));
 router.get('/reports/:name', ah(async (req, res) => res.json({ report: await R.run(req.params.name, req.query) })));
+router.get('/reports/:name/download', ah(async (req, res) => {
+  const rep = await R.run(req.params.name, req.query), f = await require('../lib/commercial').fileAs(rep, req.query.format);
+  res.set({ 'Content-Type': f.type, 'Content-Disposition': `attachment; filename="${rep.name}-${new Date().toISOString().slice(0, 10)}.${f.ext}"`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' }).send(f.buf);
+}));
 
 module.exports = router;
