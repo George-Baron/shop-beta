@@ -4,17 +4,17 @@ Admin screen: **Admin > Global Trade**. Permission module: `trade` (roles "Trade
 
 ## Build status
 
-| Phase | What | Status |
+| Phase | What (numbering follows the project spec) | Status |
 |---|---|---|
-| 1 | Database foundation (28 tables), row level security, roles, audit log, countries, currencies, settings | Built |
-| 2 | Exchange rates (live provider + manual), product trade settings (HS code, origin, weight, size, bans), Excel/CSV import and export, public "ship to country" product list, dashboard shell | Built |
-| 3 | Customer checkout for international orders (address validation, shipping quote, duties estimate, payment in the customer's currency) | Next |
-| 4 | Suppliers, import purchase orders, import shipments, landed cost, goods received into stock | Not started |
-| 5 | Carrier integrations (adapter per carrier; needs your own carrier accounts and API keys) | Not started |
-| 6 | Shipment tracking and customer/admin notifications | Not started |
-| 7 | Customs declarations and documents (invoice, packing list, certificate of origin) | Not started |
-| 8 | Reports and exports | Not started |
-| 9 | Hardening and launch checklist | Not started |
+| 1 | Database architecture (28 tables), row level security, permissions, administration, audit log | Built |
+| 2 | International product settings, currency conversion, country configuration, bulk product import/export | Built |
+| 3 | Export checkout and international customer orders | Next |
+| 4 | Import procurement and international supplier management | Not started |
+| 5 | Freight quotations and carrier API integrations (needs your own carrier accounts and keys) | Not started |
+| 6 | Customs, duties, documentation and landed cost | Not started |
+| 7 | International payments and shipment tracking | Not started |
+| 8 | Notifications, reporting and AI assistant | Not started |
+| 9 | Testing, security audit and production deployment | Not started |
 
 ## Rules the code follows (and the tests check)
 
