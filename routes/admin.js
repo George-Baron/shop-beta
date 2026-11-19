@@ -59,6 +59,7 @@ router.use('/staff', A.requireAdmin, require('./staff-admin'));
 router.use('/vendors', require('./vendors-admin'));
 router.use('/wholesale', require('./wholesale-admin'));
 router.use('/catalog', require('./catalog-admin'));
+router.use('/trade', require('./trade-admin'));
 router.use('/rfq', require('./rfq-admin'));
 router.use('/commercial', require('./commercial-admin'));
 router.use('/warehouse', require('./warehouse'));
