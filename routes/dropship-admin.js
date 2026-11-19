@@ -68,6 +68,7 @@ router.post('/products/:id/review', ah(async (req, res) => { await D.review(req.
 router.post('/import/preview', A.limiter('dsimport', 40, 3600000), express.json({ limit: '6mb' }), ah(async (req, res) => res.json(await IMP.preview(req.body || {}))));
 router.post('/import/commit', A.limiter('dscommit', 20, 3600000), express.json({ limit: '6mb' }), ah(async (req, res) => res.json({ ok: true, ...(await IMP.commit(req.user, req.body || {})) })));
 
+router.use('/supplier-orders', require('./supplier-orders-admin')); // purchase orders, supplier order numbers, tracking, problems and refunds
 router.use('/regions', require('./regions-admin')); // countries, shipping zones, currencies, tax and restricted products
 
 module.exports = router;

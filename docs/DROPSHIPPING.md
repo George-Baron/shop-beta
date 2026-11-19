@@ -2,7 +2,7 @@
 
 Shop-Beta can sell products it does not hold. A customer orders, the **supplier** ships, and we keep the margin. Suppliers and customers can be in any country.
 
-> **Status.** Steps 1 and 2 are built: suppliers, dropship products, pricing, import and review. The order flow (placing orders with suppliers, tracking, refunds), multi-currency checkout, trade documents and reports come in later steps. **Until the order flow exists, customers cannot buy a dropship item.** It can be listed and approved, and the product page shows "Not available to order just yet". Do not set `DROPSHIP_ORDERS_ENABLED=1` before then.
+> **Status.** Steps 1 to 4 are built: suppliers, dropship products, pricing, import and review, countries and currencies, and the dropship order flow. Trade documents, reports and the supplier portal come in later steps. **Customers can buy dropship items only when `DROPSHIP_ORDERS_ENABLED=1`.** Until then the product page shows "Not available to order just yet".
 
 Everything is in **Admin > Dropshipping** (Suppliers, Products, Settings & rates). Tests: `npm run test:dropship` and `npm run test:dropship:unit`.
 
@@ -87,12 +87,36 @@ Open **Dropshipping > Countries & currencies**. Nothing ships abroad until you s
 
 **Setting up Stripe.** Create the account, add `STRIPE_ENABLED=1`, `STRIPE_SECRET_KEY`, and a webhook for `checkout.session.completed` (and `checkout.session.async_payment_succeeded`) pointing at `https://YOUR-SITE/api/stripe/webhook`, then put its signing secret in `STRIPE_WEBHOOK_SECRET`. Check your Stripe account can charge the currencies in `STRIPE_CURRENCIES`. Stripe cannot charge Naira here, so Nigerian customers use Paystack.
 
+## 9. Dropship orders (step 4)
+
+**Where:** Admin > Dropshipping > *Supplier orders*.
+
+**The journey of each supplier item** (a customer order with supplier items is split into one tracked line per item):
+`Awaiting payment` > `Paid` > `Sent to supplier` > `Confirmed` > `Shipped` > `In transit` > `In customs` > `Delivered`. Side exits: `Problem`, `Cancelled`, `Returned`, `Refunded`. Nothing moves backwards, and repeating a click does nothing twice.
+
+**Daily routine**
+1. *Ready to order* lists paid items only. Nothing can be ordered before the payment is confirmed, and pay on delivery is not offered for supplier items.
+2. Click **Create purchase order**. You get a PDF, a ready WhatsApp message, and the option to email the supplier with the PDF attached (or mark it "I sent it myself"). One purchase order covers one customer order and one supplier. The supplier sees the delivery address and phone (they ship to the customer) but never the customer's email, what the customer paid, or our other orders.
+3. When the supplier replies, open the item (**Update**), type the *supplier's order number* and press **Supplier confirmed**. When it ships, enter the *carrier and tracking number* and press **Shipped**. The customer is emailed and sees the tracking on their order page. Then **In transit**, **In customs** and **Delivered** as it moves.
+4. Every change is stored with who made it and when (open **Update** to see the history).
+
+**When the supplier cannot deliver**
+1. Press **Report the problem** and choose what went wrong. The customer is emailed and asked to choose on their order page.
+2. Optionally **Offer an alternative**: another in-stock supplier product. The customer takes it at the price they already paid (we may lose margin, you are warned) or asks for a full refund. The order total never changes.
+3. If they choose a refund, you are emailed and the item shows under *Refunds to pay the customer* with the exact amount. Refund it in your payment dashboard, then enter the reference and press **Record refund**. Refunds are not automatic until step 6.
+
+**Order status.** An order made only of supplier items has no rider and no handover code: its status follows its items (you cannot set it by hand). A mixed order keeps its normal flow, but cannot be marked delivered while a supplier item is still on its way. An order cannot be cancelled once a supplier has been sent it: cancel the items so the supplier is told.
+
+**Stuck orders.** An item is flagged if it is paid but not ordered after 24 hours, sent but not confirmed after 3 days, not shipped 3 days after the supplier's processing time, or a customer has not answered a problem for 3 days. You get one email digest at most every 12 hours. The customer is not reminded automatically.
+
+**Prices.** The price, cost and exchange rate are copied onto the order when it is placed. Changing a product later never changes an existing order.
+
 ## Settings and environment
 * `STRIPE_ENABLED`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CURRENCIES`, `PAYSTACK_CURRENCIES`, `FX_FEED_ENABLED`, `FX_FEED_URL`, `FX_MAX_AGE_HOURS`: see DEPLOY.md. `STRIPE_API_URL` is for tests only (preflight fails if it is set in production).
 * `SUPABASE_SUPPLIER_BUCKET` (default `supplier-docs`): create it as a **private** bucket. `npm run preflight` checks it.
-* `DROPSHIP_ORDERS_ENABLED`: leave unset until the order flow (step 4) is built.
+* `DROPSHIP_ORDERS_ENABLED`: set to `1` to let customers buy supplier items. It also starts the stuck-order check (every 6 hours). Leave it off until you have a supplier, an approved product, and have tried one test order.
 * Pricing defaults, exchange rates and category margins are stored in their own tables (not the public settings), so cost and margin data cannot reach the storefront.
 * Every change is in the activity log. Rate limits protect uploads and imports. Migrations `010`, `011` and `012` are safe to re-run.
 
 ## Not built yet
-Order flow and supplier purchase orders (step 4); trade documents, landed-cost calculator, compliance reminders and restricted-item checks (step 5); profit reports, payables and refunds (step 6); supplier login portal (step 7). Until step 5 adds restricted-item checks, **you** must not import medicines, food, chemicals, batteries or weapons. Medicines are blocked outright (the pharmacy department stays behind `PHARMACY_ENABLED`).
+Trade documents, landed-cost calculator, compliance reminders and restricted-item checks (step 5); profit reports, payables and refunds (step 6); supplier login portal (step 7). Until step 5 adds restricted-item checks, **you** must not import medicines, food, chemicals, batteries or weapons. Medicines are blocked outright (the pharmacy department stays behind `PHARMACY_ENABLED`).

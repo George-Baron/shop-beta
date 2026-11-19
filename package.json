@@ -33,6 +33,8 @@
     "test:dropship": "node --disable-warning=ExperimentalWarning test/dropship.js",
     "test:trade:unit": "node --disable-warning=ExperimentalWarning test/trade-unit.js",
     "test:trade": "node --disable-warning=ExperimentalWarning test/trade.js",
+    "test:dropship-orders:unit": "node --disable-warning=ExperimentalWarning test/dropship-orders-unit.js",
+    "test:dropship-orders": "node --disable-warning=ExperimentalWarning test/dropship-orders.js",
     "test:pharmacy": "node --disable-warning=ExperimentalWarning test/pharmacy.js",
     "test:cache": "node --disable-warning=ExperimentalWarning test/cache.js",
     "test:multi": "node --disable-warning=ExperimentalWarning test/two-instances.js",

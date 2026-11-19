@@ -238,7 +238,7 @@ Use the Paystack **test** key and your `onrender.com` or real domain. Tick each 
 | `BACKUP_MAX_AGE_HOURS` | 30 | Admin warns when the last good backup is older |
 | `SUPABASE_BUCKET`, `SUPABASE_BACKUP_BUCKET` | `product-images`, `backups` | bucket names |
 | `SUPABASE_SUPPLIER_BUCKET` | `supplier-docs` | **private** bucket for supplier registration and agreement files (dropshipping). Create it before using Admin > Dropshipping > documents |
-| `DROPSHIP_ORDERS_ENABLED` | off | `1` lets customers order dropship items. Leave off until the dropship order flow (step 4) is built, or they could pay for goods nobody will order from the supplier |
+| `DROPSHIP_ORDERS_ENABLED` | off | `1` lets customers order supplier items and starts the stuck-order check (every 6 hours). Turn it on only when someone will place the purchase orders: see docs/DROPSHIPPING.md section 9 |
 | `STRIPE_ENABLED` | off | `1` offers Stripe (international cards) to customers outside Nigeria. Needs `STRIPE_SECRET_KEY`. Leave off if you only use Paystack. |
 | `STRIPE_SECRET_KEY` | none | Your Stripe **secret** key (`sk_live_...` / `sk_test_...`). Never the publishable key. |
 | `STRIPE_WEBHOOK_SECRET` | none | Signing secret (`whsec_...`) of a webhook for `checkout.session.completed` to `https://YOUR-SITE/api/stripe/webhook`. |

@@ -263,6 +263,7 @@ async function ownedOrder(req, ref, email, token) {
 // The order as the customer sees it: stages, promised time, their handover code while it is useful, and the rider's position only while the delivery is under way.
 async function customerOrder(o) {
   const out = S_.publicOrder(o);
+  if (o.ds_lines > 0) out.shipments = await require('../lib/dropship-orders').shipments(o.id, o.view === 'full');   // tracking for items a supplier ships: never the supplier, cost or margin
   if (o.view === 'basic') { // order number + email only: hide what a stranger could misuse
     out.phone = out.phone ? '•••••••' + String(out.phone).slice(-3) : ''; out.address = out.address ? '••••••••' : ''; out.landmark_hidden = true;
     if (out.delivery_info) { out.delivery_info = { ...out.delivery_info, lat: null, lng: null, landmark: '' }; }
@@ -284,6 +285,13 @@ router.post('/orders/:ref/cancel', A.limiter('cancel', 10, 600000), ah(async (re
   if (o.status !== 'pending' || o.payment_status === 'paid') fail(400, 'This order can no longer be cancelled. Please contact us.');
   await S_.cancelOrder(o, 'Cancelled by customer');
   res.json({ ok: true });
+}));
+// The customer decides what happens to an item that could not be supplied: a full refund, or the alternative we offered at the same price.
+router.post('/orders/:ref/items/:lineId/choose', A.limiter('choose', 20, 600000), ah(async (req, res) => {
+  const o = await ownedOrder(req, req.params.ref, req.body.email, req.body.token);
+  if (o.view !== 'full') fail(403, 'Please open your order from the link in your email, or sign in, to make this choice.');
+  await require('../lib/dropship-orders').choose(o, req.params.lineId, str(req.body.choice, 12));
+  res.json({ order: await customerOrder(await ownedOrder(req, req.params.ref, req.body.email, req.body.token)) });
 }));
 router.get('/orders', A.requireUser, ah(async (req, res) => {
   const rows = await all('SELECT id, ref, status, total, created FROM orders WHERE user_id=? ORDER BY id DESC LIMIT 100', req.user.id);

@@ -829,6 +829,7 @@ async function orderPage(main, ref, u, cfg) {
    ${order.masked ? '<div class="card" style="margin-bottom:16px;font-size:14px">For your privacy, your phone number and address are hidden here. Open the link in your order email, or sign in, to see everything, including your delivery code.</div>' : ''}
    ${!['cancelled', 'refunded'].includes(order.status) ? `<div class="card" style="margin-bottom:16px"><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;text-align:center;font-size:12px">${flow.map((s, i) => `<div><div style="height:6px;border-radius:3px;background:${i <= stepIdx ? 'var(--accent)' : 'var(--border)'};margin-bottom:6px"></div><span class="${i <= stepIdx ? '' : 'mu'}" style="font-weight:${i === stepIdx ? 800 : 500}">${STATUS[s]}</span></div>`).join('')}</div></div>` : ''}
    ${deliveryCard(order)}
+   ${shipmentsCard(order, ref, email, token)}
    <div class="row c2" style="align-items:start"><div class="card"><h3>Items</h3>${(() => { const gs = byStore(order.items, (i) => i.store || ''); return gs.map((g) => groupHead(g.name, gs) + g.lines.map((i) => `<div class="line" style="grid-template-columns:48px 1fr auto"><div class="lt" style="width:48px;height:48px">${tile({ id: i.product_id, emoji: i.emoji, image: i.image, name: i.name })}</div><div style="font-size:14px"><b>${e(i.name)}</b><br><span class="mu">${e(i.variant_label)} × ${i.qty}</span></div><b>${naira(i.price * i.qty)}</b></div>`).join('')).join(''); })()}
      <div class="sum"><span>Subtotal</span><span>${naira(order.subtotal)}</span></div>${order.discount ? `<div class="sum"><span>Discount ${e(order.coupon || '')}</span><span>−${naira(order.discount)}</span></div>` : ''}<div class="sum"><span>Delivery</span><span>${order.delivery_fee ? naira(order.delivery_fee) : 'Free'}</span></div>${order.tax ? `<div class="sum"><span>${e(order.tax_label)}</span><span>${naira(order.tax)}</span></div>` : ''}<div class="sum total"><span>${order.currency !== 'NGN' && order.charge_amount != null ? (order.payment_status === 'paid' ? 'Total paid' : 'Total to pay') : 'Total'}</span><span>${order.currency !== 'NGN' && order.charge_amount != null ? e(fmtMinor(order.charge_amount, order.currency)) : naira(order.total)}</span></div></div>
     <div style="display:grid;gap:16px"><div class="card"><h3>Delivery</h3><p style="margin:0">${e(order.name)}<br>${e(order.address)}${order.city ? ', ' + e(order.city) : ''}, ${e(order.state)}${order.postcode ? ' ' + e(order.postcode) : ''}${order.country && order.country !== 'NG' ? ', ' + e(order.country) : ''}<br>${e(order.phone)}</p><p class="mu" style="margin-bottom:0">${e({ standard: 'Standard delivery', express: 'Express delivery', pickup: 'Store pickup' }[order.delivery] || '')} · ${order.payment_method === 'pod' ? 'Pay on delivery' : order.payment_status === 'paid' ? 'Paid online' : 'Online payment pending'}</p></div>
@@ -854,8 +855,20 @@ async function orderPage(main, ref, u, cfg) {
   const df = $('#demofail'); if (df) df.addEventListener('click', async () => { await api('/api/pay/demo/' + ref, { body: { outcome: 'fail' } }); toast('Payment failed. The order was cancelled.', 'bad'); rerender(); });
   const rc = $('#recheck'); if (rc) rc.addEventListener('click', async () => { await api('/api/paystack/verify?reference=' + encodeURIComponent(ref)).catch(() => {}); rerender(); });
   $('#print').addEventListener('click', () => window.print());
+  $$('[data-choose]').forEach((el) => el.addEventListener('click', async () => { const [lid, choice] = el.dataset.choose.split(':'); if (!confirm(choice === 'refund' ? 'Refund this item in full?' : 'Take the alternative at the same price?')) return; try { await api(`/api/orders/${ref}/items/${lid}/choose`, { body: { token, email, choice } }); toast('Thank you. We have your choice.'); rerender(); } catch (er) { toast(er.message, 'bad'); } }));
   const co = $('#cancelo'); if (co) co.addEventListener('click', async () => { if (!confirm('Cancel this order?')) return; try { await api('/api/orders/' + ref + '/cancel', { body: { email } }); toast('Order cancelled'); rerender(); } catch (er) { toast(er.message, 'bad'); } });
   return 'Order ' + order.ref;
+}
+
+function shipmentsCard(order, ref, email, token, rerender) {
+  const ss = order.shipments; if (!ss || !ss.length) return '';
+  const bar = (x) => `<div style="display:grid;grid-template-columns:repeat(${x.stages.length},1fr);gap:3px;margin:8px 0">${x.stages.map((n, i) => `<div title="${e(n)}" style="height:5px;border-radius:3px;background:${i <= x.stage ? 'var(--ok,#16a34a)' : 'var(--line,#e5e7eb)'}"></div>`).join('')}</div>`;
+  return `<div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">Shipments from our partners</h3>${ss.map((x) => `<div style="padding:10px 0;border-top:1px solid var(--line,#eee)"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${e(x.name)}${x.variant_label ? ' (' + e(x.variant_label) + ')' : ''} × ${x.qty}</b><span class="chip">${e(x.label)}</span></div>
+   ${x.stage >= 0 ? bar(x) : ''}
+   ${x.carrier || x.tracking_no ? `<div style="font-size:13px">${e(x.carrier)} ${x.tracking_no ? '· tracking <b>' + e(x.tracking_no) + '</b>' : ''} ${x.tracking_url ? `<a href="${e(x.tracking_url)}" target="_blank" rel="noopener noreferrer">Track parcel</a>` : ''}</div>` : ''}
+   ${x.needs_choice ? `<div class="note" style="margin-top:8px"><b>We need your decision.</b> ${e(x.issue)}<div style="font-size:13px;margin-top:4px">${x.alternative ? 'We found an alternative: <b>' + e(x.alternative.name) + '</b>, at the same price you paid.' : 'You can have a full refund for this item.'}</div>
+    ${token ? `<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">${x.alternative ? `<button class="btn sm" data-choose="${x.id}:alternative">Take the alternative</button>` : ''}<button class="btn ghost sm" data-choose="${x.id}:refund">Full refund</button></div>` : '<div class="mu" style="font-size:12px;margin-top:6px">Open this page from the link in your email, or sign in, to choose.</div>'}</div>` : ''}
+   ${x.refund_due ? `<div style="font-size:13px">Refund due to you: <b>${naira(x.refund_due)}</b></div>` : ''}</div>`).join('')}</div>`;
 }
 
 function deliveryCard(order) {
@@ -2033,7 +2046,7 @@ const dstate = { tab: 'suppliers', sstatus: '', sq: '', plist: 'pending', pq: ''
 let dmeta = null;
 const DS = (p, o) => api('/api/admin/dropship' + p, o);
 const dsdate = (t) => (t ? new Date(t * 1000).toLocaleDateString('en-NG') : '');
-const ETAB = [['suppliers', 'Suppliers'], ['products', 'Products'], ['settings', 'Settings & rates'], ['trade', 'Countries & currencies']];
+const ETAB = [['suppliers', 'Suppliers'], ['products', 'Products'], ['settings', 'Settings & rates'], ['trade', 'Countries & currencies'], ['orders', 'Supplier orders']];
 views.dropship = async () => {
   if (!dmeta) dmeta = await DS('/meta');
   let body = '';
@@ -2046,6 +2059,7 @@ views.dropship = async () => {
   if (dstate.tab === 'products') body = await dsProducts();
   if (dstate.tab === 'settings') body = await dsSettings();
   if (dstate.tab === 'trade') body = await dsTrade();
+  if (dstate.tab === 'orders') body = await soTab();
   mn(hd('🚚 Dropshipping') + `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">${ETAB.map(([k, t]) => `<button class="btn ${dstate.tab === k ? '' : 'ghost'} sm" data-dt="${k}">${t}</button>`).join('')}</div>` + body);
   onAll('[data-dt]', 'click', (el) => { dstate.tab = el.dataset.dt; return views.dropship(); });
   on('#dsq', 'change', () => { dstate.sq = $('#dsq').value; return views.dropship(); });
@@ -2059,8 +2073,73 @@ views.dropship = async () => {
   onAll('[data-dp]', 'click', (el) => productDS(el.dataset.dp));
   if (dstate.tab === 'settings') dsSettingsWire();
   if (dstate.tab === 'trade') dsTradeWire();
+  if (dstate.tab === 'orders') soWire();
   onAll('[data-sup]', 'click', (el) => supplierForm(el.dataset.sup));
 };
+/* ---------- Supplier orders (Step 4): order from suppliers, track parcels, handle problems and refunds ---------- */
+const SOLBL = { pending_payment: 'Awaiting payment', paid: 'Paid, to order', sent: 'Sent to supplier', confirmed: 'Confirmed', shipped: 'Shipped', in_transit: 'In transit', customs: 'In customs', delivered: 'Delivered', issue: 'Problem', cancelled: 'Cancelled', returned: 'Returned', refunded: 'Refunded' };
+const SOISSUE = { out_of_stock: 'Out of stock', supplier_cancelled: 'Supplier cancelled', price_changed: 'Price changed', lost: 'Lost in transit', damaged: 'Damaged', other: 'Other' };
+let soData = null;
+const soLine = (l) => `<div class="card" style="margin-bottom:8px;padding:10px"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b>${e(l.order_ref)}</b> · ${e(l.name)}${l.variant_label ? ' (' + e(l.variant_label) + ')' : ''} × ${l.qty}<br><span class="mu" style="font-size:12px">${e(l.supplier_name)}${l.po_ref ? ' · ' + e(l.po_ref) : ''}${l.supplier_order_no ? ' · supplier order ' + e(l.supplier_order_no) : ''}${l.tracking_no ? ' · ' + e(l.carrier) + ' ' + e(l.tracking_no) : ''}</span>${l.overdue ? `<br><span style="color:var(--bad);font-size:12px">⚠ ${e(l.overdue)}</span>` : ''}${l.status === 'issue' ? `<br><span style="font-size:12px">${e(SOISSUE[l.issue_kind] || '')}${l.issue_note ? ': ' + e(l.issue_note) : ''} · ${l.customer_choice ? 'customer chose ' + e(l.customer_choice) : l.alt_product_id ? 'alternative offered, waiting for the customer' : 'waiting for you to offer an alternative or the customer to choose'}</span>` : ''}${l.refund_due ? `<br><b style="font-size:12px">Refund due: ${naira0(l.refund_due)}</b>` : ''}</div>
+  <div style="text-align:right"><span class="chip">${e(SOLBL[l.status] || l.status)}</span><br><button class="btn ghost sm" data-soact="${l.id}" style="margin-top:6px">Update</button></div></div></div>`;
+async function soTab() {
+  soData = await DS('/supplier-orders/queue');
+  const q = soData;
+  const sec = (t, n, inner) => `<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">${t} <span class="mu" style="font-weight:400">(${n})</span></h3>${inner}</div>`;
+  const ready = q.ready.map((g) => `<div class="card" style="margin-bottom:8px;padding:10px"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center"><div><b>${e(g.order_ref)}</b> → <b>${e(g.supplier_name)}</b><br><span class="mu" style="font-size:12px">${e(g.customer_name)} · ${e(g.country || '')}</span>${g.lines.map((l) => `<div style="font-size:13px">${e(l.name)} × ${l.qty}${l.overdue ? ` <span style="color:var(--bad)">⚠ ${e(l.overdue)}</span>` : ''}</div>`).join('')}</div><button class="btn sm" data-mkpo="${g.order_id}:${g.supplier_id}">Create purchase order</button></div></div>`).join('') || '<p class="mu">Nothing is waiting. Paid supplier items appear here.</p>';
+  const drafts = q.drafts.length ? sec('Purchase orders to send', q.drafts.length, q.drafts.map((d) => `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)"><span><b>${e(d.ref)}</b> · ${e(d.supplier_name)} · ${e(d.order_ref)}</span><button class="btn sm" data-po="${d.id}">Open</button></div>`).join('')) : '';
+  const refunds = q.refunds.length ? sec('Refunds to pay the customer', q.refunds.length, '<p class="mu" style="margin-top:0">Refund these in your payment dashboard, then record the reference here.</p>' + q.refunds.map(soLine).join('')) : '';
+  return `${q.overdue ? `<div class="note" style="margin-bottom:12px;border-color:var(--bad)"><b>${q.overdue} item(s) need attention</b>: marked ⚠ below.</div>` : ''}
+   ${!q.orders_open ? '<div class="note" style="margin-bottom:12px">The supplier order flow is switched off (DROPSHIP_ORDERS_ENABLED is not 1), so customers cannot buy supplier items yet.</div>' : ''}
+   ${sec('Ready to order from the supplier', q.ready.length, ready)}${drafts}${refunds}${sec('In progress', q.active.length, q.active.map(soLine).join('') || '<p class="mu">No parcels in progress.</p>')}
+   <div style="text-align:right"><button class="btn ghost sm" id="sowatch">Check for stuck orders now</button></div>`;
+}
+function soWire() {
+  onAll('[data-mkpo]', 'click', guard(async (el) => { const [order_id, supplier_id] = el.dataset.mkpo.split(':'); const r = await DS('/supplier-orders/po', { body: { order_id: Number(order_id), supplier_id: Number(supplier_id) } }); toast('Purchase order created'); poView(r.id); }));
+  onAll('[data-po]', 'click', (el) => poView(el.dataset.po));
+  onAll('[data-soact]', 'click', (el) => lineView(el.dataset.soact));
+  on('#sowatch', 'click', guard(async () => { const r = await DS('/supplier-orders/watch', { body: {} }); toast(r.stuck ? r.stuck + ' stuck' + (r.emailed ? ', email sent' : '') : 'Nothing is stuck'); }));
+}
+async function poView(id) {
+  const d = await DS('/supplier-orders/po/' + id), po = d.po, sent = po.status !== 'draft';
+  openModal(`<h2>${e(po.ref)} · ${e(d.supplier.name)}</h2><p class="mu">${sent ? 'Sent' + (po.sent_via ? ' by ' + e(po.sent_via) : '') : 'Not sent yet. Send it, then the items move to "Sent to supplier".'}</p>
+   <pre style="white-space:pre-wrap;background:var(--bg2,#f4f5f7);padding:10px;border-radius:8px;font-size:12px;max-height:260px;overflow:auto">${e(d.text)}</pre>
+   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><a class="btn ghost sm" href="/api/admin/dropship/supplier-orders/po/${po.id}/pdf" target="_blank" rel="noopener">Download PDF</a>
+   ${!sent ? `<button class="btn sm" id="poem">Email supplier (PDF attached)</button>${d.whatsapp_url ? `<a class="btn sm" id="powa" href="${e(d.whatsapp_url)}" target="_blank" rel="noopener">WhatsApp</a>` : ''}<button class="btn ghost sm" id="pomn">I sent it myself</button><button class="btn ghost sm" id="pocn">Cancel this draft</button>` : ''}
+   <button class="btn ghost sm" id="pox">Close</button></div>`, true);
+  const done = (m) => { toast(m); closeModal(); views.dropship(); };
+  $('#pox').addEventListener('click', () => { closeModal(); views.dropship(); });
+  const b = (sel, fn) => { const el = $(sel); if (el) el.addEventListener('click', guard(fn)); };
+  b('#poem', async () => { await DS(`/supplier-orders/po/${po.id}/send`, { body: { via: 'email' } }); done('Emailed to the supplier'); });
+  b('#pomn', async () => { await DS(`/supplier-orders/po/${po.id}/send`, { body: { via: 'manual' } }); done('Marked as sent'); });
+  const wa = $('#powa'); if (wa) wa.addEventListener('click', guard(async () => { await DS(`/supplier-orders/po/${po.id}/send`, { body: { via: 'whatsapp' } }); toast('Marked as sent by WhatsApp'); setTimeout(() => { closeModal(); views.dropship(); }, 400); }));
+  b('#pocn', async () => { await DS(`/supplier-orders/po/${po.id}/cancel`, { body: {} }); done('Draft cancelled'); });
+}
+async function lineView(id) {
+  const d = await DS('/supplier-orders/lines/' + id), l = d.line;
+  const tr = (to, label, cls = 'btn sm') => l.next.includes(to) ? `<button class="${cls}" data-to="${to}">${label}</button>` : '';
+  openModal(`<h2>${e(l.order_ref)} · ${e(l.name)} × ${l.qty}</h2><p class="mu">${e(l.supplier_name)} · <b>${e(SOLBL[l.status])}</b> · customer paid ${naira0(l.sell_total)} · our cost ${e(l.cost_currency)} ${l.unit_cost * l.qty + l.ship_cost * l.qty}</p>
+   <div class="fgrid"><label class="f">Supplier's order number<input id="lno" maxlength="80" value="${e(l.supplier_order_no)}"></label><label class="f">Carrier<input id="lca" maxlength="60" value="${e(l.carrier)}"></label>
+   <label class="f">Tracking number<input id="ltn" maxlength="80" value="${e(l.tracking_no)}"></label><label class="f">Tracking link (https)<input id="ltu" maxlength="300" value="${e(l.tracking_url)}"></label>
+   <label class="f">Note (kept in the history)<input id="lnt" maxlength="300"></label></div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${tr('confirmed', 'Supplier confirmed')}${tr('shipped', 'Shipped')}${tr('in_transit', 'In transit')}${tr('customs', 'In customs')}${tr('delivered', 'Delivered')}${tr('cancelled', 'Cancel item', 'btn ghost sm')}</div>
+   ${l.next.includes('issue') ? `<div class="card" style="margin-top:12px;padding:10px"><b>Supplier problem</b><div class="fgrid"><label class="f">What went wrong<select id="lik">${Object.entries(SOISSUE).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label><label class="f">Details for us<input id="lin" maxlength="300"></label></div><button class="btn ghost sm" id="liss" style="margin-top:8px">Report the problem (the customer is asked to choose)</button></div>` : ''}
+   ${l.status === 'issue' && !l.customer_choice ? `<div class="card" style="margin-top:12px;padding:10px"><b>Offer an alternative</b> (same price for the customer)<div style="display:flex;gap:8px;margin-top:6px"><select id="lalt" style="flex:1"><option value="">Choose a product…</option></select><button class="btn sm" id="lofr">Offer</button></div><div id="lwarn" class="mu" style="font-size:12px;margin-top:4px"></div></div>` : ''}
+   ${(l.status === 'cancelled' || l.status === 'returned') && l.refund_due ? `<div class="card" style="margin-top:12px;padding:10px"><b>Refund due ${naira0(l.refund_due)}</b><div style="display:flex;gap:8px;margin-top:6px"><input id="lrf" placeholder="Refund reference" maxlength="80" style="flex:1"><button class="btn sm" id="lrec">Record refund</button></div></div>` : ''}
+   <h3 style="margin-top:14px">History</h3>${d.events.slice().reverse().map((ev) => `<div style="font-size:12px;margin-bottom:4px"><b>${e(SOLBL[ev.to_status] || ev.to_status)}</b> · ${dt(ev.created)} · ${e(ev.actor)}${ev.note ? '<br><span class="mu">' + e(ev.note) + '</span>' : ''}</div>`).join('')}
+   <div style="text-align:right;margin-top:10px"><button class="btn ghost sm" id="lx">Close</button></div>`, true);
+  const after = (m) => { toast(m); closeModal(); views.dropship(); };
+  $('#lx').addEventListener('click', () => { closeModal(); views.dropship(); });
+  $$('[data-to]').forEach((el) => el.addEventListener('click', guard(async () => {
+    const to = el.dataset.to; if (to === 'cancelled' && !confirm('Cancel this item? The customer will be owed a refund.')) return;
+    await DS(`/supplier-orders/lines/${l.id}/transition`, { body: { to, expected_from: l.status, supplier_order_no: $('#lno').value, carrier: $('#lca').value, tracking_no: $('#ltn').value, tracking_url: $('#ltu').value, note: $('#lnt').value } }); after('Updated');
+  })));
+  const b = (sel, fn) => { const el = $(sel); if (el) el.addEventListener('click', guard(fn)); };
+  b('#liss', async () => { await DS(`/supplier-orders/lines/${l.id}/transition`, { body: { to: 'issue', expected_from: l.status, issue_kind: $('#lik').value, issue_note: $('#lin').value, note: $('#lnt').value } }); after('Problem reported. The customer was emailed.'); });
+  b('#lofr', async () => { if (!$('#lalt').value) return toast('Choose a product', 'bad'); const r = await DS(`/supplier-orders/lines/${l.id}/alternative`, { body: { product_id: Number($('#lalt').value) } }); after(r.loses_money ? 'Offered. Note: you lose money on this one.' : 'Offered. The customer was emailed.'); });
+  b('#lrec', async () => { await DS(`/supplier-orders/lines/${l.id}/refund`, { body: { reference: $('#lrf').value } }); after('Refund recorded'); });
+  const alt = $('#lalt'); if (alt) DS('/products?listing=approved').then(({ products }) => { alt.insertAdjacentHTML('beforeend', products.filter((x) => String(x.id) !== String(l.product_id)).map((x) => `<option value="${x.id}">${e(x.name)} (${e(x.supplier_name || '')})</option>`).join('')); }).catch(() => {});
+}
 const dsOpts = (list, sel, label = (x) => x.name) => list.map((x) => `<option value="${e(x.code)}" ${x.code === sel ? 'selected' : ''}>${e(label(x))}</option>`).join('');
 async function supplierForm(id) {
   const d = id ? await DS('/suppliers/' + id) : { supplier: { name: '', country: '', currency: '', contact_name: '', email: '', whatsapp: '', address: '', payment_terms: '', payment_days: 0, processing_days: 3, shipping_methods: [], margin_type: null, margin_value: null, notes: '', status: 'active' }, performance: null, events: [], documents: [] };
