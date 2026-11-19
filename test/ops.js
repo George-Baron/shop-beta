@@ -135,7 +135,7 @@ const logsOf = (p) => p.log.split('\n').filter((l) => l.startsWith('{')).map((l)
     assert.notStrictEqual(again.status, 0); assert.match(again.stderr, /already has data/);
     const junk = path.join(os.tmpdir(), 'junk-' + tag + '.gz'); fs.writeFileSync(junk, 'hello');
     const bad = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'scripts', 'restore.js'), junk], { env: { ...process.env, DATABASE_URL: urlOf(DBS.busy), DATABASE_SSL: 'off' }, encoding: 'utf8' });
-    assert.notStrictEqual(bad.status, 0); assert.match(bad.stderr, /not a Shop-Beta backup/);
+    assert.notStrictEqual(bad.status, 0); assert.match(bad.stderr, /not a VELTO-MART backup/);
     assert.strictEqual(Number((await pg("SELECT COUNT(*) n FROM information_schema.tables WHERE table_name='users'", DBS.busy))[0].n), 0, 'nothing touched on a bad file');
   });
   await test('with BACKUP_PASSPHRASE the file is encrypted: no readable customer data, wrong passphrase fails, right one restores', async () => {

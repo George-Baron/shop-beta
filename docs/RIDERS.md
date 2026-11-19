@@ -1,6 +1,6 @@
 # Riders: live GPS, dispatch and the AI Operations Manager
 
-Rider accounts, consent-based GPS tracking, AI-assisted dispatch, chat and performance, built into the existing Shop-Beta backend.
+Rider accounts, consent-based GPS tracking, AI-assisted dispatch, chat and performance, built into the existing VELTO-MART backend.
 
 ## Screens
 | Who | Address | What |

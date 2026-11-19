@@ -30,7 +30,7 @@ async function waitUp(port) { for (let i = 0; i < 100; i++) { try { if ((await f
 class Client {
   constructor(url) { this.url = url; this.cookie = ''; this.seen = new Set(); }
   async req(method, p, body) {
-    const r = await fetch(this.url + p, { method, headers: { 'X-Requested-With': 'shop-beta', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(this.cookie ? { Cookie: this.cookie } : {}) }, body: body !== undefined ? JSON.stringify(body) : undefined });
+    const r = await fetch(this.url + p, { method, headers: { 'X-Requested-With': 'velto-mart', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(this.cookie ? { Cookie: this.cookie } : {}) }, body: body !== undefined ? JSON.stringify(body) : undefined });
     for (const c of (r.headers.getSetCookie ? r.headers.getSetCookie() : [])) this.cookie = c.split(';')[0];
     if (r.headers.get('x-instance')) this.seen.add(r.headers.get('x-instance'));
     const t = await r.text(); let json = null; try { json = JSON.parse(t); } catch { /* html */ }

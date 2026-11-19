@@ -145,7 +145,7 @@ const appBody = (o = {}) => ({ business_name: 'Ada Provisions Ltd', contact_name
   await test('bank transfer: we confirm it by hand with a reference; paying twice is harmless', async () => {
     const C = (m, u, b) => call(m, '/api/wholesale' + u, b, buyer);
     const r = await C('POST', '/quotes', { items: [{ productId: P2.id, qty: 3 }], ship_address: '5 Trade Fair Road', ship_state: 'Lagos' }); ref2 = r.j.ref;
-    await W('PUT', '/settings', { wholesale_bank_details: 'Shop-Beta Ltd, 0123456789, Example Bank', wholesale_service_pct: 5 });
+    await W('PUT', '/settings', { wholesale_bank_details: 'VELTO-MART Ltd, 0123456789, Example Bank', wholesale_service_pct: 5 });
     assert.strictEqual((await W('POST', `/quotes/${ref2}/send`, { logistics_fee: 5000, shipment_plan: 'Courier', service_pct: '' })).s, 200);
     const sent = (await C('GET', '/quotes/' + ref2)).j.quote; assert.strictEqual(sent.service_pct, 5, 'blank service % uses the default setting');
     await C('POST', `/quotes/${ref2}/accept`, {});

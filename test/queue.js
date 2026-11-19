@@ -105,7 +105,7 @@ const up = async (port) => { for (let i = 0; i < 200; i++) { try { await fetch(`
     const t0 = Date.now(); const r = await order('ada@example.com'); assert.strictEqual(r.s, 200); assert.ok(Date.now() - t0 < 4000);
     await until(async () => { const m = await outbox('ada@example.com'); return m.length && m.every((x) => x.sent === 1); });
     assert.ok(fx.resendCalls.length >= 4, 'two sends failed, then both went through on retry (customer + shop owner copy)');
-    assert.ok(fx.resendCalls.every((x) => /^shopbeta-outbox-\d+$/.test(x.key)), 'every send carries an idempotency key');
+    assert.ok(fx.resendCalls.every((x) => /^velto-outbox-\d+$/.test(x.key)), 'every send carries an idempotency key');
   });
   await test('an email Resend refuses for good shows in the failed-jobs list, and Retry sends it', async () => {
     await order('bounce@example.com');

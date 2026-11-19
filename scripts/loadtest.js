@@ -1,5 +1,5 @@
 'use strict';
-// Load test for Shop-Beta. No extra packages. Each "connection" is one simulated shopper who keeps asking for the next page as soon as the last one arrives.
+// Load test for VELTO-MART. No extra packages. Each "connection" is one simulated shopper who keeps asking for the next page as soon as the last one arrives.
 //
 //   TARGET=https://staging.example.com  STAGES=10,50,100,200  SECONDS=20  node scripts/loadtest.js
 //

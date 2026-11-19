@@ -60,7 +60,7 @@ const MAIN = [6.6018, 3.3515], LEKKI = [6.4698, 3.5852], YABA = [6.5095, 3.3711]
   });
 
   await call('PUT', '/api/admin/settings', { settings: { open_hour: 0, cutoff_hour: 24, prep_minutes: 20, max_distance_km: 60 } }, admin);
-  const mainId = (await call('POST', '/api/admin/partners', { name: 'Shop-Beta Main Store', address: 'Ikeja, Lagos', state: 'Lagos', phone: '08000000001', lat: MAIN[0], lng: MAIN[1], radius_km: 20, is_default: true }, admin)).j.id;
+  const mainId = (await call('POST', '/api/admin/partners', { name: 'VELTO-MART Main Store', address: 'Ikeja, Lagos', state: 'Lagos', phone: '08000000001', lat: MAIN[0], lng: MAIN[1], radius_km: 20, is_default: true }, admin)).j.id;
   const lekkiId = (await call('POST', '/api/admin/partners', { name: 'Lekki Partner', address: 'Lekki, Lagos', state: 'Lagos', phone: '08000000002', lat: LEKKI[0], lng: LEKKI[1], radius_km: 45 }, admin)).j.id;
   await call('PUT', `/api/admin/products/${PB}/partner`, { partnerId: lekkiId }, admin);
   const rider = async (email) => { await call('POST', '/api/admin/riders', { name: 'Rider ' + email.split('@')[0], email, phone: '08033334444', password: 'RiderPass123', coverage: 'Lagos' }, admin); return (await call('POST', '/api/auth/login', { email, password: 'RiderPass123' })).c; };
@@ -123,7 +123,7 @@ const MAIN = [6.6018, 3.3515], LEKKI = [6.4698, 3.5852], YABA = [6.5095, 3.3711]
   await test('items from two partners make two pickups, each with its own leg', async () => {
     const r = await call('POST', '/api/checkout', order({ email: 'two@example.com', loc: YABA, items: [{ productId: PA, qty: 1 }, { productId: PB, qty: 1 }] })); assert.strictEqual(r.s, 200);
     const pk = await q("SELECT p.name FROM order_pickups op JOIN partners p ON p.id=op.partner_id WHERE op.order_id=(SELECT id FROM orders WHERE email='two@example.com') ORDER BY p.name");
-    assert.deepStrictEqual(pk.map((x) => x.name), ['Lekki Partner', 'Shop-Beta Main Store']);
+    assert.deepStrictEqual(pk.map((x) => x.name), ['Lekki Partner', 'VELTO-MART Main Store']);
   });
 
   // ---------- one full delivery ----------

@@ -1,4 +1,4 @@
-# Putting Shop-Beta online: the complete go-live guide
+# Putting VELTO-MART online: the complete go-live guide
 
 This guide takes you from "the code is on GitHub" to "customers can order". Do the parts in order. Each part says what to click, what to copy, and how to know it worked. Screens on Render, Supabase, Cloudflare, Paystack, Resend and Geoapify change names now and then; if a button is not where this says, look for the closest word.
 
@@ -14,7 +14,7 @@ This guide takes you from "the code is on GitHub" to "customers can order". Do t
 Customer ──> Cloudflare (free: https, caching, attack shield)
                   │
                   ▼
-        Render: Shop-Beta app (1 to 2 instances, also runs the background worker)
+        Render: VELTO-MART app (1 to 2 instances, also runs the background worker)
            │            │             │               │
            ▼            ▼             ▼               ▼
    Supabase Postgres  Supabase     Paystack        Resend (email)
@@ -49,7 +49,7 @@ Done when: you have `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` 
 1. Sign up at resend.com. **Domains > Add domain** (use your shop's domain, for example `yourshop.com`).
 2. Resend shows DNS records (SPF, DKIM and so on). Add them where your domain's DNS is managed (Cloudflare, after Part 7, or your registrar). Wait until Resend shows the domain as **Verified**.
 3. **API Keys > Create** with sending permission. Copy it: this is `RESEND_API_KEY`.
-4. `MAIL_FROM` is the sender line, for example `Shop-Beta <orders@yourshop.com>`. The address must be on the verified domain.
+4. `MAIL_FROM` is the sender line, for example `VELTO-MART <orders@yourshop.com>`. The address must be on the verified domain.
 
 Without these, orders still work but customers get no email (messages are only stored in Admin > Marketing).
 

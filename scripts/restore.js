@@ -1,6 +1,6 @@
 'use strict';
-// Restore a Shop-Beta backup into a NEW, EMPTY database.
-//   DATABASE_URL=postgres://... [BACKUP_PASSPHRASE=...] npm run restore -- path/to/shop-beta-2026....json.gz[.enc]
+// Restore a VELTO-MART backup into a NEW, EMPTY database.
+//   DATABASE_URL=postgres://... [BACKUP_PASSPHRASE=...] npm run restore -- path/to/velto-mart-2026....json.gz[.enc]
 // It runs the migrations first, refuses to touch a database that already has data (unless --force), and loads everything in one transaction:
 // either the whole backup goes in or nothing does. See docs/RESTORE.md.
 const fs = require('fs');

@@ -1,4 +1,4 @@
-# Deploying Shop-Beta (go-live guide)
+# Deploying VELTO-MART (go-live guide)
 
 Target: **launch Monday 4 January 2027**, code freeze **Sunday 20 December 2026**. Hosting plan: 2 Render Standard instances + Supabase Pro (about $75 a month), Cloudflare free, Resend and Paystack as below.
 
@@ -75,7 +75,7 @@ Set these on Render (Environment tab). Never put a secret in the repository or i
 |---|---|---|---|---|
 | `PAYSTACK_SECRET_KEY` | yes | **yes** | `sk_test_...` on staging, `sk_live_...` in production | Starts payments, checks the signed webhook, verifies each payment. Empty = demo mode (no real money). |
 | `RESEND_API_KEY` | yes | **yes** | `re_...` | Sends email. Empty = emails are only stored. |
-| `MAIL_FROM` | yes | no | `Shop-Beta <orders@yourdomain.com>` | Sender; the domain must be verified in Resend. |
+| `MAIL_FROM` | yes | no | `VELTO-MART <orders@yourdomain.com>` | Sender; the domain must be verified in Resend. |
 
 ### Photos and backups storage (Supabase Storage) - docs/STORAGE.md
 | Variable | Req | Secret | Value / default | What it does |
@@ -138,7 +138,7 @@ Set these on Render (Environment tab). Never put a secret in the repository or i
 
 ---
 ## 3. Supabase (you)
-1. supabase.com > **New project**. Name `shop-beta-prod`. **Region:** the same area as Render (see section 5). Set a long database password and **save it in a password manager**.
+1. supabase.com > **New project**. Name `velto-mart-prod`. **Region:** the same area as Render (see section 5). Set a long database password and **save it in a password manager**.
 2. **ASK:** upgrade the organisation to **Pro** (Billing). Do not add point-in-time recovery or compute upgrades.
 3. **Connect** button (top bar) > copy two strings and replace `[YOUR-PASSWORD]` by the password. If the password has characters like `@ # / : ?` URL-encode them (or choose letters and digits only):
    - **Transaction pooler** (port **6543**) -> `DATABASE_URL`
@@ -153,14 +153,14 @@ Set these on Render (Environment tab). Never put a secret in the repository or i
 1. resend.com > create account. **Domains > Add Domain** `yourdomain.com` (choose the region closest to Render).
 2. Resend shows DNS records (SPF and DKIM TXT, usually an MX/TXT for a `send` sub-name). Add them at your DNS (Cloudflare, section 7) as **DNS only** (grey cloud), then **Verify**. Wait until the domain shows *Verified*.
 3. **API Keys > Create API Key**, permission **Sending access**, domain `yourdomain.com` -> `RESEND_API_KEY`.
-4. `MAIL_FROM=Shop-Beta <orders@yourdomain.com>` (must be on the verified domain; `resend.dev` only delivers to your own address).
+4. `MAIL_FROM=VELTO-MART <orders@yourdomain.com>` (must be on the verified domain; `resend.dev` only delivers to your own address).
 5. Also add a DMARC record at DNS: `_dmarc` TXT `v=DMARC1; p=none; rua=mailto:you@yourdomain.com` (improves delivery to Gmail/Yahoo).
 6. Test: place a staging order with your own email; the confirmation must arrive (not in spam). Admin > Jobs & backups shows failed email jobs if not.
 7. *Not verified:* the free-plan limit and the current Resend screens.
 
 ## 5. Render (you)
 **Region:** pick the Render region closest to your Supabase project (same city is best, so each database call is fast). Render has no African region and Supabase has one in South Africa; check both lists. Europe (Frankfurt) is the usual compromise for Nigeria; Cloudflare caching in front hides most of the distance for browsing.
-Do this first for **staging** (`shop-beta-staging`, branch `rebuild/scale`, TEST keys), then again for **production** (`shop-beta`, branch `main`, LIVE keys).
+Do this first for **staging** (`velto-mart-staging`, branch `rebuild/scale`, TEST keys), then again for **production** (`velto-mart`, branch `main`, LIVE keys).
 1. render.com > **New > Web Service** > connect GitHub `George-Baron/shop-beta` > choose the branch.
 2. **Runtime** Node. **Build command** `npm ci --omit=dev`. **Start command** `npm start`.
 3. **Instance type** Standard. **Instances: 2** (Scaling). 
