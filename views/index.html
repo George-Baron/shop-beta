@@ -292,6 +292,41 @@ body.is-rider .ann,body.is-rider .head,body.is-rider .foot,body.is-rider .cookie
 .rk-pill{color:#fff;border-radius:999px;padding:2px 9px;font-size:12px;font-weight:700;white-space:nowrap}.rk-panel{min-width:min(960px,92vw)}.rk-ph{display:flex;justify-content:space-between;gap:10px;align-items:start}.rk-cols{display:grid;grid-template-columns:1.3fr 1fr;gap:16px}@media(max-width:800px){.rk-cols{grid-template-columns:1fr}}
 .rk-perf{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px}.rk-perf div{background:rgba(0,0,0,.05);border-radius:8px;padding:6px;text-align:center}.rk-perf b{display:block;font-size:18px}.rk-perf span{font-size:11px;opacity:.7}
 .rk-tmap{height:220px;border-radius:10px;margin-top:8px}.rk-eg{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.rk-cmd{border-top:1px solid var(--border,#e5e7eb);padding:10px 0}.rk-cmd .q{font-weight:700}.rk-cmd .a{margin-top:4px}
+/* VELTO-MART layout: header + hero arranged like the reference (CSS only, no elements added/removed) */
+.head{background:#0b1b3a;color:#fff;border-bottom:0}
+.head-in{gap:28px;padding:14px 20px;max-width:1280px}
+.head .logo{flex:0 0 auto}
+.head .search{flex:1 1 auto;max-width:none}
+.head .search input,[data-store] .head .search input{height:46px;border-radius:10px;border:0;background:#fff;color:#16181d;padding:0 64px 0 18px;font-size:15px}
+.head .search button,[data-store] .head .search button{right:4px;top:4px;bottom:4px;transform:none;width:50px;padding:0;border-radius:8px;background:var(--accent);color:#0b1b3a;display:grid;place-items:center;font-size:17px}
+.head .icons{gap:10px;margin-left:0;flex:0 0 auto}
+.head .ibtn{color:#fff;border-radius:50%;width:44px;height:44px;padding:0;background:rgba(255,255,255,.08)}
+.head .ibtn:hover{background:rgba(245,179,1,.25)}
+.head .nav2{max-width:1280px;gap:30px;padding:0 20px;border-top:1px solid rgba(255,255,255,.12);font-size:14px;line-height:46px;height:46px;overflow-x:auto;white-space:nowrap}
+.head .nav2 a{color:#fff;opacity:.9;border-bottom:3px solid transparent;display:inline-block;line-height:43px}
+.head .nav2 a:hover,.head .nav2 a.on,[data-store] .head .nav2 a:hover,[data-store] .head .nav2 a.on{color:var(--accent);border-bottom-color:var(--accent);opacity:1}
+.hero,[data-store] .hero{background:radial-gradient(900px 400px at 85% 50%,#1b3a78 0%,transparent 65%),linear-gradient(135deg,#0b1b3a,#13306a);color:#fff;--hero-muted:#cfd8ec;border-bottom:4px solid var(--accent)}
+.hero-in{max-width:1280px;padding:56px 20px;min-height:380px}
+.hero h1,[data-store] .hero h1{color:#fff;font-size:clamp(30px,4.4vw,52px);line-height:1.1}
+.hero h1 em,[data-store] .hero h1 em{color:var(--accent);font-style:normal}
+.hero p,[data-store] .hero p{color:#cfd8ec}
+.hero .btn,[data-store] .hero .btn{background:var(--accent);color:#0b1b3a;border:0;font-weight:800;border-radius:10px}
+.hero .eyebrow{color:var(--accent)}
+@media(max-width:760px){.head-in{gap:10px;padding:10px 14px}.head .icons{margin-left:auto;gap:6px}.head .logo span.t{font-size:16px}.head .search input{height:42px}.head .ibtn{width:36px;height:36px;font-size:17px}.head .nav2{display:flex;gap:22px;padding:0 14px;font-size:13px;scrollbar-width:none}.head .nav2::-webkit-scrollbar{display:none}.hero-in{padding:28px 16px;min-height:0}}
+/* Banner shown in full, departments as a vertical sidebar (reference layout) */
+.herob{background:var(--bg,#fff)}
+.herob-in{max-width:1280px;margin:0 auto;padding:16px 20px;display:grid;grid-template-columns:250px 1fr;gap:16px;align-items:start}
+.herob-in>*{min-width:0}
+.herob-img{display:block;border-radius:14px;overflow:hidden;line-height:0;background:#0b1b3a}
+.herob-img img{display:block;width:100%;height:auto;object-fit:contain;object-position:center}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.catside{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:8px}
+.catside .tabs-in{flex-direction:column;gap:2px;padding:0;margin:0;max-width:none;overflow:visible}
+.catside .dtab{border-radius:10px;padding:12px 14px;font-size:15px;color:var(--text);gap:12px}
+.catside .dtab:hover{background:var(--surface-2)}
+.catside .dtab.on{background:var(--accent);color:var(--accent-ink)}
+.tabs-dept:not(:has(#dtabs)){display:none}
+@media(max-width:900px){.herob-in{grid-template-columns:minmax(0,1fr);padding:10px 14px}.catside{order:2;padding:4px}.catside .tabs-in{flex-direction:row;overflow-x:auto}.catside .dtab{padding:8px 14px}}
 </style>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b1b3a'/%3E%3Cpath d='M10 14h11l11 27 11-27h11L38 52H26z' fill='%23f5b301'/%3E%3C/svg%3E">
 </head>
@@ -793,14 +828,7 @@ const promos = (d) => `<div class="promo2"><div class="promo"><div><h3>${e(d.sto
 const banner = (d) => `<div class="banner"><div><h3>${e(d.store.banner_title)}</h3><p>${e(d.store.banner_sub)}</p></div><a class="btn" href="${shopLink(d.store)}" data-link>Shop now →</a></div>`;
 const none = '<div class="empty"><div class="em">🛒</div><p>Products are coming soon.</p></div>';
 
-const hero = {
-  fashion: (d) => `<div class="hero"><div class="hero-in"><div><h1>${e(d.store.hero_title).replace('In One Place', '<br>In One Place')}</h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('fashion')}</div></div>`,
-  supermarket: (d) => `<div class="hero"><div class="hero-in"><div><h1>More Choices,<br><em>Better Living</em></h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('supermarket')}</div></div>`,
-  beauty: (d) => `<div class="hero"><div class="hero-in"><div><div class="eyebrow">VELTO-MART · Beauty</div><h1>${e(d.store.hero_title)}</h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('beauty')}</div></div>`,
-  electronics: (d) => `<div class="hero"><div class="hero-in"><div><h1>Premium Products<br><em>Great Prices</em></h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('electronics')}</div></div>`,
-  pharmacy: (d) => `<div class="hero"><div class="hero-in"><div><h1>${e(d.store.hero_title)}</h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('pharmacy')}</div></div>`,
-  food: (d) => `<div class="hero"><div class="hero-in"><div><h1>${e(d.store.hero_title).replace(', ', ',<br>')}</h1><p>${e(d.store.hero_sub)}</p><a class="btn lg" href="${shopLink(d.store)}" data-link>${e(d.store.hero_cta)} →</a></div>${art('food')}</div></div><div class="wavy"></div>`,
-};
+const hero = new Proxy({}, { has: () => true, get: () => (d) => `<div class="herob"><div class="herob-in"><aside class="catside" id="catside" aria-label="Departments"></aside><a class="herob-img" href="${shopLink(d.store)}" data-link aria-label="${e(d.store.hero_cta)}"><img src="/brand/velto-banner.jpg" width="1386" height="361" alt="${e(brandName(d.store.name))} — ${e(d.store.hero_title)}"><span class="vh"><b>${e(d.store.hero_title)}</b> ${e(d.store.hero_sub)}</span></a></div></div>` });
 const body = {
   fashion: (d) => `${sec('Shop by category', '', cats(d))}${sec('Best Sellers', shopLink(d.store) + '&flag=best', d.bestsellers.length ? grid(d.bestsellers) : none)}${sec('New In', shopLink(d.store) + '&flag=new', d.newArrivals.length ? grid(d.newArrivals.slice(0, 4)) : none)}<section class="blk"><div class="wrap">${trust('fashion')}</div></section>`,
   supermarket: (d) => `${sec('Shop by category', '', cats(d))}${sec('Featured Deals', shopLink(d.store) + '&flag=deals', d.deals.length ? grid(d.deals) : grid(d.featured))}<section class="blk"><div class="wrap"><div class="deal-strip"><div><h3>${e(d.store.banner_title)}</h3><p class="mu" style="margin:0">${e(d.store.banner_sub)}</p></div><span class="big">🚚</span><a class="btn" href="/page/shipping" data-link>Learn More →</a></div></div></section>${sec('Fresh & popular', shopLink(d.store), grid(d.bestsellers.slice(0, 4)))}<section class="blk"><div class="wrap">${trust('supermarket')}</div></section>`,
@@ -1561,6 +1589,7 @@ async function route() {
     else if (seg[0] === 'd' && seg.length === 2) title = await home(main, seg[1], cfg);
     else if (seg[0] === 'shop' || (seg[0] === 'd' && seg[2] === 'shop')) title = await shopView(main, u, cfg);
     else if (seg[0] === 'product' && seg[1]) title = await productView(main, seg[1], cfg);
+    else if ((seg[0] === 'import-export' || seg[0] === 'dropshipping') && seg.length === 1) { const t = seg[0] === 'dropshipping' ? 'Dropshipping' : 'Import & Export'; main.innerHTML = `<div class="wrap page" style="max-width:640px;text-align:center"><nav class="crumbs" style="text-align:left"><a href="/" data-link>Home</a> › ${e(t)}</nav><div class="card"><div style="font-size:46px">🚧</div><h1 style="margin:8px 0">${e(t)}</h1><p class="mu">This page is under construction. Please check back soon.</p><a class="btn" href="/" data-link>Back to home</a></div></div>`; title = t; }
     else if (seg[0] === 'stores' && seg.length === 1) title = await storesView(main, u, cfg);
     else if (seg[0] === 'store' && seg[1]) title = await storeView(main, seg[1], u, cfg);
     else if (seg[0] === 'sell' && seg.length === 1) title = await sellView(main, cfg);
@@ -2052,8 +2081,9 @@ function shell() {
 }
 function syncHeader() {
   const slug = getStoreSlug();
+  { const side = $('#catside'), tabs = $('#dtabs'), strip = $('.tabs-dept'); if (side && tabs && tabs.parentElement !== side) side.appendChild(tabs); else if (!side && tabs && strip && tabs.parentElement !== strip) strip.appendChild(tabs); }
   $$('.dtab').forEach((t) => { const on = t.dataset.dept === slug; t.classList.toggle('on', on); t.setAttribute('aria-selected', on); });
-  $('#nav2').innerHTML = `<a href="/d/${e(slug)}" data-link>Home</a><a href="/shop?store=${e(slug)}" data-link>Shop</a><a href="/shop?store=${e(slug)}&flag=deals" data-link>Deals</a><a href="/shop?store=${e(slug)}&flag=new" data-link>New Arrivals</a><a href="/page/contact" data-link>Contact</a>`;
+  $('#nav2').innerHTML = `<a href="/d/${e(slug)}" data-link>Home</a><a href="/shop?store=${e(slug)}" data-link>Shop</a><a href="/wholesale" data-link>Wholesale</a><a href="/stores" data-link>Partner Stores</a><a href="/import-export" data-link>Import &amp; Export</a><a href="/dropshipping" data-link>Dropshipping</a><a href="/shop?store=${e(slug)}&flag=deals" data-link>Deals</a><a href="/shop?store=${e(slug)}&flag=new" data-link>New Arrivals</a><a href="/page/contact" data-link>Contact</a>`;
   const c = cart.count(), w = wish.ids.size;
   const cc = $('#ccount'), wc = $('#wcount'); if (cc) { cc.textContent = c; cc.classList.toggle('hide', !c); } if (wc) { wc.textContent = w; wc.classList.toggle('hide', !w); }
   const a = $('#acctBtn'); if (a) a.title = store.user ? store.user.name : 'Sign in';
