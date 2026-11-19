@@ -1571,6 +1571,71 @@ let cfg;
 
 /* ---------- router ---------- */
 function go(url, replace) { if (replace) history.replaceState({}, '', url); else history.pushState({}, '', url); route(); window.scrollTo(0, 0); }
+/* ---------- International orders (Global Trade phase 3) ---------- */
+async function intlView(main, seg, u, cfg) {
+  const money = (n, c) => { try { return new Intl.NumberFormat('en', { style: 'currency', currency: c.code, minimumFractionDigits: c.decimals, maximumFractionDigits: c.decimals }).format(n); } catch { return c.symbol + Number(n).toFixed(c.decimals); } };
+  const wrap = (h) => { main.innerHTML = `<div class="wrap page" style="max-width:820px"><nav class="crumbs"><a href="/" data-link>Home</a> › International orders</nav>${h}</div>`; };
+  if (seg[1] === 'order' && seg[2]) {
+    const ref = seg[2], t = u.searchParams.get('t') || '';
+    let o; try { o = await api('/api/trade/orders/' + encodeURIComponent(ref) + '?t=' + encodeURIComponent(t)); } catch (er) { wrap(`<div class="card"><h1>Order not found</h1><p class="mu">${e(er.message)} Use the link in your order email.</p></div>`); return 'International order'; }
+    const c = { code: o.currency, symbol: o.currency, decimals: o.currency === 'JPY' ? 0 : 2 }, a = o.amounts, unpaid = o.payment_status !== 'paid' && o.status === 'pending';
+    wrap(`<div class="card"><h1 style="margin-top:0">Order ${e(o.ref)}</h1><p class="mu">Status: <b>${e(String(o.status).replace(/_/g, ' '))}</b> · Payment: <b>${e(o.payment_status)}</b></p>
+      ${unpaid && cfg.payments.demo ? '<div class="note"><b>Demo mode:</b> no real money is charged. <button class="btn sm" id="dpay">Pay now (demo)</button> <button class="btn ghost sm" id="dfail">Fail payment</button></div>' : ''}
+      ${unpaid && !cfg.payments.demo ? '<button class="btn" id="recheck">I have paid: check payment</button>' : ''}
+      <h3>Items</h3>${o.items.map((i) => `<div>${e(i.name)} × ${i.qty}</div>`).join('')}
+      <h3>Totals (${e(o.currency)})</h3><div class="sum"><span>Goods</span><span>${money(a.goods, c)}</span></div><div class="sum"><span>Shipping (${e(o.shipping.method)})</span><span>${money(a.shipping, c)}</span></div>
+      ${a.insurance ? `<div class="sum"><span>Insurance</span><span>${money(a.insurance, c)}</span></div>` : ''}${o.duties.collected ? `<div class="sum"><span>Duties and taxes (prepaid)</span><span>${money(a.duties, c)}</span></div>` : '<div class="sum"><span>Duties and taxes</span><span class="mu">Not included: payable on delivery if charged</span></div>'}
+      <div class="sum"><b>Total</b><b>${money(a.total, c)}</b></div><p class="mu" style="font-size:13px">You are charged ${naira(o.charged_ngn)} (NGN) at the rate fixed when you ordered. Your bank may show a different amount.</p>
+      <h3>Shipment</h3><p>To ${e(o.destination.name)}, ${e(o.destination.city)}, ${e(o.destination.country)}${o.shipping.carrier ? `<br>Carrier: ${e(o.shipping.carrier)}` : ''}${o.shipping.tracking_number ? `<br>Tracking number: <b>${e(o.shipping.tracking_number)}</b>` : ''}</p>
+      ${o.timeline.length ? o.timeline.map((x) => `<div style="margin-bottom:6px"><b>${e(String(x.stage).replace(/_/g, ' '))}</b> <span class="mu">· ${new Date(x.at * 1000).toLocaleString()}${x.location ? ' · ' + e(x.location) : ''}</span>${x.description ? '<br>' + e(x.description) : ''}</div>`).join('') : '<p class="mu">No updates yet.</p>'}</div>`);
+    const again = () => go(location.pathname + location.search, true);
+    const dp = $('#dpay'); if (dp) dp.addEventListener('click', async () => { try { await api('/api/pay/demo/' + o.ref, { body: { outcome: 'ok' } }); cart.clear(); toast('Payment received (demo)'); again(); } catch (er) { toast(er.message, 'bad'); } });
+    const df = $('#dfail'); if (df) df.addEventListener('click', async () => { try { await api('/api/pay/demo/' + o.ref, { body: { outcome: 'fail' } }); toast('Payment failed. The order was cancelled.', 'bad'); again(); } catch (er) { toast(er.message, 'bad'); } });
+    const rc = $('#recheck'); if (rc) rc.addEventListener('click', async () => { await api('/api/paystack/verify?reference=' + encodeURIComponent(o.ref)).catch(() => {}); again(); });
+    return 'Order ' + o.ref;
+  }
+  const [cs, cu] = await Promise.all([api('/api/trade/countries'), api('/api/trade/currencies')]);
+  if (!cart.items.length) { wrap('<div class="card" style="text-align:center"><h1>International orders</h1><p class="mu">Your cart is empty. Add products, then come back here to see shipping to your country.</p><a class="btn" href="/shop" data-link>Browse the shop</a></div>'); return 'International orders'; }
+  if (!cs.countries.length) { wrap('<div class="card" style="text-align:center"><h1>International orders</h1><p class="mu">We are not shipping outside Nigeria yet. Please check back soon.</p></div>'); return 'International orders'; }
+  const saved = ls.get('sb_intl', {}), st = { quote: null, idem: null };
+  wrap(`<div class="card"><h1 style="margin-top:0">Ship outside Nigeria</h1><p class="mu">Choose where we should send your cart. Shipping prices are estimates set by our team and are shown before you pay.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px"><label class="f">Country<select id="ic">${cs.countries.map((c) => `<option value="${e(c.code)}" ${saved.country === c.code ? 'selected' : ''}>${e(c.name)}</option>`).join('')}</select></label>
+    <label class="f">Show prices in<select id="icu">${cu.currencies.map((c) => `<option value="${e(c.code)}" ${saved.currency === c.code ? 'selected' : ''}>${e(c.code)} · ${e(c.name)}</option>`).join('')}</select></label>
+    <label class="f">Postal / ZIP code<input id="ip" value="${e(saved.postal || '')}" maxlength="12"></label></div>
+    <label style="display:block;margin:10px 0"><input type="checkbox" id="ii"> Insure the parcel when the method offers it</label><button class="btn" id="iq">Get shipping options</button><div id="ierr" class="mu" style="color:#b91c1c;margin-top:8px"></div></div><div id="iout"></div>`);
+  const g = (id) => ($('#' + id) ? $('#' + id).value.trim() : '');
+  const addrBody = () => ({ items: cart.items, country: g('ic'), currency: g('icu'), insurance: $('#ii').checked, address: { postal_code: g('ip'), line1: g('a1'), line2: g('a2'), city: g('ac'), region: g('ar') }, contact: { name: g('cn'), email: g('ce'), dial_code: g('cd'), phone: g('cph'), tax_id: g('ct') } });
+  const showErr = (m) => { $('#ierr').textContent = m || ''; };
+  $('#iq').addEventListener('click', async () => {
+    showErr(''); const b = $('#iq'); b.disabled = true;
+    try {
+      const q = await api('/api/trade/quote', { body: addrBody() }); st.quote = q; st.idem = null; ls.set('sb_intl', { country: g('ic'), currency: g('icu'), postal: g('ip') });
+      const c = q.currency, country = cs.countries.find((x) => x.code === q.country.code) || {};
+      $('#iout').innerHTML = `<div class="card" style="margin-top:14px"><h3 style="margin-top:0">Your items</h3>${q.items.map((i) => `<div>${e(i.name)} × ${i.qty} <span class="mu">· ${money(i.unit_price, c)} each</span></div>`).join('')}${q.issues.length ? `<p style="color:#b91c1c">${q.issues.map((i) => e(i.message)).join('<br>')}</p>` : ''}
+        ${q.rate_stale ? '<p class="note">Exchange rates are a little out of date, so prices may change slightly at checkout.</p>' : ''}
+        <h3>Shipping method</h3>${q.options.length ? q.options.map((o, i) => `<label class="card" style="display:block;margin:8px 0;cursor:pointer"><input type="radio" name="isv" value="${o.service_id}" ${i === 0 ? 'checked' : ''}> <b>${e(o.label)}</b> <span class="pill">Estimate</span><br>
+          <span class="mu">${o.days.min != null ? `${o.days.min}-${o.days.max} days` : 'Delivery time not set'} · Shipping ${money(o.amounts.shipping, c)}${o.amounts.insurance ? ` · Insurance ${money(o.amounts.insurance, c)}` : ''} · <b>Total ${money(o.total, c)}</b></span><br><span class="mu" style="font-size:12px">${e(o.duties.message)}</span></label>`).join('') : `<p class="mu">${e(q.message)}</p>`}</div>
+        ${q.options.length ? `<div class="card" style="margin-top:14px"><h3 style="margin-top:0">Delivery details</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+          <label class="f">Full name<input id="cn" autocomplete="name"></label><label class="f">Email<input id="ce" type="email" autocomplete="email"></label>
+          <label class="f">Phone code<input id="cd" value="${e(country.dial_code || '')}" maxlength="4"></label><label class="f">Phone number<input id="cph" inputmode="tel"></label>
+          <label class="f" style="grid-column:1/-1">Street address<input id="a1" autocomplete="address-line1"></label><label class="f" style="grid-column:1/-1">Apartment, suite (optional)<input id="a2"></label>
+          <label class="f">City<input id="ac"></label><label class="f">State / province<input id="ar"></label>${country.tax_id_required ? `<label class="f">${e(country.tax_id_label || 'Tax ID')}<input id="ct"></label>` : ''}</div>
+          <p class="mu" style="font-size:13px">You pay in Nigerian naira through our secure payment page. The amount in ${e(c.code)} is shown for your convenience.</p><div id="ierr2" style="color:#b91c1c"></div><button class="btn" id="ipl">Place order</button></div>` : ''}`;
+      const pl = $('#ipl'); if (pl) pl.addEventListener('click', async () => {
+        const er2 = $('#ierr2'); er2.textContent = ''; pl.disabled = true; pl.textContent = 'Placing order...';
+        if (!st.idem) st.idem = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, '').padEnd(16, '0');
+        const sv = Number(($('input[name=isv]:checked') || {}).value), opt = q.options.find((o) => o.service_id === sv);
+        try {
+          const r = await api('/api/trade/checkout', { body: { ...addrBody(), service_id: sv, quote_id: opt.quote_id, idempotencyKey: st.idem } });
+          try { sessionStorage.setItem('sb_last', JSON.stringify({ ref: r.ref, token: r.token || '' })); } catch { /* private mode */ }
+          if (r.next === 'paystack') { location.href = r.url; return; }
+          go('/international/order/' + r.ref + '?t=' + encodeURIComponent(r.token));
+        } catch (er) { if (er.status) st.idem = null; er2.textContent = er.message; pl.disabled = false; pl.textContent = 'Place order'; }
+      });
+    } catch (er) { showErr(er.message); } finally { b.disabled = false; }
+  });
+  return 'International orders';
+}
 async function route() {
   const u = new URL(location.href); const p = u.pathname.replace(/\/+$/, '') || '/'; const seg = p.split('/').filter(Boolean);
   let main = $('#main'); if (!main) return;
@@ -1589,7 +1654,8 @@ async function route() {
     else if (seg[0] === 'd' && seg.length === 2) title = await home(main, seg[1], cfg);
     else if (seg[0] === 'shop' || (seg[0] === 'd' && seg[2] === 'shop')) title = await shopView(main, u, cfg);
     else if (seg[0] === 'product' && seg[1]) title = await productView(main, seg[1], cfg);
-    else if ((seg[0] === 'import-export' || seg[0] === 'dropshipping') && seg.length === 1) { const t = seg[0] === 'dropshipping' ? 'Dropshipping' : 'Import & Export'; main.innerHTML = `<div class="wrap page" style="max-width:640px;text-align:center"><nav class="crumbs" style="text-align:left"><a href="/" data-link>Home</a> › ${e(t)}</nav><div class="card"><div style="font-size:46px">🚧</div><h1 style="margin:8px 0">${e(t)}</h1><p class="mu">This page is under construction. Please check back soon.</p><a class="btn" href="/" data-link>Back to home</a></div></div>`; title = t; }
+    else if (seg[0] === 'international' || (seg[0] === 'import-export' && seg.length === 1)) title = await intlView(main, seg[0] === 'international' ? seg : ['international'], u, cfg);
+    else if (seg[0] === 'dropshipping' && seg.length === 1) { const t = 'Dropshipping'; main.innerHTML = `<div class="wrap page" style="max-width:640px;text-align:center"><nav class="crumbs" style="text-align:left"><a href="/" data-link>Home</a> › ${e(t)}</nav><div class="card"><div style="font-size:46px">🚧</div><h1 style="margin:8px 0">${e(t)}</h1><p class="mu">This page is under construction. Please check back soon.</p><a class="btn" href="/" data-link>Back to home</a></div></div>`; title = t; }
     else if (seg[0] === 'stores' && seg.length === 1) title = await storesView(main, u, cfg);
     else if (seg[0] === 'store' && seg[1]) title = await storeView(main, seg[1], u, cfg);
     else if (seg[0] === 'sell' && seg.length === 1) title = await sellView(main, cfg);
@@ -2914,10 +2980,10 @@ views.partners = async () => {
 };
 
 /* ---------- Global Trade (imports, exports, international shipping): phase 1-2 screens ---------- */
-const tradeState = { tab: 'overview', cq: '', pf: '', pq: '', pp: 1 };
+const tradeState = { tab: 'overview', cq: '', pf: '', pq: '', pp: 1, of: '', oq: '' };
 views.trade = async () => {
   const edit = can('trade', true), T = tradeState;
-  const tabs = [['overview', 'Overview'], ['countries', 'Countries'], ['rates', 'Currencies & rates'], ['products', 'Products'], ['settings', 'Settings'], ['audit', 'Activity']];
+  const tabs = [['overview', 'Overview'], ['countries', 'Countries'], ['rates', 'Currencies & rates'], ['products', 'Products'], ['shipping', 'Shipping & duties'], ['orders', 'International orders'], ['settings', 'Settings'], ['audit', 'Activity']];
   const ngn = (n) => naira(Math.round(Number(n || 0)));
   const yn = (b) => (b ? '<span class="pill ok">Yes</span>' : '<span class="pill">No</span>');
   const frame = (body) => mn(hd('GLOBAL TRADE &amp; LOGISTICS', '') + `<div class="tbar">${tabs.map(([k, t]) => `<button class="btn ${T.tab === k ? '' : 'ghost'} sm" data-tab="${k}">${t}</button>`).join('')}</div>` + body);
@@ -3000,6 +3066,71 @@ views.trade = async () => {
         modal.classList.remove('on'); toast('Saved'); views.trade();
       }));
     });
+    return;
+  }
+  if (T.tab === 'orders') {
+    const d = await api('/api/admin/trade/orders?status=' + encodeURIComponent(T.of || '') + '&q=' + encodeURIComponent(T.oq || ''));
+    const stat = ['', 'pending', 'confirmed', 'processing', 'packed', 'dispatched', 'in_transit', 'customs', 'out_for_delivery', 'delivered', 'cancelled', 'returned'];
+    frame(`<div class="panel"><div class="mu2" style="margin-bottom:8px">Orders placed from the international checkout. Customers pay in NGN; the amount in their currency is shown for reference.</div>
+      <select id="ofs">${stat.map((s) => `<option value="${s}" ${T.of === s ? 'selected' : ''}>${s ? s.replace(/_/g, ' ') : 'All statuses'}</option>`).join('')}</select> <input id="oq" placeholder="Order, name, email, tracking" value="${e(T.oq || '')}" style="max-width:240px"> <button class="btn ghost sm" id="ogo">Search</button>
+      <div class="tw" style="margin-top:10px">${d.orders.length ? `<table class="t"><tr><th>Order</th><th>Customer</th><th>To</th><th>Method</th><th>Total</th><th>Charged</th><th>Status</th></tr>${d.orders.map((o) => `<tr data-o="${e(o.ref)}" style="cursor:pointer"><td>${e(o.ref)}<br><span class="mu2">${e(o.order_ref)}</span></td><td>${e(o.ship_name)}</td><td>${e(o.destination_country)}</td><td>${e(o.service_label)}</td><td>${e(o.currency)} ${Number(o.total).toLocaleString()}</td><td>${ngn(o.total_ngn)}<br><span class="mu2">${e(o.payment_status)}</span></td><td><span class="pill">${e(String(o.status).replace(/_/g, ' '))}</span></td></tr>`).join('')}</table>` : '<div class="mu2">No international orders yet.</div>'}</div></div>`);
+    wireTabs(); on('#ogo', 'click', () => { T.of = $('#ofs').value; T.oq = $('#oq').value.trim(); views.trade(); }); on('#ofs', 'change', () => { T.of = $('#ofs').value; views.trade(); });
+    onAll('[data-o]', 'click', guard(async (el) => {
+      const d2 = await api('/api/admin/trade/orders/' + encodeURIComponent(el.dataset.o)), o = d2.order, dis = edit ? '' : 'disabled';
+      const packable = ['confirmed', 'processing'].includes(o.status);
+      openModal(`<h3 style="margin-top:0">${e(o.ref)} <span class="pill">${e(String(o.status).replace(/_/g, ' '))}</span></h3>
+        <div class="mu2">${e(o.ship_name)} · ${e(o.ship_email)} · ${e(o.ship_phone || '')}<br>${e([o.address_line1, o.address_line2, o.city, o.region, o.postal_code, o.destination_country].filter(Boolean).join(', '))}</div>
+        <div class="mu2" style="margin:6px 0">${e(o.service_label)} (manual estimate) · ${e(o.duty_arrangement)}${Number(o.duties_collected) ? ' · duties prepaid' : ' · duties paid by the customer on delivery'} · Total ${e(o.currency)} ${Number(o.total).toLocaleString()} = ${ngn(o.total_ngn)} at ${Number(o.fx_rate_to_ngn)} NGN per ${e(o.currency)}</div>
+        <div class="tw"><table class="t"><tr><th>Item</th><th>HS</th><th>Qty</th><th>Packed</th></tr>${d2.items.map((i) => `<tr><td>${e(i.description)}</td><td>${e(i.hs_code)}</td><td>${i.qty}</td><td>${packable && edit ? `<input type="number" min="0" max="${i.qty}" value="${i.packed_qty}" data-pk="${i.id}" style="width:70px">` : i.packed_qty}</td></tr>`).join('')}</table></div>
+        ${packable && edit ? '<button class="btn ghost sm" id="opack" style="margin-top:6px">Save packed quantities</button>' : ''}
+        ${edit && d2.next.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:12px"><label class="f">Carrier<input id="ocar" value="${e(o.carrier || '')}"></label><label class="f">Tracking number<input id="otr" value="${e(o.tracking_number || '')}"></label><label class="f">Note<input id="onote"></label></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${d2.next.map((s) => `<button class="btn ${s === 'cancelled' ? 'danger' : ''} sm" data-go="${s}">${e(s.replace(/_/g, ' '))}</button>`).join('')}</div>` : ''}
+        <h4>Shipment updates</h4>${d2.events.length ? d2.events.map((x) => `<div style="font-size:13px">${new Date(x.occurred_at * 1000).toLocaleString()} · <b>${e(String(x.stage).replace(/_/g, ' '))}</b> ${e(x.location || '')} ${e(x.description || '')}</div>`).join('') : '<div class="mu2">None yet.</div>'}
+        ${d2.payments.length ? `<h4>Verified payments</h4>${d2.payments.map((p) => `<div style="font-size:13px">${e(p.provider)} ${e(p.provider_ref)} · ${e(p.currency)} ${Number(p.amount).toLocaleString()} · ${p.verified ? 'verified' : 'unverified'}</div>`).join('')}` : ''}
+        <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" id="oclose">Close</button></div>`, true);
+      $('#oclose').addEventListener('click', () => modal.classList.remove('on'));
+      const reopen = () => { modal.classList.remove('on'); views.trade(); };
+      const pk = $('#opack'); if (pk) pk.addEventListener('click', guard(async () => { await api('/api/admin/trade/orders/' + o.ref + '/pack', { body: { items: [...document.querySelectorAll('[data-pk]')].map((i) => ({ id: Number(i.dataset.pk), packed_qty: Number(i.value) })) } }); toast('Saved'); reopen(); }));
+      onAll('[data-go]', 'click', guard(async (b) => { await api('/api/admin/trade/orders/' + o.ref + '/status', { body: { status: b.dataset.go, carrier: $('#ocar').value, tracking_number: $('#otr').value, note: $('#onote').value } }); toast('Updated'); reopen(); }));
+    }));
+    return;
+  }
+  if (T.tab === 'shipping') {
+    const [zs, ss, rs, ds] = await Promise.all(['zones', 'services', 'rates', 'duty-rules'].map((k) => api('/api/admin/trade/shipping/' + k)));
+    const dis = edit ? '' : 'disabled';
+    const sec = (title, hint, key, head, rows, addBtn) => `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">${title}</h3>${edit ? `<button class="btn sm" data-add="${key}">${addBtn}</button>` : ''}</div><div class="mu2" style="margin:6px 0">${hint}</div><div class="tw">${rows.length ? `<table class="t"><tr>${head.map((h) => `<th>${h}</th>`).join('')}<th></th></tr>${rows.join('')}</table>` : '<div class="mu2">None yet.</div>'}</div></div>`;
+    const act = (key, id) => `<td style="white-space:nowrap">${edit ? `<button class="btn ghost sm" data-edit="${key}:${id}">Edit</button> <button class="btn ghost sm" data-del="${key}:${id}">Delete</button>` : ''}</td>`;
+    frame(`<div class="note" style="margin:8px 0">Every shipping price here is a manual estimate that you set. Nothing is fetched from a carrier until carrier accounts are connected. Duty rates are used only if you enter them; mark a rule verified only after checking the official source.</div>
+      ${sec('Zones', 'Groups of destination countries that share prices.', 'zones', ['Name', 'Ships from', 'Countries', 'Active'], zs.items.map((z) => `<tr><td>${e(z.name)}</td><td>${e(z.origin_country)}</td><td>${e(z.countries.join(', '))}</td><td>${yn(z.active)}</td>${act('zones', z.id)}</tr>`), 'Add zone')}
+      ${sec('Shipping methods', 'What customers choose at checkout.', 'services', ['Name', 'Type', 'Days', 'Insurance', 'Duties prepaid', 'Active'], ss.items.map((s) => `<tr><td>${e(s.name)}</td><td>${e(s.method.replace(/_/g, ' '))}</td><td>${s.est_days_min ?? ''}-${s.est_days_max ?? ''}</td><td>${yn(s.supports_insurance)}</td><td>${yn(s.supports_ddp)}</td><td>${yn(s.active)}</td>${act('services', s.id)}</tr>`), 'Add method')}
+      ${sec('Weight rates', 'Price = base + per kg × chargeable weight (the larger of real and size-based weight), then fuel %, remote surcharge, handling and margin.', 'rates', ['Zone', 'Method', 'From kg', 'To kg', 'Base', 'Per kg', 'Currency', 'Active'], rs.items.map((r) => `<tr><td>${e(r.zone)}</td><td>${e(r.service || 'All')}</td><td>${r.min_kg}</td><td>${r.max_kg ?? '∞'}</td><td>${r.base_amount}</td><td>${r.per_kg}</td><td>${e(r.currency)}</td><td>${yn(r.active)}</td>${act('rates', r.id)}</tr>`), 'Add rate')}
+      ${sec('Duty and tax rules', 'Used to estimate import charges. Unverified rules are shown to customers as estimates only and never collected at checkout.', 'duty-rules', ['Country', 'HS prefix', 'Duty %', 'VAT %', 'Source', 'Verified'], ds.items.map((r) => `<tr><td>${e(r.destination_country)}</td><td>${e(r.hs_prefix || 'All')}</td><td>${r.duty_pct}</td><td>${r.vat_pct}</td><td>${e(r.source || '')}</td><td>${yn(r.verified)}</td>${act('duty-rules', r.id)}</tr>`), 'Add rule')}`);
+    wireTabs();
+    const specs = {
+      zones: [['name', 'Name'], ['origin_country', 'Ships from (country code)', 'NG'], ['countries', 'Destination countries (codes, comma separated)', '', 'list'], ['remote_area_postcodes', 'Remote-area postcodes (optional)', '', 'list'], ['active', 'Active', true, 'bool']],
+      services: [['name', 'Name'], ['method', 'Type', 'standard', ['express', 'standard', 'economy', 'air_freight', 'sea_freight', 'consolidated', 'customer_arranged']], ['est_days_min', 'Minimum days'], ['est_days_max', 'Maximum days'], ['supports_insurance', 'Offers insurance', false, 'bool'], ['supports_ddp', 'Can prepay duties', false, 'bool'], ['active', 'Active', true, 'bool']],
+      rates: [['zone_id', 'Zone', '', zs.items.map((z) => [z.id, z.name])], ['service_id', 'Method (empty = all)', '', [['', 'All methods'], ...ss.items.map((s) => [s.id, s.name])]], ['min_kg', 'From kg', 0], ['max_kg', 'Up to kg (empty = no limit)'], ['base_amount', 'Base amount'], ['per_kg', 'Price per kg'], ['currency', 'Currency', 'NGN'], ['fuel_surcharge_pct', 'Fuel surcharge %', 0], ['remote_surcharge', 'Remote-area surcharge', 0], ['handling_fee', 'Handling fee', 0], ['margin_pct', 'Margin %', 0], ['volumetric_divisor', 'Volumetric divisor', 5000], ['weight_step', 'Round weight up to (kg)', 0.5], ['active', 'Active', true, 'bool']],
+      'duty-rules': [['destination_country', 'Destination country (code)'], ['hs_prefix', 'HS prefix (empty = all)'], ['origin_country', 'Origin country (optional)'], ['duty_pct', 'Import duty %', 0], ['vat_pct', 'VAT / sales tax %', 0], ['other_levy_pct', 'Other levy %', 0], ['valuation', 'Valued as', 'CIF', ['FOB', 'CIF', 'CIP']], ['de_minimis', 'De-minimis limit (optional)'], ['de_minimis_currency', 'De-minimis currency', 'USD'], ['source', 'Where the rate comes from'], ['source_url', 'Source link (https://)'], ['verified', 'Verified against the source', false, 'bool']],
+    };
+    const lists = { zones: zs, services: ss, rates: rs, 'duty-rules': ds };
+    const open = (key, id) => {
+      const cur = id ? lists[key].items.find((x) => String(x.id) === String(id)) : {};
+      const field = ([k, label, def, extra]) => {
+        const v = cur[k] !== undefined && cur[k] !== null ? (Array.isArray(cur[k]) ? cur[k].join(', ') : cur[k]) : (def !== undefined ? def : '');
+        if (extra === 'bool') return `<label style="display:block;margin:8px 0"><input type="checkbox" data-f="${k}" data-t="bool" ${v === true || v === 1 || v === '1' || v === 'true' ? 'checked' : ''}> ${e(label)}</label>`;
+        if (Array.isArray(extra)) return `<label class="f">${e(label)}<select data-f="${k}">${extra.map((o) => { const [val, text] = Array.isArray(o) ? o : [o, o]; return `<option value="${e(val)}" ${String(v) === String(val) ? 'selected' : ''}>${e(String(text).replace(/_/g, ' '))}</option>`; }).join('')}</select></label>`;
+        return `<label class="f">${e(label)}<input data-f="${k}" ${extra === 'list' ? 'data-t="list"' : ''} value="${e(v)}"></label>`;
+      };
+      openModal(`<h3 style="margin-top:0">${id ? 'Edit' : 'Add'}</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">${specs[key].map(field).join('')}</div><div id="serr" style="color:#b91c1c;margin-top:8px"></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><button class="btn" id="sv">Save</button><button class="btn ghost" id="sc">Cancel</button></div>`, true);
+      $('#sc').addEventListener('click', () => modal.classList.remove('on'));
+      $('#sv').addEventListener('click', async () => {
+        const body = {}; document.querySelectorAll('[data-f]').forEach((el) => { body[el.dataset.f] = el.dataset.t === 'bool' ? el.checked : el.dataset.t === 'list' ? el.value.split(/[,;\s]+/).filter(Boolean) : el.value; });
+        try { await api('/api/admin/trade/shipping/' + key + (id ? '/' + id : ''), { method: id ? 'PUT' : 'POST', body }); modal.classList.remove('on'); toast('Saved'); views.trade(); } catch (er) { $('#serr').textContent = er.message; }
+      });
+    };
+    onAll('[data-add]', 'click', (el) => open(el.dataset.add, 0));
+    onAll('[data-edit]', 'click', (el) => { const [k, id] = el.dataset.edit.split(':'); open(k, id); });
+    onAll('[data-del]', 'click', guard(async (el) => { const [k, id] = el.dataset.del.split(':'); if (!confirm('Delete this?')) return; await api('/api/admin/trade/shipping/' + k + '/' + id, { method: 'DELETE' }); toast('Deleted'); views.trade(); }));
     return;
   }
   if (T.tab === 'settings') {

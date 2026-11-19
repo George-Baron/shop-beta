@@ -116,6 +116,7 @@ router.put('/orders/:id', ah(async (req, res) => {
   const o = await S.loadOrder('id=?', int(req.params.id));
   if (!o) fail(404, 'Order not found.');
   const status = str(req.body.status, 20), note = str(req.body.note, 300);
+  if (o.delivery === 'international' && status !== o.status && status !== 'refunded') fail(400, 'International orders are managed in Global Trade > International orders (packing, dispatch, tracking). Here you can only record a refund.');
   const problem = S.checkTransition(o, status, await getSettings());
   if (problem) fail(400, problem);
   if (status === 'cancelled') await S.cancelOrder(o, note || 'Cancelled by the store');
@@ -405,6 +406,7 @@ router.put('/orders/:id/rider', ah(async (req, res) => {
   if (!o) fail(404, 'Order not found.');
   if (['delivered', 'cancelled', 'refunded', 'pending'].includes(o.status)) fail(400, o.status === 'pending' ? 'Wait until the order is paid or confirmed before assigning a rider.' : `This order is ${o.status}.`);
   if (o.delivery === 'pickup') fail(400, 'Store pickup orders do not need a rider.');
+  if (o.delivery === 'international') fail(400, 'International orders are shipped by carrier, not by a local rider.');
   const riderId = req.body.riderId ? int(req.body.riderId) : null;
   if (riderId) {
     const rd = await get("SELECT name FROM users WHERE id=? AND role='rider' AND active=1", riderId);
@@ -419,6 +421,7 @@ router.put('/orders/:id/rider', ah(async (req, res) => {
   res.json({ ok: true });
 }));
 router.post('/orders/:id/handover', ah(async (req, res) => {
+  if ((await get("SELECT 1 x FROM orders WHERE id=? AND delivery='international'", int(req.params.id)))) fail(400, 'International orders have no local handover code. Mark them delivered in Global Trade.');
   const r = await D.override(int(req.params.id), req.user, str(req.body.action, 10), req.body.reason, !!req.body.cash);
   if (!r.ok) fail(r.status || 400, r.message);
   if (r.order) await S.mailOrderStatus(r.order, 'delivered', '');

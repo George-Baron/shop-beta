@@ -248,6 +248,7 @@ let server;
   await require('./lib/staff').seedRoles();
   await require('./lib/trade/reference').seedReference();
   await require('./lib/trade/reference').ensureTradeRoles();
+  await require('./lib/trade/reference').ensureManualProvider();
   await bootstrapAdmin();
   cache.watch(); // notice edits made on other instances
   server = app.listen(PORT, process.env.HOST || '0.0.0.0', async () => {

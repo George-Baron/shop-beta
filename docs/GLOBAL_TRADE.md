@@ -8,7 +8,7 @@ Admin screen: **Admin > Global Trade**. Permission module: `trade` (roles "Trade
 |---|---|---|
 | 1 | Database architecture (28 tables), row level security, permissions, administration, audit log | Built |
 | 2 | International product settings, currency conversion, country configuration, bulk product import/export | Built |
-| 3 | Export checkout and international customer orders | Next |
+| 3 | Export checkout and international customer orders | Built |
 | 4 | Import procurement and international supplier management | Not started |
 | 5 | Freight quotations and carrier API integrations (needs your own carrier accounts and keys) | Not started |
 | 6 | Customs, duties, documentation and landed cost | Not started |
@@ -36,3 +36,15 @@ Admin > Global Trade > Settings: exchange-rate refresh and age limits, optional 
 ## Customers outside Nigeria
 
 Public API (used by the storefront in phase 3): `GET /api/trade/countries`, `/currencies`, `/products?country=US&currency=USD`, `/convert?amount=&from=&to=`, `/can-ship?product=&country=`.
+
+## Phase 3: export checkout and international orders
+
+- Storefront: `/international` (country, currency, postal code, optional insurance, shipping options, address, place order) and `/international/order/REF?t=TOKEN` (status, totals, tracking timeline).
+- An international order is a normal `orders` row (`delivery='international'`, charged in NGN through the existing Paystack flow) plus an `export_orders` row holding the customer currency, the frozen exchange rate, address, method and duties. Native-currency payment arrives in phase 7.
+- Shipping prices are **manual estimates** set in Global Trade > Shipping & duties (zones, methods, weight-bracket rates). No carrier is called and nothing is invented; with no matching rate, the customer sees "no shipping method available".
+- Duties are estimated only from rules staff enter. They are collected at checkout (DDP) only when the rules are verified (source + link) and the method supports it; otherwise the customer is told they pay on delivery.
+- Quotes are tied to the cart and expire; checkout re-computes and refuses if the total changed. `Idempotency-Key` makes retries safe.
+- Only the store's own stock (not partner stock, not pharmacy) can be exported. Stock is reserved at order time and released on cancel.
+- Fulfilment (Global Trade > International orders): pack, dispatch (needs carrier + tracking number), deliver, cancel, return. Rider dispatch and handover codes never apply.
+- Demo-mode payments confirm the order but never create a "verified" international payment record.
+- Tests: `npm run test:trade-export`.

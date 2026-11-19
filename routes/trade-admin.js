@@ -6,6 +6,8 @@ const T = require('../lib/trade/core');
 const A = require('../lib/trade/admin');
 const FX = require('../lib/trade/fx');
 const P = require('../lib/trade/products');
+const SC = require('../lib/trade/shipping-config');
+const EX = require('../lib/trade/export');
 const S = require('../lib/shop');
 const { fail } = S;
 
@@ -45,6 +47,24 @@ router.post('/products/import/preview', big, ah(async (req, res) => { const p = 
 router.post('/products/import/commit', big, ah(async (req, res) => res.json(await P.commit(fileOf(req.body), req.body.filename, req.user, ip(req)))));
 router.get('/products/:id', ah(async (req, res) => res.json(await P.getOne(Number(req.params.id)))));
 router.put('/products/:id', ah(async (req, res) => res.json(await P.save(req.params.id, req.body, req.user, ip(req)))));
+
+/* shipping and duty configuration */
+const crud = (path, list, save, del) => {
+  router.get(path, ah(async (req, res) => res.json({ items: await list(req.query) })));
+  router.post(path, ah(async (req, res) => res.json({ item: await save(0, req.body || {}, req.user, ip(req)) })));
+  router.put(path + '/:id', ah(async (req, res) => res.json({ item: await save(Number(req.params.id), req.body || {}, req.user, ip(req)) })));
+  router.delete(path + '/:id', ah(async (req, res) => res.json(await del(Number(req.params.id), req.user, ip(req)))));
+};
+crud('/shipping/zones', SC.zones, SC.saveZone, SC.deleteZone); crud('/shipping/services', SC.services, SC.saveService, SC.deleteService);
+crud('/shipping/rates', SC.rules, SC.saveRule, SC.deleteRule); crud('/shipping/duty-rules', SC.dutyRules, SC.saveDutyRule, SC.deleteDutyRule);
+
+/* international orders */
+router.get('/orders', ah(async (req, res) => res.json(await EX.listOrders(req.query))));
+router.get('/orders/:ref', ah(async (req, res) => res.json(await EX.getOrder(req.params.ref))));
+router.get('/orders/:ref/list/:kind', ah(async (req, res) => res.json(await EX.pickingList(req.params.ref, req.params.kind))));
+router.post('/orders/:ref/status', ah(async (req, res) => res.json(await EX.setStatus(req.params.ref, req.body || {}, req.user, ip(req)))));
+router.post('/orders/:ref/pack', ah(async (req, res) => res.json(await EX.pack(req.params.ref, req.body || {}, req.user, ip(req)))));
+router.post('/orders/:ref/event', ah(async (req, res) => res.json(await EX.addTrackingEvent(req.params.ref, req.body || {}, req.user, ip(req)))));
 
 router.get('/audit', ah(async (req, res) => res.json(await A.auditLog(req.query))));
 

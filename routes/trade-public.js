@@ -5,6 +5,8 @@ const express = require('express');
 const { all } = require('../lib/db');
 const A = require('../lib/auth');
 const FX = require('../lib/trade/fx');
+const EX = require('../lib/trade/export');
+const { run } = require('../lib/db');
 const P = require('../lib/trade/products');
 const S = require('../lib/shop');
 const { fail } = S;
@@ -35,5 +37,27 @@ router.get('/can-ship', ah(async (req, res) => {
   if (!Number.isInteger(id) || id < 1) fail(400, 'Choose a product.');
   res.json(await P.offerable(id, country));
 }));
+
+// Shipping options for a cart and destination. Every price is a manual estimate configured by staff and says so. No option means we cannot ship that parcel there yet.
+router.post('/quote', A.limiter('trade-quote', 60, 60000), ah(async (req, res) => res.json(await EX.quote(req.body || {}, req.user))));
+// Place the order and start payment. Same safety as the normal checkout: an Idempotency-Key makes a double click or retry return the same order.
+router.post('/checkout', A.limiter('trade-checkout', 20, 3600000), ah(async (req, res) => {
+  const key = req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey) || '';
+  const order = await EX.checkout(req.body || {}, req.user, key);
+  const done = { ref: order.ref, token: order.access_token, total_ngn: order.total };
+  if (order.replayed) {
+    if (order.status === 'cancelled') fail(409, 'That order was cancelled. Please place a new order.');
+    if (order.payment_status === 'paid') return res.json({ ...done, next: 'paid', replayed: true });
+    if (!S.paystackLive()) return res.json({ ...done, next: 'demo', replayed: true });
+    if (!order.pay_url) { order.pay_url = await S.paystackInitialize(order); await run('UPDATE orders SET pay_url=? WHERE id=?', order.pay_url, order.id); }
+    return res.json({ ...done, next: 'paystack', url: order.pay_url, replayed: true });
+  }
+  S.mailOrderPlaced(order);
+  if (!S.paystackLive()) return res.json({ ...done, next: 'demo' });
+  try { const url = await S.paystackInitialize(order); await run('UPDATE orders SET pay_url=? WHERE id=?', url, order.id); return res.json({ ...done, next: 'paystack', url }); }
+  catch (err) { await S.cancelOrder(order, 'Payment could not be started'); throw err; }
+}));
+// The customer's own international order and its shipment timeline (secret link token, or the signed-in owner).
+router.get('/orders/:ref', A.limiter('trade-order', 60, 60000), ah(async (req, res) => res.json(await EX.customerOrder(req.params.ref, String(req.query.t || ''), req.user))));
 
 module.exports = router;
