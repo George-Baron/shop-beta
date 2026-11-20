@@ -113,12 +113,28 @@ Open **Dropshipping > Countries & currencies**. Nothing ships abroad until you s
 
 **Prices.** The price, cost and exchange rate are copied onto the order when it is placed. Changing a product later never changes an existing order.
 
+## 10. Imports, exports and trade documents (step 5)
+Open **Dropshipping > Imports & exports** (owner only, like the rest of Dropshipping).
+
+**Shipments.** One record per import (we buy from a supplier abroad) or export (we sell to a buyer abroad): Incoterm, currency, the other party (copied onto the shipment so later edits never change old papers), forwarder, container and bill numbers, ETD/ETA, customs status, packages, weight, freight, insurance, duty %, VAT %, agent and other fees. Status goes draft, booked, in transit, arrived, cleared, delivered (or cancelled). Once goods are in transit the goods, values and parties are locked; tracking, customs and fees can still change. Goods can be typed in or taken from an approved dropship product (converted with the saved exchange rates).
+
+**Documents.** Commercial invoice, proforma invoice, packing list (no prices), purchase order (imports) and a customs data sheet, all as PDFs. A document gets its number (CI-, PF-, PL-, TPO-, CD-) the first time it is opened and keeps it, so reprints are identical. Our company details (name, address, TIN, RC number, bank note) are set under **Our company details**.
+
+**Landed cost.** The calculator (and each shipment) adds goods, freight, insurance, duty, VAT, agent fees and other charges in whole minor units. The Incoterm decides which costs the seller already included and who pays the rest. Duty is worked out on the CIF value. Amounts can also be shown in another currency using the saved rates. Duty and VAT are estimates; your clearing agent has the final figures.
+
+**Files.** Bills of lading, certificates, permits and similar can be attached (PDF, JPG, PNG, DOCX, up to 6 MB). They go to the private `trade-docs` bucket (`SUPABASE_TRADE_BUCKET`), never to a public one, and every open of a document or file is in the activity log.
+
+**Checklist.** Each shipment shows reminders for its countries (for example Form M, SONCAP, NAFDAC, NEPC and Form NXP for Nigeria). Mark each Done (with what you checked) or Not needed (with a reason). **These starting reminders are placeholders to verify with the official source. They are not legal advice.** Edit, add or switch them off under **Reminders and restricted items**.
+
+**Restricted items.** Medicines and weapons are blocked; food, chemicals and batteries need a person to record that permits were checked. Matching is on whole words and HS code starts. A blocked item cannot be created, updated, approved, imported or added to a shipment. A "check first" item stays hidden until it is approved with a compliance note, and changing its class takes it back to pending. These checks cover dropship listings, importer rows and shipment goods, not your own-stock products. Medicines cannot be loosened until `PHARMACY_ENABLED=1`.
+
 ## Settings and environment
 * `STRIPE_ENABLED`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CURRENCIES`, `PAYSTACK_CURRENCIES`, `FX_FEED_ENABLED`, `FX_FEED_URL`, `FX_MAX_AGE_HOURS`: see DEPLOY.md. `STRIPE_API_URL` is for tests only (preflight fails if it is set in production).
 * `SUPABASE_SUPPLIER_BUCKET` (default `supplier-docs`): create it as a **private** bucket. `npm run preflight` checks it.
+* `SUPABASE_TRADE_BUCKET` (default `trade-docs`): create it as a **private** bucket (shipment files).
 * `DROPSHIP_ORDERS_ENABLED`: set to `1` to let customers buy supplier items. It also starts the stuck-order check (every 6 hours). Leave it off until you have a supplier, an approved product, and have tried one test order.
 * Pricing defaults, exchange rates and category margins are stored in their own tables (not the public settings), so cost and margin data cannot reach the storefront.
 * Every change is in the activity log. Rate limits protect uploads and imports. Migrations `010`, `011` and `012` are safe to re-run.
 
 ## Not built yet
-Trade documents, landed-cost calculator, compliance reminders and restricted-item checks (step 5); profit reports, payables and refunds (step 6); supplier login portal (step 7). Until step 5 adds restricted-item checks, **you** must not import medicines, food, chemicals, batteries or weapons. Medicines are blocked outright (the pharmacy department stays behind `PHARMACY_ENABLED`).
+Profit reports, payables and refunds (step 6); supplier login portal (step 7). Until step 6, refunds are recorded by hand.

@@ -53,7 +53,9 @@
     "test:roles": "node --disable-warning=ExperimentalWarning test/roles.js",
     "test:catalog": "node --disable-warning=ExperimentalWarning test/catalog-io.js",
     "test:riders": "node --disable-warning=ExperimentalWarning test/riders.js",
-    "test:riders-ui": "node --disable-warning=ExperimentalWarning test/riders-ui.js"
+    "test:riders-ui": "node --disable-warning=ExperimentalWarning test/riders-ui.js",
+    "test:trade-docs:unit": "node --disable-warning=ExperimentalWarning test/trade-docs-unit.js",
+    "test:trade-docs": "node --disable-warning=ExperimentalWarning test/trade-docs.js"
   },
   "dependencies": {
     "compression": "^1.8.2",

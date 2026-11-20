@@ -3440,7 +3440,7 @@ const dstate = { tab: 'suppliers', sstatus: '', sq: '', plist: 'pending', pq: ''
 let dmeta = null;
 const DS = (p, o) => api('/api/admin/dropship' + p, o);
 const dsdate = (t) => (t ? new Date(t * 1000).toLocaleDateString('en-NG') : '');
-const ETAB = [['suppliers', 'Suppliers'], ['products', 'Products'], ['settings', 'Settings & rates'], ['trade', 'Countries & currencies'], ['orders', 'Supplier orders']];
+const ETAB = [['suppliers', 'Suppliers'], ['products', 'Products'], ['settings', 'Settings & rates'], ['trade', 'Countries & currencies'], ['orders', 'Supplier orders'], ['shipments', 'Imports & exports']];
 views.dropship = async () => {
   if (!dmeta) dmeta = await DS('/meta');
   let body = '';
@@ -3454,6 +3454,7 @@ views.dropship = async () => {
   if (dstate.tab === 'settings') body = await dsSettings();
   if (dstate.tab === 'trade') body = await dsTrade();
   if (dstate.tab === 'orders') body = await soTab();
+  if (dstate.tab === 'shipments') body = await trTab();
   mn(hd('🚚 Dropshipping') + `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">${ETAB.map(([k, t]) => `<button class="btn ${dstate.tab === k ? '' : 'ghost'} sm" data-dt="${k}">${t}</button>`).join('')}</div>` + body);
   onAll('[data-dt]', 'click', (el) => { dstate.tab = el.dataset.dt; return views.dropship(); });
   on('#dsq', 'change', () => { dstate.sq = $('#dsq').value; return views.dropship(); });
@@ -3468,6 +3469,7 @@ views.dropship = async () => {
   if (dstate.tab === 'settings') dsSettingsWire();
   if (dstate.tab === 'trade') dsTradeWire();
   if (dstate.tab === 'orders') soWire();
+  if (dstate.tab === 'shipments') trWire();
   onAll('[data-sup]', 'click', (el) => supplierForm(el.dataset.sup));
 };
 /* ---------- Supplier orders (Step 4): order from suppliers, track parcels, handle problems and refunds ---------- */
@@ -3534,6 +3536,179 @@ async function lineView(id) {
   b('#lrec', async () => { await DS(`/supplier-orders/lines/${l.id}/refund`, { body: { reference: $('#lrf').value } }); after('Refund recorded'); });
   const alt = $('#lalt'); if (alt) DS('/products?listing=approved').then(({ products }) => { alt.insertAdjacentHTML('beforeend', products.filter((x) => String(x.id) !== String(l.product_id)).map((x) => `<option value="${x.id}">${e(x.name)} (${e(x.supplier_name || '')})</option>`).join('')); }).catch(() => {});
 }
+/* ---------- Imports and exports (Step 5): shipments, trade documents, landed cost, compliance reminders, restricted items ---------- */
+const TRS = { draft: 'Draft', booked: 'Booked', in_transit: 'In transit', arrived: 'Arrived', cleared: 'Cleared', delivered: 'Delivered', cancelled: 'Cancelled' };
+const CUSL = { not_started: 'Not started', docs_ready: 'Documents ready', submitted: 'Submitted', queried: 'Queried', held: 'Held by customs', cleared: 'Cleared' };
+const TRCAT = { permit: 'Permit', licence: 'Licence', registration: 'Registration', banned: 'Banned goods', tax: 'Duty and tax', document: 'Document', other: 'Other' };
+const FILEL = { bill_of_lading: 'Bill of lading', airway_bill: 'Airway bill', certificate: 'Certificate', permit: 'Permit', invoice: 'Supplier invoice', packing_list: 'Packing list', customs: 'Customs paper', insurance: 'Insurance', other: 'Other' };
+const tstate = { view: 'shipments', dir: '', st: '', q: '' };
+let tmeta = null;
+const TRD = (p, o) => DS('/trade' + p, o);
+const tday = (t) => (t ? new Date(t * 1000).toISOString().slice(0, 10) : '');
+const tnum = (n, d = 2) => Number(n).toLocaleString('en', { minimumFractionDigits: d, maximumFractionDigits: d });
+const tpill = (st) => `<span class="pill ${st === 'delivered' || st === 'cleared' ? 'ok' : st === 'cancelled' ? 'bad' : ''}">${e(TRS[st] || st)}</span>`;
+async function trTab() {
+  if (!tmeta) tmeta = await TRD('/meta');
+  const nav = [['shipments', 'Shipments'], ['calc', 'Landed-cost calculator'], ['rules', 'Reminders and restricted items'], ['company', 'Our company details']];
+  let inner = '';
+  if (tstate.view === 'shipments') {
+    const { shipments } = await TRD('/shipments?' + new URLSearchParams({ direction: tstate.dir, status: tstate.st, q: tstate.q }));
+    inner = `<div class="tbar"><input id="trq" placeholder="Search reference, supplier or bill number" value="${e(tstate.q)}"><select id="trdir"><option value="">Imports and exports</option><option value="import" ${tstate.dir === 'import' ? 'selected' : ''}>Imports</option><option value="export" ${tstate.dir === 'export' ? 'selected' : ''}>Exports</option></select>
+     <select id="trst"><option value="">Any status</option>${Object.entries(TRS).map(([k, v]) => `<option value="${k}" ${tstate.st === k ? 'selected' : ''}>${v}</option>`).join('')}</select><button class="btn" id="trnew">+ New shipment</button></div>
+     <div class="panel"><div class="tw"><table class="t"><tr><th>Ref</th><th>Type</th><th>Other party</th><th>Route</th><th>Terms</th><th class="r">Goods</th><th>ETA</th><th>Status</th><th>Customs</th></tr>${shipments.map((s) => `<tr class="click" data-sh="${s.id}"><td><b>${e(s.ref)}</b></td><td>${s.direction === 'import' ? 'Import' : 'Export'}</td><td>${e(s.party_name)}</td><td>${e(s.origin_country)} → ${e(s.dest_country)}</td><td>${e(s.incoterm)}</td><td class="r">${e(s.currency)} ${tnum(s.goods)}</td><td>${e(tday(s.eta) || '—')}</td><td>${tpill(s.status)}</td><td>${e(CUSL[s.customs_status])}</td></tr>`).join('') || '<tr><td colspan="9" class="mu">No shipments yet. Create one to make the invoice, packing list and customs sheet.</td></tr>'}</table></div></div>`;
+  } else if (tstate.view === 'calc') {
+    inner = calcForm();
+  } else if (tstate.view === 'rules') {
+    const { rules, classes, note } = await TRD('/rules');
+    inner = `<div class="panel"><h3>Restricted items</h3><p class="mu2">A product whose name, description or HS code matches a <b>block</b> class can never be listed or shipped. A <b>review</b> class keeps it hidden until a person records that the permits were checked. Words are separated by commas.</p>
+     <div class="tw"><table class="t"><tr><th>Class</th><th>Action</th><th>Words</th><th>HS starts</th><th></th></tr>${classes.map((c) => `<tr><td><b>${e(c.label)}</b>${c.active ? '' : ' <span class="mu2">(off)</span>'}</td><td>${c.action === 'block' ? '<span class="pill bad">Block</span>' : '<span class="pill">Check first</span>'}</td><td style="max-width:320px">${e(c.keywords)}</td><td>${e(c.hs_prefixes)}</td><td><button class="btn ghost sm" data-cl="${e(c.slug)}">Edit</button></td></tr>`).join('')}</table></div><button class="btn sm" id="clnew" style="margin-top:8px">+ Add a class</button></div>
+     <div class="panel"><h3>Reminders by country</h3><p class="mu2">${e(note)} Shown on each shipment as a checklist for its countries.</p>
+     <div class="tw"><table class="t"><tr><th>From</th><th>To</th><th>Type</th><th>Class</th><th>Reminder</th><th></th></tr>${rules.map((r) => `<tr><td>${e(r.from_country)}</td><td>${e(r.to_country)}</td><td>${r.direction}</td><td>${e(r.product_class || '—')}</td><td>${e(r.title)}${r.active ? '' : ' <span class="mu2">(off)</span>'}${r.required ? '' : ' <span class="mu2">(optional)</span>'}<br><span class="mu2">${e(TRCAT[r.category])}${r.authority ? ' · ' + e(r.authority) : ''}</span></td><td><button class="btn ghost sm" data-ru="${r.id}">Edit</button></td></tr>`).join('')}</table></div><button class="btn sm" id="runew" style="margin-top:8px">+ Add a reminder</button></div>`;
+    tmeta.rules = rules; tmeta.classes = classes;
+  } else {
+    const c = tmeta.company = (await TRD('/meta')).company;
+    inner = `<div class="panel"><h3>Our company details</h3><p class="mu2">Printed on every invoice, packing list and purchase order. They start from your store settings.</p><div class="fgrid">
+     <label class="f">Company name<input id="cn" maxlength="120" value="${e(c.name)}"></label><label class="f">Phone<input id="cp" maxlength="40" value="${e(c.phone)}"></label><label class="f full">Address<input id="ca" maxlength="300" value="${e(c.address)}"></label>
+     <label class="f">Tax ID (TIN)<input id="ct" maxlength="40" value="${e(c.tax_id)}"></label><label class="f">Company registration (RC) number<input id="cr" maxlength="40" value="${e(c.rc)}"></label><label class="f">Email<input id="ce" maxlength="120" value="${e(c.email)}"></label>
+     <label class="f full">Payment details for exports (printed on the invoice)<input id="cb" maxlength="300" value="${e(c.bank_note)}" placeholder="Bank, account name, account number, SWIFT"></label></div><button class="btn" id="cosave" style="margin-top:10px">Save</button></div>`;
+  }
+  return `<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">${nav.map(([k, t]) => `<button class="btn ${tstate.view === k ? '' : 'ghost'} sm" data-trv="${k}">${t}</button>`).join('')}</div>${inner}`;
+}
+const trSel = (list, sel) => list.map((x) => `<option value="${e(x)}" ${x === sel ? 'selected' : ''}>${e(x)}</option>`).join('');
+function calcForm() {
+  const m = tmeta;
+  return `<div class="panel"><h3>Landed-cost calculator</h3><p class="mu2">Works out what an import or export really costs: goods, freight, insurance, duty, VAT and agent fees, in any currency. Duty and VAT are estimates for planning. Your clearing agent has the final figures.</p>
+   <div class="fgrid"><label class="f">Type<select id="kd"><option value="import">Import (we buy)</option><option value="export">Export (we sell)</option></select></label>
+   <label class="f">Incoterm<select id="ki">${m.incoterms.map((i) => `<option value="${i.code}" ${i.code === 'FOB' ? 'selected' : ''}>${i.code} · ${e(i.name)}</option>`).join('')}</select></label>
+   <label class="f">Currency of the prices<select id="kc">${trSel(m.currencies, 'USD')}</select></label><label class="f">Also show in<select id="kt">${trSel(m.currencies, 'NGN')}</select></label>
+   <label class="f">Goods value<input id="kg" type="number" min="0" step="any" value="1000"></label><label class="f">Freight<input id="kf" type="number" min="0" step="any" value="0"></label><label class="f">Insurance<input id="kn" type="number" min="0" step="any" value="0"></label>
+   <label class="f">Duty %<input id="ku" type="number" min="0" max="500" step="any" value="0"></label><label class="f">VAT %<input id="kv" type="number" min="0" max="100" step="any" value="0"></label><label class="f">Clearing agent, flat fee<input id="ka" type="number" min="0" step="any" value="0"></label>
+   <label class="f">Clearing agent, % of customs value<input id="kp" type="number" min="0" max="100" step="any" value="0"></label><label class="f">Other charges<input id="ko" type="number" min="0" step="any" value="0"></label></div>
+   <button class="btn" id="kgo" style="margin-top:10px">Calculate</button><div id="kout" style="margin-top:12px"></div><p class="mu2" id="khint"></p></div>`;
+}
+function landedHtml(r, ccy) {
+  if (r.error) return `<p class="err">${e(r.error)}</p>`;
+  const cv = r.converted, ln = (l) => `<tr><td>${e(l.label)}${l.included_in_price ? ' <span class="mu2">(already in the price)</span>' : ''}</td><td class="r">${tnum(l.amount, r.decimals)}</td>${cv ? `<td class="r">${tnum(cv.lines[l.key], 2)}</td>` : ''}<td>${l.included_in_price ? 'Seller' : l.paid_by === 'us' ? 'We pay' : 'Other side pays'}</td></tr>`;
+  const T = r.totals_major, row = (label, k) => `<tr><td><b>${label}</b></td><td class="r"><b>${tnum(T[k], r.decimals)}</b></td>${cv ? `<td class="r"><b>${tnum(cv.totals[k], 2)}</b></td>` : ''}<td></td></tr>`;
+  return `<div class="tw"><table class="t"><tr><th>Cost</th><th class="r">${e(r.currency)}</th>${cv ? `<th class="r">${e(cv.currency)}</th>` : ''}<th>Who pays</th></tr>${r.lines.map(ln).join('')}${row('Customs value (duty basis)', 'customs_value')}${row('Total landed cost', 'landed_total')}${row(r.direction === 'import' ? 'Total we pay' : 'Our costs of this sale', 'our_cost')}</table></div>
+   ${cv ? `<p class="mu2">Rate used: 1 ${e(r.currency)} = ${tnum(cv.rate, 4)} ${e(cv.currency)}</p>` : ''}${r.convert_error ? `<p class="err">${e(r.convert_error)} Add the rate in Settings.</p>` : ''}${r.warnings.map((w) => `<p class="mu2">• ${e(w)}</p>`).join('')}`;
+}
+function trWire() {
+  onAll('[data-trv]', 'click', (el) => { tstate.view = el.dataset.trv; return views.dropship(); });
+  on('#trq', 'change', () => { tstate.q = $('#trq').value; return views.dropship(); }); on('#trdir', 'change', () => { tstate.dir = $('#trdir').value; return views.dropship(); }); on('#trst', 'change', () => { tstate.st = $('#trst').value; return views.dropship(); });
+  on('#trnew', 'click', () => shipForm(0)); onAll('[data-sh]', 'click', (el) => shipForm(el.dataset.sh));
+  on('#kgo', 'click', guard(async () => {
+    const v = (id) => $(id).value, body = { direction: v('#kd'), incoterm: v('#ki'), currency: v('#kc'), show_in: v('#kt'), goods: v('#kg'), freight: v('#kf'), insurance: v('#kn'), duty_pct: v('#ku'), vat_pct: v('#kv'), agent_fee: v('#ka'), agent_pct: v('#kp'), other_fees: v('#ko') };
+    $('#kout').innerHTML = landedHtml(await TRD('/landed', { body }));
+  }));
+  on('#ki', 'change', () => { const i = tmeta.incoterms.find((x) => x.code === $('#ki').value); $('#khint').textContent = i.seller_pays.length ? `Under ${i.code} the seller already pays and includes: ${i.seller_pays.join(', ')}.` : `Under ${i.code} the buyer pays freight, insurance and duties.`; });
+  on('#cosave', 'click', guard(async () => { await TRD('/company', { method: 'PUT', body: { co_name: $('#cn').value, co_phone: $('#cp').value, co_address: $('#ca').value, co_tax_id: $('#ct').value, co_rc: $('#cr').value, co_email: $('#ce').value, co_bank_note: $('#cb').value } }); toast('Saved'); }));
+  on('#clnew', 'click', () => classForm(null)); onAll('[data-cl]', 'click', (el) => classForm(tmeta.classes.find((c) => c.slug === el.dataset.cl)));
+  on('#runew', 'click', () => ruleForm(null)); onAll('[data-ru]', 'click', (el) => ruleForm(tmeta.rules.find((r) => String(r.id) === el.dataset.ru)));
+}
+function classForm(c) {
+  const n = !c; c = c || { slug: '', label: '', action: 'review', keywords: '', hs_prefixes: '', note: '', active: 1 };
+  openModal(`<h2>${n ? 'Add a restricted class' : e(c.label)}</h2><div class="fgrid">${n ? '<label class="f">Short code (letters, numbers, _)<input id="qs" maxlength="31"></label>' : ''}<label class="f">Name<input id="ql" maxlength="80" value="${e(c.label)}"></label>
+   <label class="f">What happens<select id="qa"><option value="review" ${c.action === 'review' ? 'selected' : ''}>Check first (hidden until a person checks the permits)</option><option value="block" ${c.action === 'block' ? 'selected' : ''}>Block (never listed or shipped)</option></select></label>
+   <label class="f full">Words that match (comma separated)<input id="qk" value="${e(c.keywords)}"></label><label class="f full">HS code starts (comma separated, like 3004,8507)<input id="qh" value="${e(c.hs_prefixes)}"></label>
+   <label class="f full">Note for the team<input id="qn" maxlength="300" value="${e(c.note)}"></label><label class="f"><span><input type="checkbox" id="qo" ${c.active ? 'checked' : ''}> Switched on</span></label></div>
+   <div class="acts"><button class="btn ghost" id="qx">Close</button>${!n && !['medicines', 'weapons'].includes(c.slug) ? '<button class="btn ghost" id="qd">Delete</button>' : ''}<button class="btn" id="qsv">Save</button></div>`, true);
+  const done = () => { closeModal(); views.dropship(); };
+  $('#qx').addEventListener('click', closeModal);
+  $('#qsv').addEventListener('click', guard(async () => { await TRD('/classes/' + encodeURIComponent(n ? $('#qs').value.trim().toLowerCase() : c.slug), { method: 'PUT', body: { label: $('#ql').value, action: $('#qa').value, keywords: $('#qk').value, hs_prefixes: $('#qh').value, note: $('#qn').value, active: $('#qo').checked } }); toast('Saved'); done(); }));
+  const d = $('#qd'); if (d) d.addEventListener('click', guard(async () => { if (!confirm('Delete this class?')) return; await TRD('/classes/' + c.slug, { method: 'DELETE' }); done(); }));
+}
+function ruleForm(r) {
+  const n = !r; r = r || { from_country: '*', to_country: '*', direction: 'both', product_class: '', category: 'permit', title: '', detail: '', authority: '', url: '', required: 1, active: 1 };
+  const cs = [['*', 'Any country'], ...tmeta.countries.map((c) => [c.code, c.name + ' (' + c.code + ')'])];
+  openModal(`<h2>${n ? 'Add a reminder' : 'Edit reminder'}</h2><div class="fgrid"><label class="f">Goods leave from<select id="rf">${cs.map(([k, v]) => `<option value="${k}" ${k === r.from_country ? 'selected' : ''}>${e(v)}</option>`).join('')}</select></label>
+   <label class="f">Goods go to<select id="rt">${cs.map(([k, v]) => `<option value="${k}" ${k === r.to_country ? 'selected' : ''}>${e(v)}</option>`).join('')}</select></label>
+   <label class="f">Applies to<select id="rd">${[['both', 'Imports and exports'], ['import', 'Imports only'], ['export', 'Exports only']].map(([k, v]) => `<option value="${k}" ${k === r.direction ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+   <label class="f">Only when the goods are<select id="rc"><option value="">Any goods</option>${(tmeta.classes || []).map((c) => `<option value="${e(c.slug)}" ${c.slug === r.product_class ? 'selected' : ''}>${e(c.label)}</option>`).join('')}</select></label>
+   <label class="f">Type<select id="rk">${Object.entries(TRCAT).map(([k, v]) => `<option value="${k}" ${k === r.category ? 'selected' : ''}>${v}</option>`).join('')}</select></label><label class="f">Authority<input id="ra" maxlength="120" value="${e(r.authority)}"></label>
+   <label class="f full">What to check<input id="rl" maxlength="160" value="${e(r.title)}"></label><label class="f full">Details<input id="rn" maxlength="600" value="${e(r.detail)}"></label><label class="f full">Official link (https)<input id="ru" maxlength="300" value="${e(r.url)}"></label>
+   <label class="f"><span><input type="checkbox" id="rq" ${r.required ? 'checked' : ''}> Required</span></label><label class="f"><span><input type="checkbox" id="ro" ${r.active ? 'checked' : ''}> Switched on</span></label></div>
+   <p class="mu2">Reminders are for you to verify with the official source. Nothing here is legal advice.</p><div class="acts"><button class="btn ghost" id="rx">Close</button>${!n ? '<button class="btn ghost" id="rdl">Delete</button>' : ''}<button class="btn" id="rsv">Save</button></div>`, true);
+  const done = () => { closeModal(); views.dropship(); };
+  $('#rx').addEventListener('click', closeModal);
+  $('#rsv').addEventListener('click', guard(async () => { const body = { from_country: $('#rf').value, to_country: $('#rt').value, direction: $('#rd').value, product_class: $('#rc').value, category: $('#rk').value, authority: $('#ra').value, title: $('#rl').value, detail: $('#rn').value, url: $('#ru').value, required: $('#rq').checked, active: $('#ro').checked }; await TRD(n ? '/rules' : '/rules/' + r.id, { method: n ? 'POST' : 'PUT', body }); toast('Saved'); done(); }));
+  const d = $('#rdl'); if (d) d.addEventListener('click', guard(async () => { if (!confirm('Delete this reminder?')) return; await TRD('/rules/' + r.id, { method: 'DELETE' }); done(); }));
+}
+const shipFields = (s, m) => {
+  const v = (k) => (s[k] == null ? '' : e(s[k])), dis = s.locked ? 'disabled' : '', cs = m.countries;
+  const csel = (id, sel) => `<select id="${id}" ${dis}><option value="">Choose…</option>${cs.map((c) => `<option value="${c.code}" ${c.code === sel ? 'selected' : ''}>${e(c.name)}</option>`).join('')}</select>`;
+  return `<div class="fgrid"><label class="f">Type<select id="sd" ${s.id ? 'disabled' : ''}><option value="import" ${s.direction === 'import' ? 'selected' : ''}>Import (we buy from a supplier)</option><option value="export" ${s.direction === 'export' ? 'selected' : ''}>Export (we sell to a buyer)</option></select></label>
+   <label class="f">Incoterm<select id="si" ${dis}>${m.incoterms.map((i) => `<option value="${i.code}" ${i.code === s.incoterm ? 'selected' : ''}>${i.code} · ${e(i.name)}</option>`).join('')}</select></label>
+   <label class="f">Currency of the documents<select id="sc" ${dis}>${trSel(m.currencies, s.currency)}</select></label>
+   <label class="f">Goods leave from${csel('so', s.origin_country)}</label><label class="f">Goods go to${csel('sde', s.dest_country)}</label><label class="f">Transport<select id="str">${trSel(m.transport, s.transport)}</select></label>
+   <label class="f">Supplier or buyer name<input id="spn" maxlength="140" value="${v('party_name')}" ${dis}></label><label class="f">Their country${csel('spc', s.party_country)}</label><label class="f">Their tax ID<input id="sptid" maxlength="40" value="${v('party_tax_id')}"></label>
+   <label class="f full">Their address<input id="spa" maxlength="300" value="${v('party_address')}" ${dis}></label><label class="f full">Their contact<input id="spct" maxlength="160" value="${v('party_contact')}"></label>
+   <label class="f">Forwarder or clearing agent<input id="sfw" maxlength="120" value="${v('forwarder')}"></label><label class="f">Forwarder contact<input id="sfwc" maxlength="160" value="${v('forwarder_contact')}"></label>
+   <label class="f">Airway bill / bill of lading no.<input id="sbn" maxlength="40" value="${v('bill_no')}"></label><label class="f">Container no.<input id="scn" maxlength="40" value="${v('container_no')}"></label>
+   <label class="f">Port or airport of loading<input id="spol" maxlength="80" value="${v('port_of_loading')}"></label><label class="f">Port or airport of arrival<input id="spod" maxlength="80" value="${v('port_of_discharge')}"></label>
+   <label class="f">Departure date<input id="setd" type="date" value="${tday(s.etd)}"></label><label class="f">Expected arrival (ETA)<input id="seta" type="date" value="${tday(s.eta)}"></label>
+   <label class="f">Customs status<select id="scs">${Object.entries(CUSL).map(([k, t]) => `<option value="${k}" ${k === s.customs_status ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+   <label class="f">Packages<input id="spk" type="number" min="0" value="${v('packages')}"></label><label class="f">Gross weight (kg)<input id="sgw" type="number" min="0" step="any" value="${v('gross_weight_kg')}"></label>
+   <label class="f">Freight<input id="sfr" type="number" min="0" step="any" value="${s.freight || 0}" ${dis}></label><label class="f">Insurance<input id="sin" type="number" min="0" step="any" value="${s.insurance || 0}" ${dis}></label>
+   <label class="f">Import duty %<input id="sdu" type="number" min="0" max="500" step="any" value="${s.duty_pct || 0}" ${dis}></label><label class="f">VAT %<input id="sva" type="number" min="0" max="100" step="any" value="${s.vat_pct || 0}" ${dis}></label>
+   <label class="f">Clearing agent fees<input id="sag" type="number" min="0" step="any" value="${s.agent_fee || 0}"></label><label class="f">Other charges<input id="sot" type="number" min="0" step="any" value="${s.other_fees || 0}"></label>
+   <label class="f full">Notes<input id="sno" maxlength="1000" value="${v('notes')}"></label></div>`;
+};
+async function shipForm(id) {
+  if (!tmeta) tmeta = await TRD('/meta');
+  const m = tmeta, d = id ? await TRD('/shipments/' + id) : null;
+  const s = d ? d.shipment : { direction: 'import', incoterm: 'FOB', currency: 'USD', origin_country: '', dest_country: 'NG', transport: 'air', customs_status: 'not_started', freight: 0, insurance: 0, duty_pct: 0, vat_pct: 0, agent_fee: 0, other_fees: 0 };
+  const val = (i) => $(i).value;
+  const readForm = () => ({ direction: val('#sd'), incoterm: val('#si'), currency: val('#sc'), origin_country: val('#so'), dest_country: val('#sde'), transport: val('#str'), party_name: val('#spn'), party_country: val('#spc'), party_tax_id: val('#sptid'), party_address: val('#spa'), party_contact: val('#spct'), forwarder: val('#sfw'), forwarder_contact: val('#sfwc'), bill_no: val('#sbn'), container_no: val('#scn'), port_of_loading: val('#spol'), port_of_discharge: val('#spod'), etd: val('#setd'), eta: val('#seta'), customs_status: val('#scs'), packages: val('#spk'), gross_weight_kg: val('#sgw'), freight: val('#sfr'), insurance: val('#sin'), duty_pct: val('#sdu'), vat_pct: val('#sva'), agent_fee: val('#sag'), other_fees: val('#sot'), notes: val('#sno') });
+  const reload = () => shipForm(id);
+  if (!id) {
+    openModal(`<h2>New shipment</h2>${shipFields(s, m)}<div class="acts"><button class="btn ghost" id="sx">Close</button><button class="btn" id="ssv">Create</button></div>`, true);
+    $('#sx').addEventListener('click', () => { closeModal(); views.dropship(); });
+    $('#ssv').addEventListener('click', guard(async () => { const r = await TRD('/shipments', { body: readForm() }); toast('Shipment created. Now add the goods.'); shipForm(r.id); }));
+    return;
+  }
+  const L = d.landed, docKinds = Object.entries(d.docs).filter(([k]) => k !== 'purchase_order' || s.direction === 'import');
+  const issued = Object.fromEntries(d.issued.map((x) => [x.kind, x.number]));
+  const url = (p) => `/api/admin/dropship/trade/shipments/${id}${p}`;
+  const ck = d.checklist;
+  openModal(`<h2>${e(s.ref)} · ${s.direction === 'import' ? 'Import from' : 'Export to'} ${e(s.party_name)} ${tpill(s.status)}</h2>
+   <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${s.next.map((n) => `<button class="btn ${n === 'cancelled' ? 'ghost' : ''} sm" data-sn="${n}">${n === 'cancelled' ? 'Cancel shipment' : 'Mark ' + e(TRS[n].toLowerCase())}</button>`).join('')}</div>
+   ${s.locked ? '<p class="mu2">The goods are moving, so the goods, values and parties are fixed. You can still update tracking, customs and fees.</p>' : ''}
+   <details ${id ? '' : 'open'}><summary><b>Shipment details</b></summary>${shipFields(s, m)}<div class="acts"><button class="btn" id="ssv">Save details</button></div></details>
+   <h3>Goods <span class="mu2">(${e(s.currency)})</span></h3><div class="tw"><table class="t"><tr><th>Description</th><th>HS code</th><th>Origin</th><th class="r">Qty</th><th class="r">Unit</th><th class="r">Total</th><th class="r">kg/unit</th><th></th></tr>${d.items.map((i) => `<tr><td>${e(i.description)}</td><td>${e(i.hs_code || '—')}${i.hs_code ? '' : ' <span class="bad">!</span>'}</td><td>${e(i.origin_country || '')}</td><td class="r">${i.qty}</td><td class="r">${tnum(i.unit_value, 2)}</td><td class="r">${tnum(i.total)}</td><td class="r">${i.weight_kg == null ? '—' : i.weight_kg}</td><td>${s.locked ? '' : `<button class="btn ghost sm" data-di="${i.id}">Remove</button>`}</td></tr>`).join('') || '<tr><td colspan="8" class="mu">No goods yet.</td></tr>'}</table></div>
+   ${s.locked || s.status === 'cancelled' ? '' : `<div class="fgrid" style="margin-top:8px"><label class="f full">Add a line by hand<input id="gd" maxlength="200" placeholder="Description of the goods"></label><label class="f">Qty<input id="gq" type="number" min="1" value="1"></label><label class="f">Unit value<input id="gu" type="number" min="0" step="any"></label><label class="f">HS code<input id="gh" maxlength="14" placeholder="8517.12"></label><label class="f">Origin<input id="go" maxlength="2" placeholder="CN"></label><label class="f">kg per unit<input id="gw" type="number" min="0" step="any"></label></div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn sm" id="gadd">Add line</button><select id="gp" style="max-width:260px"><option value="">…or take a dropship product</option></select><input id="gpq" type="number" min="1" value="1" style="width:70px"><button class="btn ghost sm" id="gpa">Add product</button></div>`}
+   ${d.item_classes.length ? `<div class="note" style="margin-top:8px">Contains restricted goods: ${d.item_classes.map(e).join(', ')}. See the reminders below.</div>` : ''}
+   <h3>Landed cost</h3>${landedHtml(L)}
+   <h3>Documents</h3><p class="mu2">Each document gets its number the first time you open it, and keeps it after that.${s.locked ? '' : ' Until the goods are moving they follow any change you make.'}</p><div style="display:flex;gap:8px;flex-wrap:wrap">${docKinds.map(([k, x]) => `<a class="btn ${issued[k] ? 'ghost' : ''} sm" href="${url('/documents/' + k + '/pdf')}" target="_blank" rel="noopener">${e(x.label)}${issued[k] ? ' · ' + e(issued[k]) : ''}</a>`).join('')}</div>
+   <h3>Files</h3>${d.files.map((f) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid var(--line)"><span><a href="${url('/files/' + f.id)}" target="_blank" rel="noopener">${e(f.file_name)}</a> <span class="mu2">${e(FILEL[f.kind])} · ${dt(f.created)}</span></span><button class="btn ghost sm" data-df="${f.id}">Remove</button></div>`).join('') || '<p class="mu">No files yet.</p>'}
+   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><select id="fk">${m.file_kinds.map((k) => `<option value="${k}">${e(FILEL[k])}</option>`).join('')}</select><input type="file" id="ff" accept=".pdf,.jpg,.jpeg,.png,.docx"><button class="btn sm" id="fup">Upload</button></div>
+   <h3>Checklist <span class="mu2">(${ck.open} still to check)</span></h3><p class="mu2">${e(ck.note)}</p>
+   ${ck.items.map((r) => `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span><b>${r.status === 'done' ? '✓' : r.status === 'na' ? '–' : '○'}</b> ${e(r.title)}${r.required ? '' : ' <span class="mu2">(optional)</span>'}<br><span class="mu2">${e(TRCAT[r.category])}${r.authority ? ' · ' + e(r.authority) : ''}${r.detail ? ' · ' + e(r.detail) : ''}${r.url ? ` · <a href="${e(r.url)}" target="_blank" rel="noopener noreferrer">official page</a>` : ''}</span>${r.status !== 'pending' ? `<br><span class="mu2">${r.status === 'done' ? 'Done' : 'Not applicable'} by ${e(r.checked_by)}${r.note ? ': ' + e(r.note) : ''}</span>` : ''}</span>
+   <span style="display:flex;gap:4px;align-items:flex-start"><button class="btn ${r.status === 'done' ? '' : 'ghost'} sm" data-ck="${r.id}:done">Done</button><button class="btn ghost sm" data-ck="${r.id}:na">Not needed</button>${r.status !== 'pending' ? `<button class="btn ghost sm" data-ck="${r.id}:pending">Reset</button>` : ''}</span></div></div>`).join('')}
+   <h3>History</h3>${d.events.map((ev) => `<div style="font-size:12px;margin-bottom:3px"><b>${e(ev.note || ev.kind)}</b> <span class="mu2">${dt(ev.created)} · ${e(ev.actor)}</span></div>`).join('')}
+   <div class="acts"><button class="btn ghost" id="sx">Close</button>${s.status === 'draft' || s.status === 'cancelled' ? '<button class="btn ghost" id="sdl">Delete</button>' : ''}</div>`, true);
+  const bind = (sel, fn) => { const el = $(sel); if (el) el.addEventListener('click', guard(fn)); };
+  $('#sx').addEventListener('click', () => { closeModal(); views.dropship(); });
+  bind('#ssv', async () => { await TRD('/shipments/' + id, { method: 'PUT', body: readForm() }); toast('Saved'); reload(); });
+  bind('#sdl', async () => { if (!confirm('Delete this shipment?')) return; await TRD('/shipments/' + id, { method: 'DELETE' }); toast('Deleted'); closeModal(); views.dropship(); });
+  $$('[data-sn]').forEach((b) => b.addEventListener('click', guard(async () => { const to = b.dataset.sn; if (to === 'cancelled' && !confirm('Cancel this shipment?')) return; const note = to === 'in_transit' || to === 'cancelled' ? prompt('Add a note (optional)') || '' : ''; await TRD(`/shipments/${id}/status`, { body: { to, note } }); toast('Updated'); reload(); })));
+  $$('[data-di]').forEach((b) => b.addEventListener('click', guard(async () => { await TRD(`/shipments/${id}/items/${b.dataset.di}`, { method: 'DELETE' }); reload(); })));
+  bind('#gadd', async () => { await TRD(`/shipments/${id}/items`, { body: { description: val('#gd'), qty: val('#gq'), unit_value: val('#gu'), hs_code: val('#gh'), origin_country: val('#go'), weight_kg: val('#gw') } }); reload(); });
+  bind('#gpa', async () => { if (!val('#gp')) return toast('Choose a product', 'bad'); await TRD(`/shipments/${id}/items/from-product`, { body: { product_id: Number(val('#gp')), qty: val('#gpq') } }); reload(); });
+  const gp = $('#gp'); if (gp) DS('/products?listing=approved').then(({ products }) => gp.insertAdjacentHTML('beforeend', products.map((x) => `<option value="${x.id}">${e(x.name)}</option>`).join(''))).catch(() => {});
+  $$('[data-df]').forEach((b) => b.addEventListener('click', guard(async () => { if (!confirm('Remove this file?')) return; await TRD(`/shipments/${id}/files/${b.dataset.df}`, { method: 'DELETE' }); reload(); })));
+  bind('#fup', async () => {
+    const f = $('#ff').files[0]; if (!f) return toast('Choose a file', 'bad'); if (f.size > 6_000_000) return toast('That file is over 6 MB', 'bad');
+    const data = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => no(new Error('Could not read the file')); r.readAsDataURL(f); });
+    await TRD(`/shipments/${id}/files`, { body: { kind: val('#fk'), name: f.name, data } }); toast('File added'); reload();
+  });
+  $$('[data-ck]').forEach((b) => b.addEventListener('click', guard(async () => {
+    const [rid, status] = b.dataset.ck.split(':'); let note = '';
+    if (status === 'na') { note = prompt('Why does this not apply?') || ''; if (!note.trim()) return; } else if (status === 'done') note = prompt('What did you check? (reference number, who confirmed...)') || '';
+    await TRD(`/shipments/${id}/checklist/${rid}`, { method: 'PUT', body: { status, note } }); reload();
+  })));
+}
 const dsOpts = (list, sel, label = (x) => x.name) => list.map((x) => `<option value="${e(x.code)}" ${x.code === sel ? 'selected' : ''}>${e(label(x))}</option>`).join('');
 async function supplierForm(id) {
   const d = id ? await DS('/suppliers/' + id) : { supplier: { name: '', country: '', currency: '', contact_name: '', email: '', whatsapp: '', address: '', payment_terms: '', payment_days: 0, processing_days: 3, shipping_methods: [], margin_type: null, margin_value: null, notes: '', status: 'active' }, performance: null, events: [], documents: [] };
@@ -3594,6 +3769,7 @@ async function productDS(id) {
   let images = [...p.images];
   const T = p.ship_times || {}, nt = T.NG || T.ALL || {}, v = (x) => (x == null ? '' : e(x));
   openModal(`<h2>${id ? e(p.name) : 'Add a dropship product'} ${id ? `<span class="pill ${LST[p.listing][1]}">${LST[p.listing][0]}</span>` : ''}</h2>${p.listing_note ? `<p class="mu2">Reviewer note: ${e(p.listing_note)}</p>` : ''}
+  ${d && d.restriction && d.restriction.hits.length ? `<div class="note" style="margin:8px 0;border-color:var(--bad)"><b>${d.restriction.action === 'block' ? 'Restricted item: it cannot be listed.' : 'Restricted item: needs a compliance check before it can be approved.'}</b><br>${d.restriction.hits.map((h) => e(h.label) + ' (' + e(h.why) + ')').join('; ')}${d.restriction.checked ? `<br>Checked by ${e(p.compliance_by)}: ${e(p.compliance_note)}` : ''}</div>` : ''}
   <div class="fgrid"><label class="f">Supplier<select id="xs">${suppliers.map((s) => `<option value="${s.id}" data-cur="${s.currency}" ${Number(s.id) === Number(p.supplier_id) ? 'selected' : ''}>${e(s.name)} (${s.currency})</option>`).join('')}</select></label>
    <label class="f">Supplier SKU / code<input id="xk" maxlength="60" value="${v(p.supplier_sku)}"></label>
    <label class="f full">Product name<input id="xn" maxlength="140" value="${v(p.name)}"></label>
@@ -3640,7 +3816,7 @@ async function productDS(id) {
   $('#xclose').addEventListener('click', () => { closeModal(); views.dropship(); });
   const save = async () => { if (id) await DS('/products/' + id, { method: 'PUT', body: body() }); else id = (await DS('/products', { body: body() })).id; };
   $('#xsave').addEventListener('click', guard(async () => { await save(); toast('Saved'); closeModal(); views.dropship(); }));
-  const ok = $('#xok'); if (ok) ok.addEventListener('click', guard(async () => { await save(); await DS(`/products/${id}/review`, { body: { decision: 'approved' } }); toast('Approved. It is now live.'); closeModal(); views.dropship(); }));
+  const ok = $('#xok'); if (ok) ok.addEventListener('click', guard(async () => { await save(); const f = await DS('/products/' + id); let note = ''; if (f.restriction.action === 'review' && !f.restriction.checked) { note = prompt('This is a restricted item (' + f.restriction.hits.map((h) => h.label).join(', ') + '). Check the permits and licences first. Then write what you checked:') || ''; if (note.trim().length < 5) return toast('Write what you checked to approve it', 'bad'); } await DS(`/products/${id}/review`, { body: { decision: 'approved', note } }); toast('Approved. It is now live.'); closeModal(); views.dropship(); }));
   const rej = $('#xrej'); if (rej) rej.addEventListener('click', guard(async () => { const note = prompt('Why is it being rejected? (the next person will see this)'); if (!note) return; await DS(`/products/${id}/review`, { body: { decision: 'rejected', note } }); toast('Rejected'); closeModal(); views.dropship(); }));
 }
 async function dsSettings() {
