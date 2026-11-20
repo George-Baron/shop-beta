@@ -8,6 +8,9 @@ const FX = require('../lib/trade/fx');
 const P = require('../lib/trade/products');
 const SC = require('../lib/trade/shipping-config');
 const EX = require('../lib/trade/export');
+const SUP = require('../lib/trade/suppliers');
+const IM = require('../lib/trade/imports');
+const ST = require('../lib/staff');
 const S = require('../lib/shop');
 const { fail } = S;
 
@@ -65,6 +68,49 @@ router.get('/orders/:ref/list/:kind', ah(async (req, res) => res.json(await EX.p
 router.post('/orders/:ref/status', ah(async (req, res) => res.json(await EX.setStatus(req.params.ref, req.body || {}, req.user, ip(req)))));
 router.post('/orders/:ref/pack', ah(async (req, res) => res.json(await EX.pack(req.params.ref, req.body || {}, req.user, ip(req)))));
 router.post('/orders/:ref/event', ah(async (req, res) => res.json(await EX.addTrackingEvent(req.params.ref, req.body || {}, req.user, ip(req)))));
+
+
+/* ---------- phase 4: international suppliers, purchase orders, import shipments ---------- */
+const sendBuf = (res, f) => { res.setHeader('Content-Type', f.mime); res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Content-Disposition', `attachment; filename="${String(f.name).replace(/[^\w.\- ]/g, '_')}"`); res.send(f.buf); };
+const canMoney = async (req) => ST.allows(await ST.permsOf(req.user), 'finance', false);
+router.get('/suppliers', ah(async (req, res) => res.json(await SUP.list(req.query))));
+router.post('/suppliers', ah(async (req, res) => res.json({ supplier: await SUP.save(0, req.body || {}, req.user, ip(req)) })));
+router.get('/suppliers/compare', ah(async (req, res) => res.json(await SUP.compare(req.query))));
+router.get('/suppliers/catalogue-template', ah(async (req, res) => { const t = SUP.template(req.query.format === 'csv' ? 'csv' : 'xlsx'); res.setHeader('Content-Type', t.type); res.setHeader('Content-Disposition', `attachment; filename="supplier-catalogue-template.${t.ext}"`); res.send(t.buffer); }));
+router.get('/suppliers/:id', ah(async (req, res) => { const d = await SUP.get(req.params.id); if (!(await canMoney(req))) { d.payments = []; d.balances = []; d.money_hidden = true; } res.json(d); }));
+router.put('/suppliers/:id', ah(async (req, res) => res.json({ supplier: await SUP.save(Number(req.params.id), req.body || {}, req.user, ip(req)) })));
+router.delete('/suppliers/:id', ah(async (req, res) => res.json(await SUP.remove(Number(req.params.id), req.user, ip(req)))));
+router.get('/suppliers/:id/bank', ah(async (req, res) => { if (!ST.allows(await ST.permsOf(req.user), 'finance', true)) fail(403, 'Only people who can edit Finance may view supplier bank details.'); res.json(await SUP.getBank(Number(req.params.id), req.user, ip(req))); }));
+router.put('/suppliers/:id/bank', ah(async (req, res) => res.json(await SUP.setBank(Number(req.params.id), (req.body || {}).details, req.user, ip(req)))));
+router.post('/suppliers/:id/products', ah(async (req, res) => res.json({ item: await SUP.saveProduct(Number(req.params.id), 0, req.body || {}) })));
+router.put('/suppliers/:id/products/:pid', ah(async (req, res) => res.json({ item: await SUP.saveProduct(Number(req.params.id), Number(req.params.pid), req.body || {}) })));
+router.delete('/suppliers/:id/products/:pid', ah(async (req, res) => res.json(await SUP.deleteProduct(req.params.id, req.params.pid))));
+router.post('/suppliers/:id/catalogue/preview', big, ah(async (req, res) => res.json(await SUP.previewCatalogue(Number(req.params.id), fileOf(req.body), req.body.filename))));
+router.post('/suppliers/:id/catalogue/commit', big, ah(async (req, res) => res.json(await SUP.commitCatalogue(Number(req.params.id), fileOf(req.body), req.body.filename, req.user, ip(req)))));
+router.post('/suppliers/:id/documents', big, ah(async (req, res) => { await SUP.load(req.params.id); res.json({ document: await SUP.addDocument({ supplier_id: Number(req.params.id) }, req.body || {}, fileOf(req.body), req.user, ip(req)) }); }));
+router.get('/documents/:id', ah(async (req, res) => sendBuf(res, await SUP.fetchDocument(req.params.id))));
+router.delete('/documents/:id', ah(async (req, res) => res.json(await SUP.removeDocument(req.params.id, req.user, ip(req)))));
+/* money: the Finance permission is required by the route gate (lib/staff.js) */
+router.get('/payments/suppliers', ah(async (req, res) => res.json(await SUP.listPayments(req.query))));
+router.get('/payments/payables', ah(async (req, res) => res.json(await SUP.payables())));
+router.post('/payments/suppliers/:id', ah(async (req, res) => res.json(await SUP.recordPayment(Number(req.params.id), req.body || {}, req.user, ip(req)))));
+router.delete('/payments/suppliers/payment/:id', ah(async (req, res) => res.json(await SUP.deletePayment(req.params.id, req.user, ip(req)))));
+
+router.get('/purchase-orders', ah(async (req, res) => res.json(await IM.listPOs(req.query))));
+router.post('/purchase-orders', ah(async (req, res) => res.json(await IM.savePO(0, req.body || {}, req.user, ip(req)))));
+router.get('/purchase-orders/:id', ah(async (req, res) => res.json(await IM.getPO(req.params.id))));
+router.put('/purchase-orders/:id', ah(async (req, res) => res.json(await IM.savePO(Number(req.params.id), req.body || {}, req.user, ip(req)))));
+router.post('/purchase-orders/:id/request-quotation', ah(async (req, res) => res.json(await IM.requestQuotation(req.params.id, req.body || {}, req.user, ip(req)))));
+router.post('/purchase-orders/:id/approve', ah(async (req, res) => res.json(await IM.approvePO(req.params.id, req.user, ip(req)))));
+router.post('/purchase-orders/:id/cancel', ah(async (req, res) => res.json(await IM.cancelPO(req.params.id, req.user, ip(req)))));
+router.post('/purchase-orders/:id/documents', big, ah(async (req, res) => { await IM.getPO(req.params.id); res.json({ document: await SUP.addDocument({ po_id: Number(req.params.id) }, req.body || {}, fileOf(req.body), req.user, ip(req)) }); }));
+
+router.get('/imports', ah(async (req, res) => res.json(await IM.listShips(req.query))));
+router.get('/imports/:ref', ah(async (req, res) => res.json(await IM.getShip(req.params.ref))));
+router.put('/imports/:ref', ah(async (req, res) => res.json(await IM.updateShip(req.params.ref, req.body || {}, req.user, ip(req)))));
+router.post('/imports/:ref/status', ah(async (req, res) => res.json(await IM.setShipStatus(req.params.ref, (req.body || {}).status, req.body || {}, req.user, ip(req)))));
+router.post('/imports/:ref/event', ah(async (req, res) => res.json(await IM.addShipEvent(req.params.ref, req.body || {}, req.user, ip(req)))));
+router.post('/imports/:ref/documents', big, ah(async (req, res) => { const g = await IM.getShip(req.params.ref); res.json({ document: await SUP.addDocument({ import_shipment_id: g.shipment.id }, req.body || {}, fileOf(req.body), req.user, ip(req)) }); }));
 
 router.get('/audit', ah(async (req, res) => res.json(await A.auditLog(req.query))));
 

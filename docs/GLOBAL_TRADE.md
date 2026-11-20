@@ -9,7 +9,7 @@ Admin screen: **Admin > Global Trade**. Permission module: `trade` (roles "Trade
 | 1 | Database architecture (28 tables), row level security, permissions, administration, audit log | Built |
 | 2 | International product settings, currency conversion, country configuration, bulk product import/export | Built |
 | 3 | Export checkout and international customer orders | Built |
-| 4 | Import procurement and international supplier management | Not started |
+| 4 | Import procurement and international supplier management | Built |
 | 5 | Freight quotations and carrier API integrations (needs your own carrier accounts and keys) | Not started |
 | 6 | Customs, duties, documentation and landed cost | Not started |
 | 7 | International payments and shipment tracking | Not started |
@@ -48,3 +48,15 @@ Public API (used by the storefront in phase 3): `GET /api/trade/countries`, `/cu
 - Fulfilment (Global Trade > International orders): pack, dispatch (needs carrier + tracking number), deliver, cancel, return. Rider dispatch and handover codes never apply.
 - Demo-mode payments confirm the order but never create a "verified" international payment record.
 - Tests: `npm run test:trade-export`.
+
+## Phase 4: import procurement and international suppliers
+
+- **Suppliers** (Global Trade > International suppliers): directory with contact, currency, payment and shipping terms, Incoterm, rating and status (active, paused, blocked). Suppliers with orders or payments cannot be deleted, only paused or blocked.
+- **Bank details** are encrypted (AES-256-GCM) and only people who can edit Finance may read them; every view is written to the activity log (never the details themselves). Set `TRADE_DATA_KEY` (32+ random characters) to switch this on; without it bank details cannot be saved. Keep a copy of the key: if it is lost the details cannot be read.
+- **Catalogue** per supplier: add by hand or upload Excel/CSV (template provided; the preview lists rows with problems, good rows still import; re-uploading updates by supplier SKU and keeps existing product links). **Compare prices** across suppliers for a product, with NGN equivalents at the latest stored rate.
+- **Purchase orders**: draft > quotation requested (optionally emailed to the supplier, only when you tick the box) > approved, or cancelled. The server checks the supplier, the minimum order quantity, the order currency and that importing into the destination (and buying from the supplier's country) is switched on under Countries. After approval only dates and notes can change. Approving creates exactly one import shipment.
+- **Import shipments**: statuses move only along the allowed path (supplier processing, ready for collection, dispatched, in transit, arrived at port, customs clearance, customs hold, released, local transit, delivered to warehouse). Staff enter carrier, tracking/bill of lading number, expected arrival and the costs (freight, insurance, duties, taxes, clearing, port, inland, other). The exchange rate is frozen when the first cost is saved. Manual progress notes are supported. No carrier data is fetched yet (phase 5).
+- **Not in this phase**: receiving goods into stock, damage/shortage counts, and landed-cost allocation per product (phase 6), so "stock received" and "completed" cannot be selected yet.
+- **Supplier payments** are records of payments you made outside the system (Finance permission). Balances are kept per currency (orders approved minus payments), and the dashboard's "Owed to suppliers" converts them at the latest rate.
+- **Documents** (supplier invoices, purchase agreements, bills of lading and so on; PDF, image, Excel, CSV or Word, up to 8 MB) are stored in a private bucket (`SUPABASE_TRADE_BUCKET`, default `trade-docs`; create it and leave "Public" off) and downloaded only through the staff API.
+- Tests: `npm run test:trade-import`.

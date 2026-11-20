@@ -2969,7 +2969,7 @@ views.partners = async () => {
     }));
   };
   on('#padd', 'click', () => pform());
-  onAll('[data-pe]', 'click', (el) => pform(p.partners.find((x) => String(x.id) === el.dataset.pe)));
+  monAll('[data-pe]', 'click', (el) => pform(p.partners.find((x) => String(x.id) === el.dataset.pe)));
   on('#radd', 'click', () => {
     openModal(`<h2>Add rider</h2><div class="fgrid"><label class="f">Name<input id="rn" maxlength="80"></label><label class="f">Phone<input id="rph" maxlength="30"></label><label class="f">Email (their sign-in)<input id="rem" type="email"></label><label class="f">Password (min 8)<input id="rpw" type="text" autocomplete="off"></label><label class="f full">States they cover (empty = everywhere)<input id="rco" placeholder="Lagos, Ogun" maxlength="300"></label></div><div class="acts"><button class="btn ghost" id="rc">Cancel</button><button class="btn" id="rs">Create rider</button></div>`, true);
     $('#rc').addEventListener('click', closeModal);
@@ -2983,13 +2983,193 @@ views.partners = async () => {
 const tradeState = { tab: 'overview', cq: '', pf: '', pq: '', pp: 1, of: '', oq: '' };
 views.trade = async () => {
   const edit = can('trade', true), T = tradeState;
-  const tabs = [['overview', 'Overview'], ['countries', 'Countries'], ['rates', 'Currencies & rates'], ['products', 'Products'], ['shipping', 'Shipping & duties'], ['orders', 'International orders'], ['settings', 'Settings'], ['audit', 'Activity']];
+  const tabs = [['overview', 'Overview'], ['countries', 'Countries'], ['rates', 'Currencies & rates'], ['products', 'Products'], ['suppliers', 'International suppliers'], ['purchase', 'Purchase orders'], ['imports', 'Import shipments'], ['shipping', 'Shipping & duties'], ['orders', 'International orders'], ['settings', 'Settings'], ['audit', 'Activity']];
   const ngn = (n) => naira(Math.round(Number(n || 0)));
   const yn = (b) => (b ? '<span class="pill ok">Yes</span>' : '<span class="pill">No</span>');
   const frame = (body) => mn(hd('GLOBAL TRADE &amp; LOGISTICS', '') + `<div class="tbar">${tabs.map(([k, t]) => `<button class="btn ${T.tab === k ? '' : 'ghost'} sm" data-tab="${k}">${t}</button>`).join('')}</div>` + body);
   const wireTabs = () => onAll('[data-tab]', 'click', (el) => { T.tab = el.dataset.tab; views.trade(); });
   const toB64 = (buf) => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
 
+  /* ---------- phase 4 helpers: a small form builder, file reading, document lists ---------- */
+  const closeModal = () => modal.classList.remove('on');
+  const monAll = (sel, ev, fn) => $$(sel, modal).forEach((el) => el.addEventListener(ev, guard((x) => fn(el, x))));
+  const tform = (title, specs, cur, onSave, after) => {
+    cur = cur || {};
+    const field = ([k, label, def, extra]) => {
+      const raw = cur[k] !== undefined && cur[k] !== null ? cur[k] : (def !== undefined ? def : ''), v = Array.isArray(raw) ? raw.join(', ') : raw;
+      if (extra === 'bool') return `<label style="display:block;margin:8px 0"><input type="checkbox" data-f="${k}" data-t="bool" ${v === true || v === 1 || v === '1' || v === 'true' ? 'checked' : ''}> ${e(label)}</label>`;
+      if (Array.isArray(extra)) return `<label class="f">${e(label)}<select data-f="${k}">${extra.map((o) => { const [val, text] = Array.isArray(o) ? o : [o, o]; return `<option value="${e(val)}" ${String(v) === String(val) ? 'selected' : ''}>${e(String(text).replace(/_/g, ' '))}</option>`; }).join('')}</select></label>`;
+      if (extra === 'area') return `<label class="f" style="grid-column:1/-1">${e(label)}<textarea data-f="${k}" rows="3">${e(v)}</textarea></label>`;
+      return `<label class="f">${e(label)}<input data-f="${k}" ${extra === 'date' ? 'type="date"' : ''} value="${e(v)}"></label>`;
+    };
+    openModal(`<h3 style="margin-top:0">${title}</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px">${specs.map(field).join('')}</div><div id="tferr" style="color:#b91c1c;margin-top:8px"></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><button class="btn" id="tfsv">Save</button><button class="btn ghost" id="tfcx">Cancel</button></div>`, true);
+    $('#tfcx').addEventListener('click', () => (after ? after() : closeModal()));
+    $('#tfsv').addEventListener('click', async () => {
+      const body = {}; document.querySelectorAll('[data-f]').forEach((el) => { body[el.dataset.f] = el.dataset.t === 'bool' ? el.checked : el.value; });
+      try { await onSave(body); } catch (er) { $('#tferr').textContent = er.message; }
+    });
+  };
+  const pickFile = (accept) => new Promise((res) => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept || ''; i.onchange = async () => { const f = i.files[0]; if (!f) return res(null); if (f.size > 8 * 1024 * 1024) { toast('That file is larger than 8 MB.', 'bad'); return res(null); } res({ filename: f.name, data: toB64(await f.arrayBuffer()) }); }; i.click(); });
+  const DOCT = ['supplier_invoice', 'purchase_agreement', 'proforma_invoice', 'packing_list', 'certificate_of_origin', 'bill_of_lading', 'air_waybill', 'insurance_certificate', 'import_permit', 'customs_declaration', 'other'];
+  const docsHtml = (docs) => `<h4>Documents</h4>${docs.length ? docs.map((d) => `<div style="font-size:13px"><a href="/api/admin/trade/documents/${d.id}" download>${e(d.file_name)}</a> · ${e(d.doc_type.replace(/_/g, ' '))}${d.number ? ' · ' + e(d.number) : ''} · ${Math.max(1, Math.round(d.size_bytes / 1024))} KB ${edit ? `<button class="btn ghost sm" data-deldoc="${d.id}">Remove</button>` : ''}</div>`).join('') : '<div class="mu2">None attached.</div>'}${edit ? `<div style="margin-top:6px"><select id="dty">${DOCT.map((t) => `<option value="${t}">${t.replace(/_/g, ' ')}</option>`).join('')}</select> <input id="dnum" placeholder="Number (optional)" style="max-width:150px"> <button class="btn ghost sm" id="dup">Attach a file</button></div>` : ''}`;
+  const wireDocs = (url, reload) => {
+    const u = $('#dup'); if (u) u.addEventListener('click', guard(async () => { const f = await pickFile('.pdf,.png,.jpg,.jpeg,.xlsx,.csv,.docx'); if (!f) return; await api(url, { body: { ...f, doc_type: $('#dty').value, number: $('#dnum').value } }); toast('Attached'); reload(); }));
+    monAll('[data-deldoc]', 'click', guard(async (b) => { if (!confirm('Remove this document?')) return; await api('/api/admin/trade/documents/' + b.dataset.deldoc, { method: 'DELETE' }); toast('Removed'); reload(); }));
+  };
+  const money = (n, c) => `${e(c)} ${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}`;
+  const stPill = (s) => `<span class="pill">${e(String(s).replace(/_/g, ' '))}</span>`;
+  const cc = (await api('/api/admin/trade/countries').catch(() => ({ countries: [] }))).countries || [];
+  const ccOpts = [['', 'Choose...'], ...cc.map((c) => [c.code, c.name])];
+  const curOpts = (await api('/api/admin/trade/currencies').catch(() => ({ currencies: [] }))).currencies || [];
+  const curList = curOpts.map((c) => c.code);
+  const INCO = ['', 'EXW', 'FCA', 'FAS', 'FOB', 'CFR', 'CIF', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP'];
+  let openSupplier, openPO, openImport;
+
+  /* ----- purchase order form ----- */
+  const poForm = async (supplierId, po) => {
+    const g = await api('/api/admin/trade/suppliers/' + supplierId), s = g.supplier, cat = g.products.filter((p) => p.active), o = po ? po.order : { currency: s.currency, destination_country: 'NG', incoterm: s.incoterm }, lines = po ? po.items.map((i) => ({ ...i })) : [{}];
+    const row = (l, i) => `<tr data-l="${i}"><td><select data-k="supplier_product_id"><option value="">Other product</option>${cat.map((p) => `<option value="${p.id}" ${Number(l.supplier_product_id) === p.id ? 'selected' : ''}>${e(p.name)} (${money(p.unit_cost, p.currency)}, min ${p.moq})</option>`).join('')}</select></td><td><input data-k="description" value="${e(l.description || '')}" placeholder="Description"></td><td><input data-k="hs_code" value="${e(l.hs_code || '')}" style="width:90px"></td><td><input data-k="qty" type="number" min="1" value="${e(l.qty || '')}" style="width:80px"></td><td><input data-k="unit_cost" type="number" step="any" value="${e(l.unit_cost == null ? '' : l.unit_cost)}" style="width:90px"></td><td><button class="btn ghost sm" data-rm="${i}">×</button></td></tr>`;
+    const draw = () => {
+      openModal(`<h3 style="margin-top:0">${po ? 'Edit ' + e(o.po_number) : 'New purchase order'} · ${e(s.name)}</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+        <label class="f">Currency<select id="pcu">${curList.map((c) => `<option ${o.currency === c ? 'selected' : ''}>${e(c)}</option>`).join('')}</select></label><label class="f">Destination country<select id="pdc">${ccOpts.map(([c, n]) => `<option value="${e(c)}" ${o.destination_country === c ? 'selected' : ''}>${e(n)}</option>`).join('')}</select></label>
+        <label class="f">Incoterm<select id="pin">${INCO.map((c) => `<option ${o.incoterm === c ? 'selected' : ''}>${e(c)}</option>`).join('')}</select></label><label class="f">Expected dispatch<input id="ped" type="date" value="${e(o.expected_dispatch || '')}"></label><label class="f">Expected arrival<input id="pea" type="date" value="${e(o.expected_arrival || '')}"></label></div>
+        <div class="tw" style="margin-top:10px"><table class="t"><tr><th>Catalogue item</th><th>Description</th><th>HS code</th><th>Qty</th><th>Unit cost</th><th></th></tr>${lines.map(row).join('')}</table></div><button class="btn ghost sm" id="padd" style="margin-top:6px">Add line</button>
+        <label class="f" style="margin-top:8px">Notes<textarea id="pnt" rows="2">${e(o.notes || '')}</textarea></label><div class="mu2">The total is worked out by the server from the lines. Catalogue lines must be in the order currency and meet the supplier's minimum order quantity.</div><div id="perr" style="color:#b91c1c;margin-top:6px"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><button class="btn" id="psv">Save order</button><button class="btn ghost" id="pcx">Cancel</button></div>`, true);
+      const read = () => { document.querySelectorAll('[data-l]').forEach((tr) => { const l = lines[Number(tr.dataset.l)]; tr.querySelectorAll('[data-k]').forEach((el) => { l[el.dataset.k] = el.value; }); }); o.currency = $('#pcu').value; o.destination_country = $('#pdc').value; o.incoterm = $('#pin').value; o.expected_dispatch = $('#ped').value; o.expected_arrival = $('#pea').value; o.notes = $('#pnt').value; };
+      document.querySelectorAll('[data-l] select[data-k=supplier_product_id]').forEach((sel) => sel.addEventListener('change', () => { read(); const l = lines[Number(sel.closest('tr').dataset.l)], p = cat.find((x) => String(x.id) === sel.value); if (p) { l.description = p.name; l.hs_code = p.hs_code; l.unit_cost = p.unit_cost; if (!l.qty) l.qty = p.moq; o.currency = p.currency; } draw(); }));
+      $('#padd').addEventListener('click', () => { read(); lines.push({}); draw(); });
+      monAll('[data-rm]', 'click', (b) => { read(); lines.splice(Number(b.dataset.rm), 1); if (!lines.length) lines.push({}); draw(); });
+      $('#pcx').addEventListener('click', () => (po ? openPO(po.order.id) : openSupplier(supplierId)));
+      $('#psv').addEventListener('click', async () => {
+        read();
+        try { const r = await api('/api/admin/trade/purchase-orders' + (po ? '/' + po.order.id : ''), { method: po ? 'PUT' : 'POST', body: { supplier_id: supplierId, ...o, items: lines.filter((l) => l.description || l.supplier_product_id || l.qty).map((l) => ({ supplier_product_id: l.supplier_product_id || undefined, description: l.description, hs_code: l.hs_code, qty: l.qty, unit_cost: l.unit_cost })) } }); toast('Saved'); openPO(r.order.id); } catch (er) { $('#perr').textContent = er.message; }
+      });
+    };
+    draw();
+  };
+
+  /* ----- purchase order detail ----- */
+  openPO = async (id) => {
+    const d = await api('/api/admin/trade/purchase-orders/' + id), o = d.order, st = o.status;
+    openModal(`<h3 style="margin-top:0">${e(o.po_number)} ${stPill(st)}</h3><div class="mu2">${e(o.supplier)} · to ${e(o.destination_country)} · ${e(o.incoterm || 'no Incoterm')} · dispatch ${e(o.expected_dispatch || '?')} · arrival ${e(o.expected_arrival || '?')}</div>
+      <div class="tw"><table class="t"><tr><th>Item</th><th>HS</th><th>Qty</th><th>Unit</th><th>Total</th></tr>${d.items.map((i) => `<tr><td>${e(i.description)}</td><td>${e(i.hs_code)}</td><td>${i.qty}</td><td>${money(i.unit_cost, o.currency)}</td><td>${money(i.line_total, o.currency)}</td></tr>`).join('')}<tr><td colspan="4"><b>Total</b></td><td><b>${money(o.total, o.currency)}</b></td></tr></table></div>
+      ${st === 'approved' ? `<div class="mu2">Paid ${money(o.paid, o.currency)} · Balance ${money(o.balance, o.currency)}${o.shipment_ref ? ` · Shipment <a href="#" data-ship="${e(o.shipment_ref)}">${e(o.shipment_ref)}</a> (${e(String(o.shipment_status).replace(/_/g, ' '))})` : ''}</div>` : ''}
+      ${o.notes ? `<p class="mu2">${e(o.notes)}</p>` : ''}
+      ${edit ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">${d.editable ? '<button class="btn ghost sm" id="poedit">Edit order</button>' : ''}${st === 'draft' ? `<label class="mu2"><input type="checkbox" id="pomail" ${o.supplier_email ? '' : 'disabled'}> email the supplier</label> <button class="btn sm" id="porfq">Request quotation</button>` : ''}${d.editable ? '<button class="btn sm" id="poapp">Approve order</button>' : ''}${st !== 'cancelled' ? '<button class="btn danger sm" id="pocan">Cancel order</button>' : ''}</div>` : ''}
+      ${docsHtml(d.documents)}<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" id="poclose">Close</button></div>`, true);
+    $('#poclose').addEventListener('click', () => { closeModal(); views.trade(); });
+    const ps = document.querySelector('[data-ship]'); if (ps) ps.addEventListener('click', (ev) => { ev.preventDefault(); openImport(ps.dataset.ship); });
+    const on1 = (sel, fn) => { const x = $(sel); if (x) x.addEventListener('click', guard(fn)); };
+    on1('#poedit', async () => poForm(o.supplier_id, d));
+    on1('#porfq', async () => { const r = await api(`/api/admin/trade/purchase-orders/${id}/request-quotation`, { body: { send_email: $('#pomail').checked } }); toast(r.emailed ? 'Quotation request emailed to the supplier' : 'Marked as quotation requested'); openPO(id); });
+    on1('#poapp', async () => { if (!confirm(`Approve ${o.po_number} for ${money(o.total, o.currency)}? This creates the import shipment.`)) return; await api(`/api/admin/trade/purchase-orders/${id}/approve`, { body: {} }); toast('Approved'); openPO(id); });
+    on1('#pocan', async () => { if (!confirm('Cancel this purchase order?')) return; await api(`/api/admin/trade/purchase-orders/${id}/cancel`, { body: {} }); toast('Cancelled'); openPO(id); });
+    wireDocs(`/api/admin/trade/purchase-orders/${id}/documents`, () => openPO(id));
+  };
+
+  /* ----- import shipment detail ----- */
+  const COSTK = [['freight', 'Freight'], ['insurance', 'Insurance'], ['customs_duties', 'Customs duties'], ['import_taxes', 'Import taxes'], ['clearing_fees', 'Clearing & forwarding'], ['port_charges', 'Port charges'], ['inland_transport', 'Inland transport'], ['other_charges', 'Other charges']];
+  openImport = async (ref) => {
+    const d = await api('/api/admin/trade/imports/' + encodeURIComponent(ref)), h = d.shipment, ro = edit ? '' : 'disabled';
+    openModal(`<h3 style="margin-top:0">${e(h.import_ref)} ${stPill(h.status)} ${h.delayed ? '<span class="pill" style="background:#fde2e2">Late</span>' : ''}</h3>
+      <div class="mu2">${e(h.supplier)} (${e(h.supplier_country)}) → ${e(h.destination_country)} · ${h.po_number ? 'PO ' + e(h.po_number) : ''} · ${e(h.incoterm || 'no Incoterm')}</div>
+      <div class="tw"><table class="t"><tr><th>Item</th><th>HS</th><th>Ordered</th><th>Unit cost</th><th>Total</th></tr>${d.items.map((i) => `<tr><td>${e(i.description)}</td><td>${e(i.hs_code)}</td><td>${i.qty_ordered}</td><td>${money(i.unit_cost, h.currency)}</td><td>${money(i.line_total, h.currency)}</td></tr>`).join('')}</table></div>
+      <h4>Shipping details</h4><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px"><label class="f">Carrier / forwarder<input id="icar" value="${e(h.carrier)}" ${ro}></label><label class="f">Tracking / B/L number<input id="itr" value="${e(h.tracking_number)}" ${ro}></label><label class="f">Expected arrival<input id="ieta" type="date" value="${e(h.eta || '')}" ${ro}></label></div>
+      <h4>Costs (${e(h.currency)}) <span class="mu2">Entered from supplier and agent invoices. The exchange rate is frozen when the first cost is saved${h.fx_rate_to_ngn ? ` (1 ${e(h.currency)} = ${Number(h.fx_rate_to_ngn).toFixed(4)} NGN)` : ''}.</span></h4>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">${COSTK.map(([k, l]) => `<label class="f">${l}<input data-c="${k}" type="number" step="any" min="0" value="${h.costs[k] || ''}" ${ro}></label>`).join('')}</div>
+      <div style="margin-top:6px"><b>Purchase value ${money(h.purchase_value, h.currency)} · Landed cost ${money(h.landed_cost, h.currency)}${h.landed_cost_ngn != null ? ' = ' + ngn(h.landed_cost_ngn) : ''}</b></div>
+      ${edit ? '<button class="btn ghost sm" id="isave" style="margin-top:6px">Save details and costs</button>' : ''}
+      ${edit && d.next.length ? `<h4>Move to the next stage</h4><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px"><label class="f">Note<input id="inote"></label><label class="f">Location<input id="iloc"></label></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${d.next.map((s) => `<button class="btn sm" data-go="${s}">${e(s.replace(/_/g, ' '))}</button>`).join('')}</div>` : ''}
+      <div class="mu2" style="margin-top:6px">${e(d.receiving_note)}</div>
+      <h4>Progress</h4>${d.events.length ? d.events.map((x) => `<div style="font-size:13px">${new Date(x.occurred_at * 1000).toLocaleString()} · <b>${e(String(x.stage).replace(/_/g, ' '))}</b> ${e(x.location)} ${e(x.description)}</div>`).join('') : '<div class="mu2">None yet.</div>'}
+      ${edit ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><select id="evs">${['delayed', 'exception', 'customs_hold', 'in_transit', 'departed_origin', 'arrived_destination', 'export_customs', 'import_customs', 'customs_released', 'processing'].map((s) => `<option value="${s}">${s.replace(/_/g, ' ')}</option>`).join('')}</select><input id="evd" placeholder="Note" style="max-width:220px"><input id="evl" placeholder="Location" style="max-width:160px"><button class="btn ghost sm" id="evadd">Add update</button></div>` : ''}
+      ${docsHtml(d.documents)}<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" id="iclose">Close</button></div>`, true);
+    $('#iclose').addEventListener('click', () => { closeModal(); views.trade(); });
+    const on1 = (sel, fn) => { const x = $(sel); if (x) x.addEventListener('click', guard(fn)); };
+    const base = '/api/admin/trade/imports/' + encodeURIComponent(ref);
+    on1('#isave', async () => { const body = { carrier: $('#icar').value, tracking_number: $('#itr').value, eta: $('#ieta').value || null }; document.querySelectorAll('[data-c]').forEach((el) => { body[el.dataset.c] = el.value; }); await api(base, { method: 'PUT', body }); toast('Saved'); openImport(ref); });
+    monAll('[data-go]', 'click', guard(async (b) => { await api(base + '/status', { body: { status: b.dataset.go, carrier: $('#icar').value, tracking_number: $('#itr').value, eta: $('#ieta').value || undefined, note: $('#inote').value, location: $('#iloc').value } }); toast('Updated'); openImport(ref); }));
+    on1('#evadd', async () => { await api(base + '/event', { body: { stage: $('#evs').value, description: $('#evd').value, location: $('#evl').value } }); toast('Added'); openImport(ref); });
+    wireDocs(base + '/documents', () => openImport(ref));
+  };
+
+  /* ----- supplier detail ----- */
+  const SUPF = [['name', 'Supplier name'], ['country_code', 'Country', '', ccOpts], ['contact_person', 'Contact person'], ['email', 'Email'], ['phone', 'Phone'], ['website', 'Website (https://)'], ['address', 'Address'], ['currency', 'Currency', 'USD', curList], ['incoterm', 'Usual Incoterm', '', INCO], ['payment_terms', 'Payment terms'], ['shipping_terms', 'Shipping terms'], ['rating', 'Rating (0 to 5)'], ['status', 'Status', 'active', ['active', 'paused', 'blocked']], ['notes', 'Notes', '', 'area']];
+  const PRF = [['supplier_sku', 'Supplier SKU'], ['name', 'Product name'], ['description', 'Description'], ['hs_code', 'HS code'], ['unit_cost', 'Unit cost'], ['currency', 'Currency', '', curList], ['moq', 'Minimum order quantity', 1], ['lead_time_days', 'Lead time (days)', 0], ['product_id', 'Linked Velto-Mart product ID (optional)'], ['active', 'Active in catalogue', true, 'bool']];
+  openSupplier = async (id) => {
+    const d = await api('/api/admin/trade/suppliers/' + id), s = d.supplier, hide = d.money_hidden;
+    openModal(`<h3 style="margin-top:0">${e(s.name)} ${stPill(s.status)} ${s.rating != null ? '<span class="mu2">★ ' + s.rating + '</span>' : ''}</h3>
+      <div class="mu2">${e(s.country)} · ${e(s.contact_person)} ${e(s.email)} ${e(s.phone)}<br>${e(s.payment_terms)}${s.shipping_terms ? ' · ' + e(s.shipping_terms) : ''} · ${e(s.currency)} ${s.incoterm ? '· ' + e(s.incoterm) : ''}</div>
+      ${edit ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"><button class="btn ghost sm" id="sedit">Edit profile</button><button class="btn sm" id="snewpo">New purchase order</button><button class="btn ghost sm" id="sbank">Bank details</button><button class="btn danger sm" id="sdel">Delete</button></div>` : ''}
+      <h4>Catalogue (${d.products.length}) ${edit ? '<button class="btn ghost sm" id="padd1">Add product</button> <button class="btn ghost sm" id="pupl">Upload Excel/CSV</button> <a class="mu2" href="/api/admin/trade/suppliers/catalogue-template?format=xlsx">template</a>' : ''}</h4>
+      ${d.products.length ? `<div class="tw"><table class="t"><tr><th>SKU</th><th>Product</th><th>HS</th><th>Unit cost</th><th>Min qty</th><th>Lead</th><th>Linked</th><th></th></tr>${d.products.map((p) => `<tr style="${p.active ? '' : 'opacity:.5'}"><td>${e(p.supplier_sku)}</td><td>${e(p.name)}</td><td>${e(p.hs_code)}</td><td>${money(p.unit_cost, p.currency)}</td><td>${p.moq}</td><td>${p.lead_time_days}d</td><td>${e(p.product_name || '')}</td><td>${edit ? `<button class="btn ghost sm" data-pe="${p.id}">Edit</button> <button class="btn ghost sm" data-pd="${p.id}">Remove</button>` : ''}</td></tr>`).join('')}</table></div>` : '<div class="mu2">No catalogue yet.</div>'}
+      <h4>Purchase history</h4>${d.purchase_history.length ? d.purchase_history.map((p) => `<div style="font-size:13px"><a href="#" data-po="${p.id}">${e(p.po_number)}</a> · ${stPill(p.status)} · ${money(p.total, p.currency)}</div>`).join('') : '<div class="mu2">No orders yet.</div>'}
+      ${hide ? '' : `<h4>Money</h4>${d.balances.length ? d.balances.map((b) => `<div style="font-size:13px">${e(b.currency)}: ordered ${Number(b.ordered).toLocaleString()} · paid ${Number(b.paid).toLocaleString()} · <b>outstanding ${Number(b.outstanding).toLocaleString()}</b></div>`).join('') : '<div class="mu2">Nothing owed.</div>'}
+        ${d.payments.map((p) => `<div style="font-size:13px">${e(p.paid_on)} · ${money(p.amount, p.currency)}${p.amount_ngn != null ? ' (' + ngn(p.amount_ngn) + ')' : ''} · ${e(p.method.replace(/_/g, ' '))} ${e(p.reference)} ${edit ? `<button class="btn ghost sm" data-pdel="${p.id}">Remove</button>` : ''}</div>`).join('')}
+        <div class="mu2">These are records of payments you made yourself. Velto-Mart does not send money to suppliers.</div>${edit ? '<button class="btn ghost sm" id="spay" style="margin-top:4px">Record a payment</button>' : ''}`}
+      ${docsHtml(d.documents)}<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" id="sclose">Close</button></div>`, true);
+    const on1 = (sel, fn) => { const x = $(sel); if (x) x.addEventListener('click', guard(fn)); };
+    $('#sclose').addEventListener('click', () => { closeModal(); views.trade(); });
+    const reload = () => openSupplier(id), A4 = '/api/admin/trade/suppliers/' + id;
+    monAll('[data-po]', 'click', (a, ev) => { ev.preventDefault(); openPO(a.dataset.po); });
+    on1('#sedit', async () => tform('Edit supplier', SUPF, s, async (b) => { await api(A4, { method: 'PUT', body: b }); toast('Saved'); reload(); }, reload));
+    on1('#snewpo', async () => poForm(id));
+    on1('#sdel', async () => { if (!confirm('Delete this supplier and its catalogue?')) return; await api(A4, { method: 'DELETE' }); toast('Deleted'); closeModal(); views.trade(); });
+    on1('#sbank', async () => {
+      let cur = ''; try { cur = (await api(A4 + '/bank')).details; } catch (er) { toast(er.message, 'bad'); if (/permission|Only people/i.test(er.message)) return; }
+      tform('Bank details (stored encrypted, visible to Finance only)', [['details', 'Bank name, account, SWIFT/IBAN, notes', '', 'area']], { details: cur }, async (b) => { await api(A4 + '/bank', { method: 'PUT', body: { details: b.details } }); toast('Saved'); reload(); }, reload);
+    });
+    on1('#padd1', async () => tform('Add catalogue product', PRF, { currency: s.currency }, async (b) => { await api(A4 + '/products', { body: b }); toast('Saved'); reload(); }, reload));
+    monAll('[data-pe]', 'click', (b) => tform('Edit catalogue product', PRF, d.products.find((p) => String(p.id) === b.dataset.pe), async (v) => { await api(A4 + '/products/' + b.dataset.pe, { method: 'PUT', body: v }); toast('Saved'); reload(); }, reload));
+    monAll('[data-pd]', 'click', guard(async (b) => { if (!confirm('Remove this product?')) return; await api(A4 + '/products/' + b.dataset.pd, { method: 'DELETE' }); toast('Removed'); reload(); }));
+    on1('#pupl', async () => {
+      const f = await pickFile('.xlsx,.csv'); if (!f) return; const pv = await api(A4 + '/catalogue/preview', { body: f });
+      if (!confirm(`${pv.ok} of ${pv.total} rows are ready to import.${pv.errors.length ? '\n\nProblems:\n' + pv.errors.slice(0, 8).map((x) => `Row ${x.row}: ${x.error}`).join('\n') : ''}\n\nImport the good rows?`)) return;
+      const r = await api(A4 + '/catalogue/commit', { body: f }); toast(`${r.created} added, ${r.updated} updated${r.skipped ? ', ' + r.skipped + ' skipped' : ''}`); reload();
+    });
+    on1('#spay', async () => tform('Record a supplier payment', [['amount', 'Amount paid'], ['currency', 'Currency', s.currency, curList], ['paid_on', 'Date paid', '', 'date'], ['fx_rate_to_ngn', 'Rate your bank gave (NGN per 1 unit, optional)'], ['method', 'Method', 'bank_transfer', ['bank_transfer', 'card', 'cash', 'letter_of_credit', 'other']], ['reference', 'Reference'], ['po_id', 'Purchase order (optional)', '', [['', 'Not for one order'], ...d.purchase_history.filter((p) => p.status === 'approved').map((p) => [p.id, p.po_number])]], ['note', 'Note']], {}, async (b) => { await api('/api/admin/trade/payments/suppliers/' + id, { body: b }); toast('Recorded'); reload(); }, reload));
+    monAll('[data-pdel]', 'click', guard(async (b) => { if (!confirm('Remove this payment record?')) return; await api('/api/admin/trade/payments/suppliers/payment/' + b.dataset.pdel, { method: 'DELETE' }); toast('Removed'); reload(); }));
+    wireDocs(A4 + '/documents', reload);
+  };
+
+  if (T.tab === 'suppliers') {
+    const d = await api('/api/admin/trade/suppliers?q=' + encodeURIComponent(T.sq || '') + '&country=' + encodeURIComponent(T.sc || ''));
+    frame(`<div class="panel"><div class="mu2" style="margin-bottom:8px">Overseas suppliers you buy from. Turn on the supplier's country under Countries (&ldquo;buy from&rdquo;) before raising orders.</div>
+      <input id="sq" placeholder="Search name, contact, email" value="${e(T.sq || '')}" style="max-width:240px"> <select id="sc">${ccOpts.map(([c, n]) => `<option value="${e(c)}" ${T.sc === c ? 'selected' : ''}>${c ? e(n) : 'All countries'}</option>`).join('')}</select> <button class="btn ghost sm" id="sgo">Search</button> ${edit ? '<button class="btn sm" id="sadd">Add supplier</button>' : ''}
+      <div class="tw" style="margin-top:10px">${d.suppliers.length ? `<table class="t"><tr><th>Supplier</th><th>Country</th><th>Contact</th><th>Currency</th><th>Rating</th><th>Products</th><th>Orders</th><th>Status</th></tr>${d.suppliers.map((s) => `<tr data-s="${s.id}" style="cursor:pointer"><td>${e(s.name)}</td><td>${e(s.country)}</td><td>${e(s.contact_person)}</td><td>${e(s.currency)}</td><td>${s.rating == null ? '' : s.rating}</td><td>${s.product_count}</td><td>${s.po_count}</td><td>${stPill(s.status)}</td></tr>`).join('')}</table>` : '<div class="mu2">No suppliers yet.</div>'}</div></div>
+      <div class="panel"><h3 style="margin-top:0">Compare supplier prices</h3><input id="cmq" placeholder="Product name, supplier SKU or HS code" style="max-width:280px"> <button class="btn ghost sm" id="cmgo">Compare</button><div id="cmout" class="tw" style="margin-top:8px"></div></div>`);
+    wireTabs();
+    on('#sgo', 'click', () => { T.sq = $('#sq').value.trim(); T.sc = $('#sc').value; views.trade(); });
+    on('#sadd', 'click', () => tform('Add supplier', SUPF, {}, async (b) => { const r = await api('/api/admin/trade/suppliers', { body: b }); toast('Saved'); openSupplier(r.supplier.id); }, () => closeModal()));
+    onAll('[data-s]', 'click', guard(async (el) => openSupplier(el.dataset.s)));
+    on('#cmgo', 'click', guard(async () => {
+      const r = await api('/api/admin/trade/suppliers/compare?q=' + encodeURIComponent($('#cmq').value));
+      $('#cmout').innerHTML = r.items.length ? `<table class="t"><tr><th>Supplier</th><th>Product</th><th>Unit cost</th><th>In NGN</th><th>Min qty</th><th>Lead</th><th>Rating</th></tr>${r.items.map((i) => `<tr><td>${e(i.supplier)} (${e(i.supplier_country)})</td><td>${e(i.name)}</td><td>${money(i.unit_cost, i.currency)}</td><td>${i.unit_cost_ngn != null ? ngn(i.unit_cost_ngn) : '<span class="mu2">no rate</span>'}</td><td>${i.moq}</td><td>${i.lead_time_days}d</td><td>${i.supplier_rating == null ? '' : i.supplier_rating}</td></tr>`).join('')}</table><div class="mu2">${e(r.note)}</div>` : '<div class="mu2">Nothing found.</div>';
+    }));
+    return;
+  }
+  if (T.tab === 'purchase') {
+    const d = await api('/api/admin/trade/purchase-orders?status=' + encodeURIComponent(T.ps || '') + '&q=' + encodeURIComponent(T.pq2 || '')), sl = edit ? (await api('/api/admin/trade/suppliers?per=100')).suppliers : [];
+    frame(`<div class="panel"><div class="mu2" style="margin-bottom:8px">Orders to overseas suppliers. Approving an order creates its import shipment.</div>
+      <select id="pss">${['', 'draft', 'quotation_requested', 'approved', 'cancelled'].map((s) => `<option value="${s}" ${T.ps === s ? 'selected' : ''}>${s ? s.replace(/_/g, ' ') : 'All statuses'}</option>`).join('')}</select> <input id="pq2" placeholder="PO number or supplier" value="${e(T.pq2 || '')}" style="max-width:220px"> <button class="btn ghost sm" id="pgo">Search</button>
+      ${edit ? `<select id="pns"><option value="">New order for...</option>${sl.filter((s) => s.status === 'active').map((s) => `<option value="${s.id}">${e(s.name)}</option>`).join('')}</select>` : ''}
+      <div class="tw" style="margin-top:10px">${d.orders.length ? `<table class="t"><tr><th>Order</th><th>Supplier</th><th>To</th><th>Total</th><th>Arrival</th><th>Shipment</th><th>Status</th></tr>${d.orders.map((o) => `<tr data-p="${o.id}" style="cursor:pointer"><td>${e(o.po_number)}</td><td>${e(o.supplier)}</td><td>${e(o.destination_country)}</td><td>${money(o.total, o.currency)}</td><td>${e(o.expected_arrival || '')}</td><td>${e(o.shipment_ref || '')}</td><td>${stPill(o.status)}</td></tr>`).join('')}</table>` : '<div class="mu2">No purchase orders yet.</div>'}</div></div>`);
+    wireTabs(); on('#pgo', 'click', () => { T.ps = $('#pss').value; T.pq2 = $('#pq2').value.trim(); views.trade(); }); on('#pss', 'change', () => { T.ps = $('#pss').value; views.trade(); });
+    on('#pns', 'change', guard(async () => { const v = $('#pns').value; if (v) poForm(Number(v)); }));
+    onAll('[data-p]', 'click', guard(async (el) => openPO(el.dataset.p)));
+    return;
+  }
+  if (T.tab === 'imports') {
+    const d = await api('/api/admin/trade/imports?status=' + encodeURIComponent(T.is || '') + '&q=' + encodeURIComponent(T.iq || ''));
+    const stat = ['', 'po_approved', 'supplier_processing', 'ready_for_collection', 'dispatched', 'in_transit', 'arrived_port', 'customs_clearance', 'customs_hold', 'released', 'local_transit', 'delivered_warehouse'];
+    frame(`<div class="panel"><div class="mu2" style="margin-bottom:8px">One import shipment per approved purchase order. Record the supplier's progress, the carrier and the costs. Receiving goods into stock comes in a later phase.</div>
+      <select id="iss">${stat.map((s) => `<option value="${s}" ${T.is === s ? 'selected' : ''}>${s ? s.replace(/_/g, ' ') : 'All statuses'}</option>`).join('')}</select> <input id="iq" placeholder="Reference, tracking, supplier, PO" value="${e(T.iq || '')}" style="max-width:240px"> <button class="btn ghost sm" id="igo">Search</button>
+      <div class="tw" style="margin-top:10px">${d.shipments.length ? `<table class="t"><tr><th>Shipment</th><th>Supplier</th><th>PO</th><th>Carrier / tracking</th><th>ETA</th><th>Purchase value</th><th>Landed cost</th><th>Status</th></tr>${d.shipments.map((h) => `<tr data-i="${e(h.import_ref)}" style="cursor:pointer"><td>${e(h.import_ref)}</td><td>${e(h.supplier)}</td><td>${e(h.po_number || '')}</td><td>${e(h.carrier)} ${e(h.tracking_number)}</td><td>${e(h.eta || '')} ${h.delayed ? '<span class="pill" style="background:#fde2e2">Late</span>' : ''}</td><td>${money(h.purchase_value, h.currency)}</td><td>${money(h.landed_cost, h.currency)}</td><td>${stPill(h.status)}</td></tr>`).join('')}</table>` : '<div class="mu2">No import shipments yet. Approve a purchase order to create one.</div>'}</div></div>`);
+    wireTabs(); on('#igo', 'click', () => { T.is = $('#iss').value; T.iq = $('#iq').value.trim(); views.trade(); }); on('#iss', 'change', () => { T.is = $('#iss').value; views.trade(); });
+    onAll('[data-i]', 'click', guard(async (el) => openImport(el.dataset.i)));
+    return;
+  }
   if (T.tab === 'overview') {
     const d = await api('/api/admin/trade/dashboard'), k = d.kpi;
     const card = (l, v) => `<div class="panel" style="margin:0"><div class="mu2">${l}</div><div style="font-size:22px;font-weight:800">${v}</div></div>`;
@@ -3091,7 +3271,7 @@ views.trade = async () => {
       $('#oclose').addEventListener('click', () => modal.classList.remove('on'));
       const reopen = () => { modal.classList.remove('on'); views.trade(); };
       const pk = $('#opack'); if (pk) pk.addEventListener('click', guard(async () => { await api('/api/admin/trade/orders/' + o.ref + '/pack', { body: { items: [...document.querySelectorAll('[data-pk]')].map((i) => ({ id: Number(i.dataset.pk), packed_qty: Number(i.value) })) } }); toast('Saved'); reopen(); }));
-      onAll('[data-go]', 'click', guard(async (b) => { await api('/api/admin/trade/orders/' + o.ref + '/status', { body: { status: b.dataset.go, carrier: $('#ocar').value, tracking_number: $('#otr').value, note: $('#onote').value } }); toast('Updated'); reopen(); }));
+      monAll('[data-go]', 'click', guard(async (b) => { await api('/api/admin/trade/orders/' + o.ref + '/status', { body: { status: b.dataset.go, carrier: $('#ocar').value, tracking_number: $('#otr').value, note: $('#onote').value } }); toast('Updated'); reopen(); }));
     }));
     return;
   }
@@ -3505,7 +3685,7 @@ views.pharmacy = async () => {
   on('#ph_save', 'click', async () => { await P('/settings', { method: 'PUT', body: { pharm_pcn_logo: $('#ph_logo', $('#mn')).value, pharm_aggregator_licence: $('#ph_agg', $('#mn')).value, pharm_statement: $('#ph_stm', $('#mn')).value, pharm_large_qty: $('#ph_lq', $('#mn')).value, pharm_unverified_hours: $('#ph_uh', $('#mn')).value, pharm_return_days: $('#ph_rd', $('#mn')).value } }); toast('Saved'); route(); });
   onAll('[data-manual]', 'change', async (el) => { await P('/settings', { method: 'PUT', body: { [el.dataset.manual]: el.checked } }); route(); });
   on('#pn_add', 'click', async () => { const v = (i) => $('#' + i, $('#mn')).value; await P('/pharmacies', { body: { partner_id: v('pn_partner'), pharmacy_name: v('pn_name'), premises_licence_no: v('pn_pl'), epharmacy_licence_no: v('pn_el'), superintendent_name: v('pn_sn'), superintendent_reg_no: v('pn_sr'), licence_year: v('pn_yr') } }); toast('Added'); route(); });
-  onAll('[data-pe]', 'click', async (el) => { const p = ph.pharmacies.find((x) => x.id == el.dataset.pe); const a = (q, d) => prompt(q, d || ''); const n = a('Pharmacy name', p.pharmacy_name); if (n === null) return; const pl = a('Premises licence no.', p.premises_licence_no); if (pl === null) return; const ep = a('E-pharmacy licence no.', p.epharmacy_licence_no); if (ep === null) return; const sn = a('Superintendent pharmacist', p.superintendent_name); if (sn === null) return; const sr = a('Superintendent PCN reg. no.', p.superintendent_reg_no); if (sr === null) return; const yr = a('Licence year', p.licence_year || new Date().getFullYear()); if (yr === null) return; await P('/pharmacies/' + p.id, { method: 'PUT', body: { pharmacy_name: n, premises_licence_no: pl, epharmacy_licence_no: ep, superintendent_name: sn, superintendent_reg_no: sr, licence_year: yr } }); toast('Saved. If it was approved, it needs approving again.'); route(); });
+  monAll('[data-pe]', 'click', async (el) => { const p = ph.pharmacies.find((x) => x.id == el.dataset.pe); const a = (q, d) => prompt(q, d || ''); const n = a('Pharmacy name', p.pharmacy_name); if (n === null) return; const pl = a('Premises licence no.', p.premises_licence_no); if (pl === null) return; const ep = a('E-pharmacy licence no.', p.epharmacy_licence_no); if (ep === null) return; const sn = a('Superintendent pharmacist', p.superintendent_name); if (sn === null) return; const sr = a('Superintendent PCN reg. no.', p.superintendent_reg_no); if (sr === null) return; const yr = a('Licence year', p.licence_year || new Date().getFullYear()); if (yr === null) return; await P('/pharmacies/' + p.id, { method: 'PUT', body: { pharmacy_name: n, premises_licence_no: pl, epharmacy_licence_no: ep, superintendent_name: sn, superintendent_reg_no: sr, licence_year: yr } }); toast('Saved. If it was approved, it needs approving again.'); route(); });
   onAll('[data-pa]', 'click', async (el) => { await P(`/pharmacies/${el.dataset.pa}/approve`, { body: {} }); toast('Approved'); route(); });
   onAll('[data-ps]', 'click', async (el) => { const note = prompt('Reason for suspending:'); if (!note) return; await P(`/pharmacies/${el.dataset.ps}/suspend`, { body: { note } }); route(); });
   onAll('[data-ag]', 'change', async (el) => { const f = el.files[0]; if (!f) return; if (f.size > 8e6) return toast('That file is over 8 MB', 'bad'); const data = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); }); await P(`/pharmacies/${el.dataset.ag}/agreement`, { method: 'PUT', body: { data, name: f.name } }); toast('Agreement uploaded'); route(); });
