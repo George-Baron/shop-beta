@@ -3440,7 +3440,7 @@ const dstate = { tab: 'suppliers', sstatus: '', sq: '', plist: 'pending', pq: ''
 let dmeta = null;
 const DS = (p, o) => api('/api/admin/dropship' + p, o);
 const dsdate = (t) => (t ? new Date(t * 1000).toLocaleDateString('en-NG') : '');
-const ETAB = [['suppliers', 'Suppliers'], ['products', 'Products'], ['settings', 'Settings & rates'], ['trade', 'Countries & currencies'], ['orders', 'Supplier orders'], ['shipments', 'Imports & exports']];
+const ETAB = [['suppliers', 'Suppliers'], ['products', 'Products'], ['settings', 'Settings & rates'], ['trade', 'Countries & currencies'], ['orders', 'Supplier orders'], ['shipments', 'Imports & exports'], ['money', 'Money & reports']];
 views.dropship = async () => {
   if (!dmeta) dmeta = await DS('/meta');
   let body = '';
@@ -3455,6 +3455,7 @@ views.dropship = async () => {
   if (dstate.tab === 'trade') body = await dsTrade();
   if (dstate.tab === 'orders') body = await soTab();
   if (dstate.tab === 'shipments') body = await trTab();
+  if (dstate.tab === 'money') body = await moTab();
   mn(hd('🚚 Dropshipping') + `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">${ETAB.map(([k, t]) => `<button class="btn ${dstate.tab === k ? '' : 'ghost'} sm" data-dt="${k}">${t}</button>`).join('')}</div>` + body);
   onAll('[data-dt]', 'click', (el) => { dstate.tab = el.dataset.dt; return views.dropship(); });
   on('#dsq', 'change', () => { dstate.sq = $('#dsq').value; return views.dropship(); });
@@ -3470,6 +3471,7 @@ views.dropship = async () => {
   if (dstate.tab === 'trade') dsTradeWire();
   if (dstate.tab === 'orders') soWire();
   if (dstate.tab === 'shipments') trWire();
+  if (dstate.tab === 'money') moWire();
   onAll('[data-sup]', 'click', (el) => supplierForm(el.dataset.sup));
 };
 /* ---------- Supplier orders (Step 4): order from suppliers, track parcels, handle problems and refunds ---------- */
@@ -3518,10 +3520,10 @@ async function lineView(id) {
    <div class="fgrid"><label class="f">Supplier's order number<input id="lno" maxlength="80" value="${e(l.supplier_order_no)}"></label><label class="f">Carrier<input id="lca" maxlength="60" value="${e(l.carrier)}"></label>
    <label class="f">Tracking number<input id="ltn" maxlength="80" value="${e(l.tracking_no)}"></label><label class="f">Tracking link (https)<input id="ltu" maxlength="300" value="${e(l.tracking_url)}"></label>
    <label class="f">Note (kept in the history)<input id="lnt" maxlength="300"></label></div>
-   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${tr('confirmed', 'Supplier confirmed')}${tr('shipped', 'Shipped')}${tr('in_transit', 'In transit')}${tr('customs', 'In customs')}${tr('delivered', 'Delivered')}${tr('cancelled', 'Cancel item', 'btn ghost sm')}</div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${tr('confirmed', 'Supplier confirmed')}${tr('shipped', 'Shipped')}${tr('in_transit', 'In transit')}${tr('customs', 'In customs')}${tr('delivered', 'Delivered')}${tr('cancelled', 'Cancel item', 'btn ghost sm')}<button class="btn ghost sm" id="lmoney">Money</button></div>
    ${l.next.includes('issue') ? `<div class="card" style="margin-top:12px;padding:10px"><b>Supplier problem</b><div class="fgrid"><label class="f">What went wrong<select id="lik">${Object.entries(SOISSUE).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label><label class="f">Details for us<input id="lin" maxlength="300"></label></div><button class="btn ghost sm" id="liss" style="margin-top:8px">Report the problem (the customer is asked to choose)</button></div>` : ''}
    ${l.status === 'issue' && !l.customer_choice ? `<div class="card" style="margin-top:12px;padding:10px"><b>Offer an alternative</b> (same price for the customer)<div style="display:flex;gap:8px;margin-top:6px"><select id="lalt" style="flex:1"><option value="">Choose a product…</option></select><button class="btn sm" id="lofr">Offer</button></div><div id="lwarn" class="mu" style="font-size:12px;margin-top:4px"></div></div>` : ''}
-   ${(l.status === 'cancelled' || l.status === 'returned') && l.refund_due ? `<div class="card" style="margin-top:12px;padding:10px"><b>Refund due ${naira0(l.refund_due)}</b><div style="display:flex;gap:8px;margin-top:6px"><input id="lrf" placeholder="Refund reference" maxlength="80" style="flex:1"><button class="btn sm" id="lrec">Record refund</button></div></div>` : ''}
+   ${(l.status === 'cancelled' || l.status === 'returned') && l.refund_due ? `<div class="card" style="margin-top:12px;padding:10px"><b>Refund due ${naira0(l.refund_due)}</b><div style="display:flex;gap:8px;margin-top:6px"><input id="lrf" placeholder="Refund reference" maxlength="80" style="flex:1"><input id="lra" type="number" min="0" step="1" placeholder="Amount sent" style="width:120px" value="${l.refund_due}"><button class="btn sm" id="lrec">Record refund</button></div></div>` : ''}
    <h3 style="margin-top:14px">History</h3>${d.events.slice().reverse().map((ev) => `<div style="font-size:12px;margin-bottom:4px"><b>${e(SOLBL[ev.to_status] || ev.to_status)}</b> · ${dt(ev.created)} · ${e(ev.actor)}${ev.note ? '<br><span class="mu">' + e(ev.note) + '</span>' : ''}</div>`).join('')}
    <div style="text-align:right;margin-top:10px"><button class="btn ghost sm" id="lx">Close</button></div>`, true);
   const after = (m) => { toast(m); closeModal(); views.dropship(); };
@@ -3531,10 +3533,83 @@ async function lineView(id) {
     await DS(`/supplier-orders/lines/${l.id}/transition`, { body: { to, expected_from: l.status, supplier_order_no: $('#lno').value, carrier: $('#lca').value, tracking_no: $('#ltn').value, tracking_url: $('#ltu').value, note: $('#lnt').value } }); after('Updated');
   })));
   const b = (sel, fn) => { const el = $(sel); if (el) el.addEventListener('click', guard(fn)); };
+  b('#lmoney', async () => moneyItem(l.id));
   b('#liss', async () => { await DS(`/supplier-orders/lines/${l.id}/transition`, { body: { to: 'issue', expected_from: l.status, issue_kind: $('#lik').value, issue_note: $('#lin').value, note: $('#lnt').value } }); after('Problem reported. The customer was emailed.'); });
   b('#lofr', async () => { if (!$('#lalt').value) return toast('Choose a product', 'bad'); const r = await DS(`/supplier-orders/lines/${l.id}/alternative`, { body: { product_id: Number($('#lalt').value) } }); after(r.loses_money ? 'Offered. Note: you lose money on this one.' : 'Offered. The customer was emailed.'); });
-  b('#lrec', async () => { await DS(`/supplier-orders/lines/${l.id}/refund`, { body: { reference: $('#lrf').value } }); after('Refund recorded'); });
+  b('#lrec', async () => { await DS(`/supplier-orders/lines/${l.id}/refund`, { body: { reference: $('#lrf').value, amount: $('#lra').value } }); after('Refund recorded'); });
   const alt = $('#lalt'); if (alt) DS('/products?listing=approved').then(({ products }) => { alt.insertAdjacentHTML('beforeend', products.filter((x) => String(x.id) !== String(l.product_id)).map((x) => `<option value="${x.id}">${e(x.name)} (${e(x.supplier_name || '')})</option>`).join('')); }).catch(() => {});
+}
+/* ---------- Money (Step 6): what we owe suppliers, refunds, returns to the supplier, profit reports ---------- */
+let mpay = [];
+const mstate = { view: 'payables', status: 'open', group: 'order', from: '', to: '', sup: '' };
+const MRET = { requested: 'Return requested', approved: 'Approved by supplier', sent_back: 'Sent back', received: 'Received by supplier', rejected: 'Rejected by supplier', closed: 'Closed' };
+const MCOST = { duty: 'Import duty', shipping: 'Extra shipping', handling: 'Handling', gateway_fee: 'Payment fee charged', other: 'Other' };
+const MON = (p, o) => DS('/money' + p, o);
+const mm = (x, c = 'NGN') => (c === 'NGN' ? naira0(x) : `${e(c)} ${Number(x).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+const mpr = (n) => `<span style="color:${n < 0 ? 'var(--bad,#c0392b)' : 'inherit'}">${naira0(n)}</span>`;
+async function moTab() {
+  const nav = [['payables', 'What we owe suppliers'], ['returns', 'Returns to suppliers'], ['report', 'Profit reports']];
+  let inner = '';
+  if (mstate.view === 'payables') {
+    const r = await MON('/payables?status=' + mstate.status); mpay = r.payables;
+    inner = `<div class="panel"><h3>Owed to suppliers</h3>${r.suppliers.length ? `<div class="tw"><table class="t"><tr><th>Supplier</th><th class="r">Owed</th><th class="r">Overdue</th><th class="r">Due in 7 days</th><th class="r">Orders</th><th class="r">In Naira</th></tr>${r.suppliers.map((g) => `<tr><td>${e(g.supplier)}</td><td class="r">${mm(g.owed, g.currency)}</td><td class="r">${g.overdue ? `<b style="color:var(--bad,#c0392b)">${mm(g.overdue, g.currency)}</b>` : '—'}</td><td class="r">${g.due_7d ? mm(g.due_7d, g.currency) : '—'}</td><td class="r">${g.orders}</td><td class="r">${g.owed_ngn == null ? 'no rate' : naira0(g.owed_ngn)}</td></tr>`).join('')}</table></div>${r.total_owed_ngn == null ? '' : `<p><b>Total owed: ${naira0(r.total_owed_ngn)}</b> <span class="mu2">at today's rates</span></p>`}` : '<p class="mu">Nothing owed right now.</p>'}</div>
+     ${r.expecting.length ? `<div class="panel"><h3>Ask these suppliers for a refund</h3><p class="mu2">We ordered these, then they went wrong. Record the refund when the supplier gives it as credit or cash.</p><div class="tw"><table class="t">${r.expecting.map((x) => `<tr><td>${e(x.order_ref)}</td><td>${e(x.name)}</td><td>${e(x.supplier)}</td><td class="r">${mm(x.cost - x.recorded, x.currency)}</td><td><button class="btn ghost sm" data-mi="${x.line_id}">Open</button></td></tr>`).join('')}</table></div></div>` : ''}
+     <div class="tbar"><select id="mst"><option value="open" ${mstate.status === 'open' ? 'selected' : ''}>Open</option><option value="paid" ${mstate.status === 'paid' ? 'selected' : ''}>Paid</option><option value="" ${mstate.status === '' ? 'selected' : ''}>All</option></select></div>
+     <div class="panel"><div class="tw"><table class="t"><tr><th>Supplier</th><th>Purchase order</th><th>Order</th><th class="r">Amount</th><th class="r">Credit</th><th class="r">To pay</th><th>Due</th><th></th></tr>${r.payables.map((p) => `<tr><td>${e(p.supplier)}</td><td>${e(p.po_ref)}</td><td>${e(p.order_ref)}</td><td class="r">${mm(p.amount, p.currency)}</td><td class="r">${p.credit ? mm(p.credit, p.currency) : '—'}</td><td class="r"><b>${mm(p.net, p.currency)}</b></td>
+      <td>${p.status === 'paid' ? `Paid ${e(dt(p.paid_at))}<br><span class="mu2">${e(p.paid_ref)} · ${e(p.paid_by)}</span>` : `${e(dt(p.due_at))}${p.overdue ? ' <span class="pill bad">Overdue</span>' : ''}`}</td><td>${p.status === 'open' ? `<button class="btn sm" data-mp="${p.id}">Mark paid</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="mu">Nothing here yet. A payable appears when you send a purchase order.</td></tr>'}</table></div></div>`;
+  } else if (mstate.view === 'returns') {
+    const { returns } = await MON('/returns');
+    inner = `<div class="panel"><h3>Returns going back to suppliers</h3><p class="mu2">Start a return from the item (Supplier orders → item → Money). The customer's refund and the supplier's refund are recorded separately.</p><div class="tw"><table class="t"><tr><th>Order</th><th>Item</th><th>Supplier</th><th>Reason</th><th>Status</th><th>Parcel</th><th></th></tr>${returns.map((x) => `<tr><td>${e(x.order_ref)}</td><td>${e(x.name)}</td><td>${e(x.supplier)}</td><td>${e(x.reason)}${x.rma_no ? '<br><span class="mu2">RMA ' + e(x.rma_no) + '</span>' : ''}</td><td>${e(x.label)}</td><td>${e([x.carrier, x.tracking_no].filter(Boolean).join(' '))}</td><td><button class="btn ghost sm" data-mi="${x.line_id}">Open</button></td></tr>`).join('') || '<tr><td colspan="7" class="mu">No open returns.</td></tr>'}</table></div></div>`;
+  } else {
+    const sups = (await DS('/suppliers')).suppliers || [];
+    const q = new URLSearchParams({ group: mstate.group, from: mstate.from, to: mstate.to, supplier_id: mstate.sup });
+    const r = await MON('/report?' + q), t = r.total;
+    inner = `<div class="tbar"><select id="mg">${Object.entries({ order: 'By order', supplier: 'By supplier', country: 'By country', product: 'By product', day: 'By day', month: 'By month' }).map(([k, v]) => `<option value="${k}" ${mstate.group === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      <label class="mu2">From <input type="date" id="mfr" value="${e(mstate.from)}"></label><label class="mu2">To <input type="date" id="mto" value="${e(mstate.to)}"></label>
+      <select id="msu"><option value="">All suppliers</option>${sups.map((s) => `<option value="${s.id}" ${String(s.id) === String(mstate.sup) ? 'selected' : ''}>${e(s.name)}</option>`).join('')}</select><a class="btn ghost sm" href="/api/admin/dropship/money/report.xlsx?${q}" target="_blank" rel="noopener">Download Excel</a></div>
+     <div class="panel"><div class="tw"><table class="t"><tr><th>${e(r.group_label)}</th><th class="r">Items</th>${r.group === 'order' ? '<th>Customer rate</th>' : ''}<th>Supplier rate</th><th class="r">Revenue</th><th class="r">Refunds</th><th class="r">Supplier cost</th><th class="r">Shipping</th><th class="r">Duty</th><th class="r">Fees</th><th class="r">Other</th><th class="r">Supplier refunds</th><th class="r">Net profit</th><th class="r">Margin</th></tr>
+      ${r.rows.map((x) => `<tr><td>${e(x.key)}</td><td class="r">${x.lines}</td>${r.group === 'order' ? `<td>${e(x.customer_rate)}</td>` : ''}<td>${e(x.supplier_rates)}</td><td class="r">${naira0(x.revenue)}</td><td class="r">${x.refunds ? naira0(x.refunds) : '—'}</td><td class="r">${naira0(x.supplier_cost)}${x.unknown_cost ? ' <span class="bad" title="No exchange rate was available when this was ordered">?</span>' : ''}</td><td class="r">${naira0(x.supplier_shipping + x.extra_shipping)}</td><td class="r">${x.duty ? naira0(x.duty) : '—'}</td><td class="r">${naira0(x.fees)}${x.estimated_fees ? '*' : ''}</td><td class="r">${x.other ? naira0(x.other) : '—'}</td><td class="r">${x.supplier_refunds ? naira0(x.supplier_refunds) : '—'}</td><td class="r"><b>${mpr(x.net_profit)}</b></td><td class="r">${x.margin_pct == null ? '—' : x.margin_pct + '%'}</td></tr>`).join('') || `<tr><td colspan="14" class="mu">No paid dropship items in this period.</td></tr>`}
+      <tr><td><b>Total</b></td><td class="r"><b>${t.lines || 0}</b></td>${r.group === 'order' ? '<td></td>' : ''}<td></td><td class="r"><b>${naira0(t.revenue || 0)}</b></td><td class="r">${naira0(t.refunds || 0)}</td><td class="r">${naira0(t.supplier_cost || 0)}</td><td class="r">${naira0((t.supplier_shipping || 0) + (t.extra_shipping || 0))}</td><td class="r">${naira0(t.duty || 0)}</td><td class="r">${naira0(t.fees || 0)}</td><td class="r">${naira0(t.other || 0)}</td><td class="r">${naira0(t.supplier_refunds || 0)}</td><td class="r"><b>${mpr(t.net_profit || 0)}</b></td><td class="r">${t.margin_pct == null ? '—' : t.margin_pct + '%'}</td></tr></table></div>
+      <p class="mu2">* payment fee estimated from your fee settings. ${e(r.note)}</p></div>`;
+  }
+  return `<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">${nav.map(([k, t]) => `<button class="btn ${mstate.view === k ? '' : 'ghost'} sm" data-mv="${k}">${t}</button>`).join('')}</div>${inner}`;
+}
+function moWire() {
+  onAll('[data-mv]', 'click', (el) => { mstate.view = el.dataset.mv; return views.dropship(); });
+  onAll('[data-mi]', 'click', (el) => moneyItem(el.dataset.mi));
+  on('#mst', 'change', () => { mstate.status = $('#mst').value; return views.dropship(); });
+  for (const [id, k] of [['#mg', 'group'], ['#mfr', 'from'], ['#mto', 'to'], ['#msu', 'sup']]) on(id, 'change', () => { mstate[k] = $(id).value; return views.dropship(); });
+  const rows = mpay;
+  onAll('[data-mp]', 'click', (el) => {
+    const p = rows.find((x) => String(x.id) === el.dataset.mp);
+    openModal(`<h2>Mark paid · ${e(p.po_ref)}</h2><p class="mu">${e(p.supplier)} · to pay ${mm(p.net, p.currency)}. This records a payment you already made. It does not send money.</p><div class="fgrid"><label class="f full">Payment reference (transfer or wire number)<input id="mpr" maxlength="80"></label>
+     <label class="f">Amount you paid (${e(p.currency)})<input id="mpa" type="number" min="0" step="any" value="${p.net}"></label><label class="f">Naira that left the bank (optional)<input id="mpn" type="number" min="0" step="any"></label><label class="f full">Note<input id="mpt" maxlength="300"></label></div>
+     <div class="acts"><button class="btn ghost" id="mpx">Close</button><button class="btn" id="mpg">Mark paid</button></div>`);
+    $('#mpx').addEventListener('click', closeModal);
+    $('#mpg').addEventListener('click', guard(async () => { await MON(`/payables/${p.id}/pay`, { body: { reference: $('#mpr').value, paid_amount: $('#mpa').value, paid_ngn: $('#mpn').value, note: $('#mpt').value } }); toast('Marked paid'); closeModal(); views.dropship(); }));
+  });
+}
+async function moneyItem(id) {
+  const m = await MON('/lines/' + id), r = m.return, p = m.profit;
+  const canClaim = ['issue', 'cancelled', 'refunded', 'returned'].includes(m.status);
+  openModal(`<h2>${e(m.order_ref)} · money</h2><p class="mu">Customer paid ${naira0(m.sell_total)} · supplier price ${mm(m.cost_supplier, m.cost_currency)}${m.cost_fx_rate ? ` at ${m.cost_fx_rate} Naira each (fixed when ordered)` : ''}${m.cost_ngn != null ? ' = ' + naira0(m.cost_ngn) : ''}</p>
+   ${p ? `<div class="card" style="padding:10px"><b>Net profit so far: ${mpr(p.net_profit)}</b> <span class="mu2">(${p.margin_pct == null ? '—' : p.margin_pct + '%'}${p.fee_estimated ? ', payment fee estimated' : ''})</span></div>` : ''}
+   <h3>Extra costs</h3>${m.costs.map((c) => `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--line)"><span>${e(c.label)}: <b>${naira0(c.amount_ngn)}</b> <span class="mu2">${e(c.note)} · ${e(c.created_by)}</span></span><button class="btn ghost sm" data-mdc="${c.id}">Remove</button></div>`).join('') || '<p class="mu">None recorded.</p>'}
+   <div class="fgrid" style="margin-top:6px"><label class="f">Type<select id="mck">${Object.entries(MCOST).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label><label class="f">Amount (Naira)<input id="mca" type="number" min="1" step="1"></label><label class="f full">Note<input id="mcn" maxlength="200" placeholder="Receipt number, who was paid"></label></div><button class="btn sm" id="mcadd">Add cost</button>
+   ${m.customer_refund ? `<h3>Refund to the customer</h3><p>${naira0(m.customer_refund.amount_ngn)} · ${e(m.customer_refund.reference)} · ${e(m.customer_refund.created_by)}</p>` : ''}
+   <h3>Refund from the supplier</h3>${m.supplier_refunds.map((x) => `<div style="padding:3px 0">${mm(x.amount, x.currency)} as ${x.mode === 'credit' ? 'credit' : 'cash'} <span class="mu2">${e(x.reference)} · ${e(x.created_by)}</span></div>`).join('') || '<p class="mu">None recorded.</p>'}
+   ${canClaim ? `<div class="fgrid" style="margin-top:6px"><label class="f">Amount (${e(m.cost_currency)})<input id="msa" type="number" min="0" step="any"></label><label class="f">How<select id="msm"><option value="credit">Credit against what we owe</option><option value="cash">Cash received</option></select></label><label class="f">Reference<input id="msr" maxlength="80"></label></div><button class="btn sm" id="msadd">Record supplier refund</button>` : '<p class="mu2">Available once an ordered item has a problem, is cancelled or is returned.</p>'}
+   <h3>Return to supplier</h3>${r ? `<p><b>${e(r.label)}</b> · ${e(r.reason)}</p><div class="fgrid"><label class="f">RMA number<input id="mrm" maxlength="60" value="${e(r.rma_no)}"></label><label class="f">Carrier<input id="mrc" maxlength="80" value="${e(r.carrier)}"></label><label class="f">Tracking<input id="mrt" maxlength="80" value="${e(r.tracking_no)}"></label></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${r.next.map((n) => `<button class="btn ${n === 'rejected' ? 'ghost' : ''} sm" data-mrn="${n}">${e(MRET[n])}</button>`).join('')}<button class="btn ghost sm" id="mrsv">Save details</button></div>`
+     : m.status === 'delivered' ? `<div class="fgrid"><label class="f full">Why is it coming back?<input id="mrr" maxlength="300"></label><label class="f">RMA number<input id="mrn" maxlength="60"></label></div><button class="btn sm" id="mrst">Start a return</button>` : '<p class="mu2">A delivered item can be returned.</p>'}
+   <div class="acts"><button class="btn ghost" id="mix">Close</button></div>`, true);
+  const again = () => moneyItem(id), b = (sel, fn) => { const el = $(sel); if (el) el.addEventListener('click', guard(fn)); };
+  $('#mix').addEventListener('click', () => { closeModal(); views.dropship(); });
+  b('#mcadd', async () => { await MON(`/lines/${id}/costs`, { body: { kind: $('#mck').value, amount: $('#mca').value, note: $('#mcn').value } }); again(); });
+  $$('[data-mdc]').forEach((x) => x.addEventListener('click', guard(async () => { await MON('/costs/' + x.dataset.mdc, { method: 'DELETE' }); again(); })));
+  b('#msadd', async () => { await MON(`/lines/${id}/supplier-refund`, { body: { amount: $('#msa').value, mode: $('#msm').value, reference: $('#msr').value } }); toast('Recorded'); again(); });
+  b('#mrst', async () => { await MON(`/lines/${id}/return`, { body: { reason: $('#mrr').value, rma_no: $('#mrn').value } }); toast('Return started. Refund the customer from the item screen.'); again(); });
+  b('#mrsv', async () => { await MON('/returns/' + r.id, { method: 'PUT', body: { rma_no: $('#mrm').value, carrier: $('#mrc').value, tracking_no: $('#mrt').value } }); toast('Saved'); again(); });
+  $$('[data-mrn]').forEach((x) => x.addEventListener('click', guard(async () => { await MON('/returns/' + r.id, { method: 'PUT', body: { status: x.dataset.mrn, rma_no: $('#mrm').value, carrier: $('#mrc').value, tracking_no: $('#mrt').value } }); again(); })));
 }
 /* ---------- Imports and exports (Step 5): shipments, trade documents, landed cost, compliance reminders, restricted items ---------- */
 const TRS = { draft: 'Draft', booked: 'Booked', in_transit: 'In transit', arrived: 'Arrived', cleared: 'Cleared', delivered: 'Delivered', cancelled: 'Cancelled' };

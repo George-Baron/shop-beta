@@ -46,7 +46,7 @@ router.post('/lines/:id/transition', ah(async (req, res) => {
   res.json({ ok: true, unchanged: r.unchanged, status: r.line.status, warning: warn });
 }));
 router.post('/lines/:id/alternative', ah(async (req, res) => res.json({ ok: true, ...(await DO.proposeAlternative(req.params.id, int(req.body && req.body.product_id), who(req))) })));
-router.post('/lines/:id/refund', ah(async (req, res) => { await DO.recordRefund(req.params.id, { reference: req.body && req.body.reference, note: req.body && req.body.note, actor: who(req) }); res.json({ ok: true }); }));
+router.post('/lines/:id/refund', ah(async (req, res) => { await DO.recordRefund(req.params.id, { reference: req.body && req.body.reference, note: req.body && req.body.note, amount: req.body && req.body.amount, actor: who(req) }); res.json({ ok: true }); }));
 router.post('/watch', ah(async (req, res) => res.json({ ok: true, ...(await DO.watch()) })));
 
 module.exports = router;

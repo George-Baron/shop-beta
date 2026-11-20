@@ -128,6 +128,19 @@ Open **Dropshipping > Imports & exports** (owner only, like the rest of Dropship
 
 **Restricted items.** Medicines and weapons are blocked; food, chemicals and batteries need a person to record that permits were checked. Matching is on whole words and HS code starts. A blocked item cannot be created, updated, approved, imported or added to a shipment. A "check first" item stays hidden until it is approved with a compliance note, and changing its class takes it back to pending. These checks cover dropship listings, importer rows and shipment goods, not your own-stock products. Medicines cannot be loosened until `PHARMACY_ENABLED=1`.
 
+## 11. Money, refunds and reports (step 6)
+Open **Dropshipping > Money & reports** (owner only: it shows our cost and margin, so no customer or supplier can ever reach it).
+
+**What we owe suppliers.** Sending a purchase order creates a payable for that order, in the supplier's own currency. It is due on the day you send it for prepaid suppliers, or after the supplier's payment days (for example Net 30). The screen groups what is owed by supplier, flags overdue ones and shows a Naira total at today's rates. **Mark paid** needs a payment reference (the transfer or wire number) and records who and when. It records a payment you made; it does not move money. Marking paid twice changes nothing.
+
+**Extra costs.** On each item (Supplier orders > item > **Money**) add duty, extra shipping, handling, the real payment fee, or other costs, in Naira. They start only after the customer has paid.
+
+**Refunds.** A refund to the customer is still sent by hand (Paystack, Stripe or bank), then recorded on the item with its reference. The amount (up to what the customer paid for that item) is kept for the reports. A refund *from the supplier* is recorded as **credit** (lowers what we owe on that purchase order) or **cash** (money received, needs a reference). It can never be more than we paid for the item, and credit is refused once the purchase order is paid. The screen lists items that went wrong after we ordered and have no supplier refund yet, so the money is claimed back.
+
+**Returns to the supplier.** A delivered item can be returned from its Money screen (reason needed). The item becomes "Returned" with the refund due set. The return itself follows: requested, approved, sent back (carrier and tracking needed), received, closed (or rejected, then closed). Refund the customer and claim the supplier refund separately.
+
+**Profit reports.** Revenue (items the customer paid for; delivery fees are not included), customer refunds, supplier cost, supplier shipping, extra shipping, duty, payment fees, other costs, supplier refunds, net profit and margin. Group by order, supplier, country, product, day or month, for any period of up to two years (days are Lagos days). Every figure uses the price and exchange rate **fixed when the order was placed**, shown next to each order, so changing a rate later never rewrites old profit. Supplier cost counts once we have ordered. If a payment fee was not entered, it is estimated from the fee settings and marked with *. **Download Excel** gives the same table plus open payables (the download is in the activity log).
+
 ## Settings and environment
 * `STRIPE_ENABLED`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CURRENCIES`, `PAYSTACK_CURRENCIES`, `FX_FEED_ENABLED`, `FX_FEED_URL`, `FX_MAX_AGE_HOURS`: see DEPLOY.md. `STRIPE_API_URL` is for tests only (preflight fails if it is set in production).
 * `SUPABASE_SUPPLIER_BUCKET` (default `supplier-docs`): create it as a **private** bucket. `npm run preflight` checks it.
@@ -137,4 +150,4 @@ Open **Dropshipping > Imports & exports** (owner only, like the rest of Dropship
 * Every change is in the activity log. Rate limits protect uploads and imports. Migrations `010`, `011` and `012` are safe to re-run.
 
 ## Not built yet
-Profit reports, payables and refunds (step 6); supplier login portal (step 7). Until step 6, refunds are recorded by hand.
+Supplier login portal (step 7). Customer refunds are still sent by hand and then recorded; no payment is moved automatically.
