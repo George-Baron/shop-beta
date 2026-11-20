@@ -112,6 +112,15 @@ router.post('/imports/:ref/status', ah(async (req, res) => res.json(await IM.set
 router.post('/imports/:ref/event', ah(async (req, res) => res.json(await IM.addShipEvent(req.params.ref, req.body || {}, req.user, ip(req)))));
 router.post('/imports/:ref/documents', big, ah(async (req, res) => { const g = await IM.getShip(req.params.ref); res.json({ document: await SUP.addDocument({ import_shipment_id: g.shipment.id }, req.body || {}, fileOf(req.body), req.user, ip(req)) }); }));
 
+const CAR = require('../lib/trade/carriers'), BK = require('../lib/trade/booking');
+router.get('/providers', ah(async (req, res) => res.json(await CAR.list())));
+router.put('/providers/:code', ah(async (req, res) => res.json(await CAR.update(req.params.code, req.body || {}, req.user, ip(req)))));
+router.post('/providers/:code/test', ah(async (req, res) => res.json(await CAR.test(req.params.code))));
+router.get('/orders/:ref/bookings', ah(async (req, res) => res.json(await BK.listBookings(req.params.ref))));
+router.post('/orders/:ref/rates', ah(async (req, res) => res.json(await BK.getRates(req.params.ref, req.body || {}, req.user, ip(req)))));
+router.post('/orders/:ref/book', ah(async (req, res) => res.json(await BK.book(req.params.ref, req.body || {}, req.user, ip(req)))));
+router.post('/bookings/:id/cancel', ah(async (req, res) => res.json(await BK.cancel(req.params.id, req.user, ip(req)))));
+router.post('/bookings/:id/refresh', ah(async (req, res) => res.json(await BK.refresh(req.params.id, req.user, ip(req)))));
 router.get('/audit', ah(async (req, res) => res.json(await A.auditLog(req.query))));
 
 module.exports = router;

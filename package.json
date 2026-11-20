@@ -49,7 +49,8 @@
     "test:riders-ui": "node --disable-warning=ExperimentalWarning test/riders-ui.js",
     "test:trade": "node --disable-warning=ExperimentalWarning test/trade.js",
     "test:trade-export": "node --disable-warning=ExperimentalWarning test/trade-export.js",
-    "test:trade-import": "node --disable-warning=ExperimentalWarning test/trade-import.js"
+    "test:trade-import": "node --disable-warning=ExperimentalWarning test/trade-import.js",
+    "test:trade-carriers": "node --disable-warning=ExperimentalWarning test/trade-carriers.js"
   },
   "dependencies": {
     "compression": "^1.8.2",

@@ -39,6 +39,8 @@ router.get('/can-ship', ah(async (req, res) => {
 }));
 
 // Shipping options for a cart and destination. Every price is a manual estimate configured by staff and says so. No option means we cannot ship that parcel there yet.
+// Carrier tracking webhook. Signature is checked against the raw body; no sign-in (the carrier calls it).
+router.post('/webhooks/:provider', ah(async (req, res) => res.json(await require('../lib/trade/booking').handleWebhook(req.params.provider, req.rawBody || Buffer.from(''), req.headers, req.body))));
 router.post('/quote', A.limiter('trade-quote', 60, 60000), ah(async (req, res) => res.json(await EX.quote(req.body || {}, req.user))));
 // Place the order and start payment. Same safety as the normal checkout: an Idempotency-Key makes a double click or retry return the same order.
 router.post('/checkout', A.limiter('trade-checkout', 20, 3600000), ah(async (req, res) => {

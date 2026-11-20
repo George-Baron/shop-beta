@@ -10,7 +10,7 @@ Admin screen: **Admin > Global Trade**. Permission module: `trade` (roles "Trade
 | 2 | International product settings, currency conversion, country configuration, bulk product import/export | Built |
 | 3 | Export checkout and international customer orders | Built |
 | 4 | Import procurement and international supplier management | Built |
-| 5 | Freight quotations and carrier API integrations (needs your own carrier accounts and keys) | Not started |
+| 5 | Freight quotations and carrier API integrations (needs your own carrier accounts and keys) | Built (EasyPost) |
 | 6 | Customs, duties, documentation and landed cost | Not started |
 | 7 | International payments and shipment tracking | Not started |
 | 8 | Notifications, reporting and AI assistant | Not started |
@@ -60,3 +60,16 @@ Public API (used by the storefront in phase 3): `GET /api/trade/countries`, `/cu
 - **Supplier payments** are records of payments you made outside the system (Finance permission). Balances are kept per currency (orders approved minus payments), and the dashboard's "Owed to suppliers" converts them at the latest rate.
 - **Documents** (supplier invoices, purchase agreements, bills of lading and so on; PDF, image, Excel, CSV or Word, up to 8 MB) are stored in a private bucket (`SUPABASE_TRADE_BUCKET`, default `trade-docs`; create it and leave "Public" off) and downloaded only through the staff API.
 - Tests: `npm run test:trade-import`.
+
+## Phase 5: freight quotations and carrier integrations
+
+- **One real integration: EasyPost** (a multi-carrier service; connect DHL, FedEx, UPS and others inside your EasyPost account). DHL Express, FedEx, UPS, Aramex and EMS are listed as **"Not integrated"** and cannot be switched on directly; no direct carrier API is faked. Forwarders, air and sea freight stay as manual-rate methods.
+- **Provider status** (Global Trade > Carriers): *Awaiting configuration* (key missing on the server), *Configured, switched off*, *Ready*, *Not integrated*. A provider can only be switched on when its key is present. Keys live only in server environment variables; the screen shows set / missing, never values. Test connection calls EasyPost's carrier-accounts endpoint.
+- **Environment**: `EASYPOST_API_KEY`, `EASYPOST_WEBHOOK_SECRET` (for tracking webhooks), `EASYPOST_API_URL` (tests only). Fill the sender address under Settings (name, phone, street, city, postal code) or live prices and booking stay off.
+- **Customer quote**: once a carrier is ready and the customer has entered street address and city, live prices appear next to the manual estimates, labelled **Live carrier price** vs **Estimate**. Prices are converted to NGN with the stored exchange rate, then the shipping margin and handling fee are added. If the carrier fails, only the manual estimates show. The live quote is stored and bound to the cart; checkout uses the stored quote and never calls the carrier again. Quotes expire.
+- **Booking** (staff, packed and paid orders only): enter the real parcel, fetch the carrier's own prices, pick one, book. A browser-generated idempotency key makes a repeat click or retry return the first result. A booking is marked *booked* only when the carrier's reply carries a shipment reference and a tracking code. If the carrier does not answer, the booking stays *requested* and a retry with the same key asks the carrier what happened instead of buying again. A carrier rejection is recorded as *failed*. One live booking per order (database-enforced).
+- **Labels** are downloaded into the private documents bucket and attached to the order. **Cancel** asks EasyPost for a refund; the booking stays *cancel requested* until the carrier says *refunded* (use Refresh). Not possible once dispatched.
+- **Tracking webhook**: `POST /api/trade/webhooks/easypost`, signature (HMAC-SHA256 of the raw body) checked; `503` if no secret is configured, `401` on a bad signature, repeated events ignored. Events are added to the order timeline; after staff dispatch, the order advances to in transit / out for delivery / delivered one allowed step at a time.
+- **Not in this phase**: pickup scheduling; insurance quotes in customer prices (insurance can be added at booking); importer-side bookings (imports stay manual).
+- **Verification caveat**: the integration is tested against a stand-in for EasyPost, not the live service. Before going live, run one real test shipment in EasyPost's test mode and confirm the webhook signature format against their current documentation.
+- Tests: `npm run test:trade-carriers`.
