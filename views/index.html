@@ -2983,7 +2983,7 @@ views.partners = async () => {
 const tradeState = { tab: 'overview', cq: '', pf: '', pq: '', pp: 1, of: '', oq: '' };
 views.trade = async () => {
   const edit = can('trade', true), T = tradeState;
-  const tabs = [['overview', 'Overview'], ['countries', 'Countries'], ['rates', 'Currencies & rates'], ['products', 'Products'], ['suppliers', 'International suppliers'], ['purchase', 'Purchase orders'], ['imports', 'Import shipments'], ['shipping', 'Shipping & duties'], ['carriers', 'Carriers'], ['orders', 'International orders'], ['settings', 'Settings'], ['audit', 'Activity']];
+  const tabs = [['overview', 'Overview'], ['countries', 'Countries'], ['rates', 'Currencies & rates'], ['products', 'Products'], ['suppliers', 'International suppliers'], ['purchase', 'Purchase orders'], ['imports', 'Import shipments'], ['shipping', 'Shipping & duties'], ['carriers', 'Carriers'], ['customs', 'Customs & docs'], ['orders', 'International orders'], ['settings', 'Settings'], ['audit', 'Activity']];
   const ngn = (n) => naira(Math.round(Number(n || 0)));
   const yn = (b) => (b ? '<span class="pill ok">Yes</span>' : '<span class="pill">No</span>');
   const frame = (body) => mn(hd('GLOBAL TRADE &amp; LOGISTICS', '') + `<div class="tbar">${tabs.map(([k, t]) => `<button class="btn ${T.tab === k ? '' : 'ghost'} sm" data-tab="${k}">${t}</button>`).join('')}</div>` + body);
@@ -3011,7 +3011,7 @@ views.trade = async () => {
   };
   const pickFile = (accept) => new Promise((res) => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept || ''; i.onchange = async () => { const f = i.files[0]; if (!f) return res(null); if (f.size > 8 * 1024 * 1024) { toast('That file is larger than 8 MB.', 'bad'); return res(null); } res({ filename: f.name, data: toB64(await f.arrayBuffer()) }); }; i.click(); });
   const DOCT = ['supplier_invoice', 'purchase_agreement', 'proforma_invoice', 'packing_list', 'certificate_of_origin', 'bill_of_lading', 'air_waybill', 'insurance_certificate', 'import_permit', 'customs_declaration', 'other'];
-  const docsHtml = (docs) => `<h4>Documents</h4>${docs.length ? docs.map((d) => `<div style="font-size:13px"><a href="/api/admin/trade/documents/${d.id}" download>${e(d.file_name)}</a> · ${e(d.doc_type.replace(/_/g, ' '))}${d.number ? ' · ' + e(d.number) : ''} · ${Math.max(1, Math.round(d.size_bytes / 1024))} KB ${edit ? `<button class="btn ghost sm" data-deldoc="${d.id}">Remove</button>` : ''}</div>`).join('') : '<div class="mu2">None attached.</div>'}${edit ? `<div style="margin-top:6px"><select id="dty">${DOCT.map((t) => `<option value="${t}">${t.replace(/_/g, ' ')}</option>`).join('')}</select> <input id="dnum" placeholder="Number (optional)" style="max-width:150px"> <button class="btn ghost sm" id="dup">Attach a file</button></div>` : ''}`;
+  const docsHtml = (docs) => `<h4>Documents</h4>${docs.length ? docs.map((d) => `<div style="font-size:13px"><a href="/api/admin/trade/documents/${d.id}" download>${e(d.file_name)}</a> · ${e(d.doc_type.replace(/_/g, ' '))}${d.number ? ' · ' + e(d.number) : ''} · ${Math.max(1, Math.round(d.size_bytes / 1024))} KB${d.status === 'void' ? ' · <i>superseded</i>' : ''} ${edit && d.origin !== 'generated' ? `<button class="btn ghost sm" data-deldoc="${d.id}">Remove</button>` : ''}</div>`).join('') : '<div class="mu2">None attached.</div>'}${edit ? `<div style="margin-top:6px"><select id="dty">${DOCT.map((t) => `<option value="${t}">${t.replace(/_/g, ' ')}</option>`).join('')}</select> <input id="dnum" placeholder="Number (optional)" style="max-width:150px"> <button class="btn ghost sm" id="dup">Attach a file</button></div>` : ''}`;
   const wireDocs = (url, reload) => {
     const u = $('#dup'); if (u) u.addEventListener('click', guard(async () => { const f = await pickFile('.pdf,.png,.jpg,.jpeg,.xlsx,.csv,.docx'); if (!f) return; await api(url, { body: { ...f, doc_type: $('#dty').value, number: $('#dnum').value } }); toast('Attached'); reload(); }));
     monAll('[data-deldoc]', 'click', guard(async (b) => { if (!confirm('Remove this document?')) return; await api('/api/admin/trade/documents/' + b.dataset.deldoc, { method: 'DELETE' }); toast('Removed'); reload(); }));
@@ -3023,7 +3023,7 @@ views.trade = async () => {
   const curOpts = (await api('/api/admin/trade/currencies').catch(() => ({ currencies: [] }))).currencies || [];
   const curList = curOpts.map((c) => c.code);
   const INCO = ['', 'EXW', 'FCA', 'FAS', 'FOB', 'CFR', 'CIF', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP'];
-  let openSupplier, openPO, openImport;
+  let openSupplier, openPO, openImport, openDecl;
 
   /* ----- purchase order form ----- */
   const poForm = async (supplierId, po) => {
@@ -3082,6 +3082,8 @@ views.trade = async () => {
       ${edit ? '<button class="btn ghost sm" id="isave" style="margin-top:6px">Save details and costs</button>' : ''}
       ${edit && d.next.length ? `<h4>Move to the next stage</h4><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px"><label class="f">Note<input id="inote"></label><label class="f">Location<input id="iloc"></label></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${d.next.map((s) => `<button class="btn sm" data-go="${s}">${e(s.replace(/_/g, ' '))}</button>`).join('')}</div>` : ''}
       <div class="mu2" style="margin-top:6px">${e(d.receiving_note)}</div>
+      <div id="irx"></div>
+      ${edit ? '<button class="btn ghost sm" id="icus" style="margin-top:6px">Customs declaration &amp; documents</button>' : ''}
       <h4>Progress</h4>${d.events.length ? d.events.map((x) => `<div style="font-size:13px">${new Date(x.occurred_at * 1000).toLocaleString()} · <b>${e(String(x.stage).replace(/_/g, ' '))}</b> ${e(x.location)} ${e(x.description)}</div>`).join('') : '<div class="mu2">None yet.</div>'}
       ${edit ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><select id="evs">${['delayed', 'exception', 'customs_hold', 'in_transit', 'departed_origin', 'arrived_destination', 'export_customs', 'import_customs', 'customs_released', 'processing'].map((s) => `<option value="${s}">${s.replace(/_/g, ' ')}</option>`).join('')}</select><input id="evd" placeholder="Note" style="max-width:220px"><input id="evl" placeholder="Location" style="max-width:160px"><button class="btn ghost sm" id="evadd">Add update</button></div>` : ''}
       ${docsHtml(d.documents)}<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" id="iclose">Close</button></div>`, true);
@@ -3092,6 +3094,54 @@ views.trade = async () => {
     monAll('[data-go]', 'click', guard(async (b) => { await api(base + '/status', { body: { status: b.dataset.go, carrier: $('#icar').value, tracking_number: $('#itr').value, eta: $('#ieta').value || undefined, note: $('#inote').value, location: $('#iloc').value } }); toast('Updated'); openImport(ref); }));
     on1('#evadd', async () => { await api(base + '/event', { body: { stage: $('#evs').value, description: $('#evd').value, location: $('#evl').value } }); toast('Added'); openImport(ref); });
     wireDocs(base + '/documents', () => openImport(ref));
+    on1('#icus', async () => { const r = await api('/api/admin/trade/customs/from-import/' + encodeURIComponent(ref), { body: {} }); openDecl(r.declaration.id, () => openImport(ref)); });
+    // receiving goods into stock and landed cost (phase 6)
+    const rx = $('#irx', modal); if (!rx) return;
+    const done = ['stock_received', 'completed'].includes(h.status);
+    if (done) {
+      const L = await api(base + '/landed');
+      rx.innerHTML = `<h4>Stock received · ${e(L.grn)}</h4><div class="mu2">Total landed cost ${ngn(L.total_ngn)}. Shared across the items by the basis chosen when the stock was received; damaged and missing units are carried by the units that went into stock.</div>
+        <div class="tw"><table class="t"><tr><th>Item</th><th>Ordered</th><th>Received</th><th>Damaged</th><th>Short</th><th>To stock</th><th>Landed / unit</th></tr>${L.items.map((i) => `<tr><td>${e(i.description)}</td><td>${i.qty_ordered}</td><td>${i.qty_received}</td><td>${i.qty_damaged}</td><td>${i.shortage}</td><td>${i.qty_sellable ?? ''}</td><td>${i.landed_unit_cost_ngn == null ? '—' : ngn(i.landed_unit_cost_ngn)}</td></tr>`).join('')}</table></div>`;
+      return;
+    }
+    if (h.status !== 'delivered_warehouse' || !edit) return;
+    rx.innerHTML = `<h4>Receive stock</h4><div class="mu2">Count what arrived. Only the undamaged units are added to stock. Link every item to a Velto-Mart product first; set a weight per unit if you want to share costs by weight.</div>
+      <div class="tw"><table class="t"><tr><th>Item</th><th>Ordered</th><th>Received</th><th>Damaged</th><th>Product ID</th><th>kg / unit</th></tr>${d.items.map((i) => `<tr data-rx="${i.id}"><td>${e(i.description)}</td><td>${i.qty_ordered}</td><td><input data-r="qty_received" value="${i.qty_ordered}" style="width:70px"></td><td><input data-r="qty_damaged" value="0" style="width:70px"></td><td><input data-r="product_id" value="${i.product_id ?? ''}" style="width:80px"></td><td><input data-r="weight_kg" value="${i.weight_kg ?? ''}" style="width:70px"></td></tr>`).join('')}</table></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:6px"><label class="f">Share costs by<select id="rxb"><option value="value">Value</option><option value="weight">Weight</option><option value="quantity">Quantity</option></select></label><label class="f">Put stock in<select id="rxt"><option value="retail">Retail store</option><option value="warehouse">Wholesale warehouse</option></select></label></div>
+      <div style="display:flex;gap:6px;margin-top:6px"><button class="btn ghost sm" id="rxp">Calculate landed cost</button></div><div id="rxo"></div>`;
+    const counts = () => [...rx.querySelectorAll('[data-rx]')].map((tr) => { const o = { id: Number(tr.dataset.rx) }; tr.querySelectorAll('[data-r]').forEach((el) => { o[el.dataset.r] = el.value; }); return o; });
+    const saveItems = async () => { for (const c of counts()) await api(base + '/items/' + c.id, { method: 'PUT', body: { product_id: c.product_id, weight_kg: c.weight_kg } }); };
+    const payload = () => ({ items: counts().map((c) => ({ id: c.id, qty_received: Number(c.qty_received), qty_damaged: Number(c.qty_damaged || 0) })), basis: $('#rxb').value, to: $('#rxt').value });
+    $('#rxp').addEventListener('click', guard(async () => {
+      await saveItems(); const r = await api(base + '/receive-preview', { body: payload() });
+      $('#rxo').innerHTML = `<div class="tw" style="margin-top:6px"><table class="t"><tr><th>Item</th><th>To stock</th><th>Short</th><th>Purchase</th><th>Extra costs</th><th>Landed</th><th>Per unit</th></tr>${r.lines.map((l) => `<tr><td>${e(l.description)}</td><td>${l.qty_sellable}</td><td>${l.shortage}</td><td>${ngn(l.purchase_ngn)}</td><td>${ngn(l.extra_ngn)}</td><td>${ngn(l.landed_ngn)}</td><td>${l.unit_cost_ngn == null ? '—' : ngn(l.unit_cost_ngn)}</td></tr>`).join('')}</table></div>
+        <div><b>Total landed cost ${ngn(r.total_ngn)}</b> <span class="mu2">at ${Number(r.rate_to_ngn).toFixed(4)} NGN per ${e(h.currency)}</span></div>${r.blockers.length ? `<div style="color:#b91c1c;font-size:13px">${r.blockers.map(e).join('<br>')}</div>` : '<button class="btn sm" id="rxgo" style="margin-top:6px">Receive into stock</button>'}`;
+      const go = $('#rxgo', modal); if (go) go.addEventListener('click', guard(async () => { if (!confirm('Add the undamaged units to stock? This can only be done once.')) return; go.disabled = true; try { const x = await api(base + '/receive', { body: payload() }); toast('Stock received · ' + x.grn); openImport(ref); } catch (er) { go.disabled = false; throw er; } }));
+    }));
+  };
+
+  /* ----- customs declaration (phase 6) ----- */
+  openDecl = async (id, after) => {
+    const d = await api('/api/admin/trade/customs/' + id), c = d.declaration, ro = edit && d.editable ? '' : 'disabled', isExp = c.direction === 'export', ref = isExp ? c.export_ref : c.import_ref;
+    const GEN = isExp ? ['commercial_invoice', 'proforma_invoice', 'packing_list', 'certificate_of_origin', 'export_declaration', 'customs_declaration'] : ['customs_declaration'];
+    const iss = d.readiness.issues;
+    openModal(`<h3 style="margin-top:0">${e(c.ref)} ${stPill(c.status)} <span class="mu2">${isExp ? 'Export order ' : 'Import shipment '}${e(ref)} · ${e(c.export_country)} → ${e(c.import_country)}</span></h3>
+      <div class="mu2">Prepare and check the declaration here. This system does not file with customs: file it with your broker or the customs portal, then record the entry number.</div>
+      ${iss.length ? `<div class="panel" style="margin:8px 0">${iss.map((x) => `<div style="color:${x.level === 'block' ? '#b91c1c' : '#8a6100'};font-size:13px">${x.level === 'block' ? '● Must fix: ' : '○ Note: '}${e(x.message)}</div>`).join('')}</div>` : '<div class="pill ok" style="margin:8px 0">Ready to file</div>'}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px"><label class="f">Gross weight (kg)<input id="cdg" value="${c.gross_weight_kg ?? ''}" ${ro}></label><label class="f">Net weight (kg)<input id="cdn" value="${c.net_weight_kg ?? ''}" ${ro}></label><label class="f">Packages<input id="cdp" value="${c.packages ?? ''}" ${ro}></label>
+        <label class="f">Dimensions<input id="cdd" value="${e(c.dimensions)}" placeholder="30x25x6 cm" ${ro}></label><label class="f">Incoterm<select id="cdi" ${ro}>${INCO.map((x) => `<option ${c.incoterm === x ? 'selected' : ''}>${e(x)}</option>`).join('')}</select></label><label class="f">Entry number (from customs / broker)<input id="cde" value="${e(c.entry_number)}" ${edit ? '' : 'disabled'}></label></div>
+      <label class="f" style="margin-top:6px">Restrictions note<input id="cdr" value="${e(c.restrictions_note)}" ${ro}></label>
+      <h4>Goods (${e(c.currency)})</h4><div class="tw"><table class="t"><tr><th>Description</th><th>HS code</th><th>Origin</th><th>Qty</th><th>Value</th><th>Total kg</th></tr>${c.lines.map((l, i) => `<tr data-ln="${i}"><td><input data-k="description" value="${e(l.description)}" ${ro}></td><td><input data-k="hs_code" value="${e(l.hs_code)}" style="width:100px" ${ro}></td><td><input data-k="origin_country" value="${e(l.origin_country)}" style="width:50px" maxlength="2" ${ro}></td><td><input data-k="qty" value="${l.qty}" style="width:60px" ${ro}></td><td><input data-k="value" value="${l.value}" style="width:100px" ${ro}></td><td><input data-k="weight_kg" value="${l.weight_kg ?? ''}" style="width:70px" ${ro}></td></tr>`).join('')}</table></div>
+      <div style="margin:6px 0"><b>Declared value ${money(c.declared_value, c.currency)}</b></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${edit && d.editable ? '<button class="btn sm" id="cdsave">Save declaration</button>' : ''}${edit ? d.next.map((s2) => `<button class="btn ${s2 === 'rejected' ? 'danger' : 'ghost'} sm" data-cds="${s2}">${s2 === 'submitted' ? 'Record as filed' : s2 === 'draft' ? 'Reopen' : 'Mark ' + e(s2)}</button>`).join('') : ''}</div>
+      <h4>Documents</h4>${d.documents.length ? d.documents.map((x) => `<div style="font-size:13px"><a href="/api/admin/trade/documents/${x.id}" download>${e(x.number || x.file_name)}</a> · ${e(x.doc_type.replace(/_/g, ' '))} · ${x.origin}${x.status === 'void' ? ' · <i>superseded</i>' : ''}</div>`).join('') : '<div class="mu2">None yet.</div>'}
+      ${edit ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${GEN.map((t) => `<button class="btn ghost sm" data-gen="${t}">Create ${e(t.replace(/_/g, ' '))} (PDF)</button>`).join('')}</div><div class="mu2" style="margin-top:4px">Generated documents are built from your records. The certificate of origin is a draft until an authorised body certifies it; air waybills, bills of lading and permits are uploaded where the order or shipment is opened.</div>` : ''}
+      <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" id="cdclose">Close</button></div>`, true);
+    $('#cdclose').addEventListener('click', () => { closeModal(); if (after) after(); });
+    const reopen = () => openDecl(id, after), body = () => ({ gross_weight_kg: $('#cdg').value, net_weight_kg: $('#cdn').value, packages: $('#cdp').value, dimensions: $('#cdd').value, incoterm: $('#cdi').value, restrictions_note: $('#cdr').value, entry_number: $('#cde').value, lines: [...modal.querySelectorAll('[data-ln]')].map((tr) => { const o = {}; tr.querySelectorAll('[data-k]').forEach((el) => { o[el.dataset.k] = el.value; }); const orig = c.lines[Number(tr.dataset.ln)]; return { ...o, product_id: orig.product_id }; }) });
+    const sv = $('#cdsave'); if (sv) sv.addEventListener('click', guard(async () => { await api('/api/admin/trade/customs/' + id, { method: 'PUT', body: body() }); toast('Saved'); reopen(); }));
+    monAll('[data-cds]', 'click', guard(async (b) => { const ent = $('#cde').value; await api('/api/admin/trade/customs/' + id + '/status', { body: { status: b.dataset.cds, entry_number: ent } }); toast('Updated'); reopen(); }));
+    monAll('[data-gen]', 'click', guard(async (b) => { await api('/api/admin/trade/' + (isExp ? 'orders' : 'imports') + '/' + encodeURIComponent(ref) + '/documents/generate', { body: { doc_type: b.dataset.gen } }); toast('Document created'); reopen(); }));
   };
 
   /* ----- supplier detail ----- */
@@ -3162,8 +3212,8 @@ views.trade = async () => {
   }
   if (T.tab === 'imports') {
     const d = await api('/api/admin/trade/imports?status=' + encodeURIComponent(T.is || '') + '&q=' + encodeURIComponent(T.iq || ''));
-    const stat = ['', 'po_approved', 'supplier_processing', 'ready_for_collection', 'dispatched', 'in_transit', 'arrived_port', 'customs_clearance', 'customs_hold', 'released', 'local_transit', 'delivered_warehouse'];
-    frame(`<div class="panel"><div class="mu2" style="margin-bottom:8px">One import shipment per approved purchase order. Record the supplier's progress, the carrier and the costs. Receiving goods into stock comes in a later phase.</div>
+    const stat = ['', 'po_approved', 'supplier_processing', 'ready_for_collection', 'dispatched', 'in_transit', 'arrived_port', 'customs_clearance', 'customs_hold', 'released', 'local_transit', 'delivered_warehouse', 'stock_received', 'completed'];
+    frame(`<div class="panel"><div class="mu2" style="margin-bottom:8px">One import shipment per approved purchase order. Record the supplier's progress, the carrier and the costs. When the goods are delivered to the warehouse, open the shipment to count them in and see the landed cost.</div>
       <select id="iss">${stat.map((s) => `<option value="${s}" ${T.is === s ? 'selected' : ''}>${s ? s.replace(/_/g, ' ') : 'All statuses'}</option>`).join('')}</select> <input id="iq" placeholder="Reference, tracking, supplier, PO" value="${e(T.iq || '')}" style="max-width:240px"> <button class="btn ghost sm" id="igo">Search</button>
       <div class="tw" style="margin-top:10px">${d.shipments.length ? `<table class="t"><tr><th>Shipment</th><th>Supplier</th><th>PO</th><th>Carrier / tracking</th><th>ETA</th><th>Purchase value</th><th>Landed cost</th><th>Status</th></tr>${d.shipments.map((h) => `<tr data-i="${e(h.import_ref)}" style="cursor:pointer"><td>${e(h.import_ref)}</td><td>${e(h.supplier)}</td><td>${e(h.po_number || '')}</td><td>${e(h.carrier)} ${e(h.tracking_number)}</td><td>${e(h.eta || '')} ${h.delayed ? '<span class="pill" style="background:#fde2e2">Late</span>' : ''}</td><td>${money(h.purchase_value, h.currency)}</td><td>${money(h.landed_cost, h.currency)}</td><td>${stPill(h.status)}</td></tr>`).join('')}</table>` : '<div class="mu2">No import shipments yet. Approve a purchase order to create one.</div>'}</div></div>`);
     wireTabs(); on('#igo', 'click', () => { T.is = $('#iss').value; T.iq = $('#iq').value.trim(); views.trade(); }); on('#iss', 'change', () => { T.is = $('#iss').value; views.trade(); });
@@ -3266,12 +3316,24 @@ views.trade = async () => {
         ${edit && d2.next.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:12px"><label class="f">Carrier<input id="ocar" value="${e(o.carrier || '')}"></label><label class="f">Tracking number<input id="otr" value="${e(o.tracking_number || '')}"></label><label class="f">Note<input id="onote"></label></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${d2.next.map((s) => `<button class="btn ${s === 'cancelled' ? 'danger' : ''} sm" data-go="${s}">${e(s.replace(/_/g, ' '))}</button>`).join('')}</div>` : ''}
         <div id="obk"></div>
+        <div id="odc"></div>
         <h4>Shipment updates</h4>${d2.events.length ? d2.events.map((x) => `<div style="font-size:13px">${new Date(x.occurred_at * 1000).toLocaleString()} · <b>${e(String(x.stage).replace(/_/g, ' '))}</b> ${e(x.location || '')} ${e(x.description || '')}</div>`).join('') : '<div class="mu2">None yet.</div>'}
         ${d2.payments.length ? `<h4>Verified payments</h4>${d2.payments.map((p) => `<div style="font-size:13px">${e(p.provider)} ${e(p.provider_ref)} · ${e(p.currency)} ${Number(p.amount).toLocaleString()} · ${p.verified ? 'verified' : 'unverified'}</div>`).join('')}` : ''}
         <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" id="oclose">Close</button></div>`, true);
       $('#oclose').addEventListener('click', () => modal.classList.remove('on'));
       const reopen = () => { modal.classList.remove('on'); views.trade(); };
       const pk = $('#opack'); if (pk) pk.addEventListener('click', guard(async () => { await api('/api/admin/trade/orders/' + o.ref + '/pack', { body: { items: [...document.querySelectorAll('[data-pk]')].map((i) => ({ id: Number(i.dataset.pk), packed_qty: Number(i.value) })) } }); toast('Saved'); reopen(); }));
+      {
+        const dc = $('#odc', modal), base = '/api/admin/trade/orders/' + encodeURIComponent(o.ref);
+        const drawDocs = async () => {
+          const r = await api(base + '/documents');
+          dc.innerHTML = `${edit ? '<button class="btn ghost sm" id="ocd" style="margin-top:8px">Customs declaration</button>' : ''}${docsHtml(r.documents)}${edit ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${r.generate.map((t) => `<button class="btn ghost sm" data-ogen="${t}">Create ${e(t.replace(/_/g, ' '))}</button>`).join('')}</div>` : ''}`;
+          const cb = $('#ocd', modal); if (cb) cb.addEventListener('click', guard(async () => { const x = await api('/api/admin/trade/customs/from-order/' + encodeURIComponent(o.ref), { body: {} }); openDecl(x.declaration.id, () => views.trade()); }));
+          monAll('[data-ogen]', 'click', guard(async (b) => { await api(base + '/documents/generate', { body: { doc_type: b.dataset.ogen } }); toast('Document created'); drawDocs(); }));
+          wireDocs(base + '/documents', drawDocs);
+        };
+        drawDocs().catch(() => {});
+      }
       if (edit && !['cancelled', 'returned', 'pending'].includes(o.status)) {
         const bk = $('#obk', modal), key = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, '').padEnd(16, '0');
         let rates = null, bkey = null; const BL = { requested: 'Waiting for carrier', booked: 'Booked', failed: 'Failed', cancel_requested: 'Cancellation requested', cancelled: 'Cancelled' };
@@ -3316,6 +3378,27 @@ views.trade = async () => {
     onAll('[data-ptest]', 'click', async (el) => { try { const r = await api('/api/admin/trade/providers/' + el.dataset.ptest + '/test', { body: {} }); toast('Connected. ' + (r.carrier_accounts ? r.carrier_accounts.length + ' carrier account(s) found.' : '')); } catch (er) { toast(er.message, 'bad'); } });
     onAll('[data-ptog]', 'click', async (el) => { try { await api('/api/admin/trade/providers/' + el.dataset.ptog, { method: 'PUT', body: { enabled: el.dataset.on === '1' } }); toast('Saved'); views.trade(); } catch (er) { toast(er.message, 'bad'); } });
     onAll('[data-psave]', 'click', async (el) => { const c = el.dataset.psave, q = (a) => document.querySelector(`[${a}="${c}"]`).value; try { await api('/api/admin/trade/providers/' + c, { method: 'PUT', body: { priority: q('data-pp'), supported_countries: q('data-pc'), customs_defaults: { customs_signer: q('data-pcs') } } }); toast('Saved'); views.trade(); } catch (er) { toast(er.message, 'bad'); } });
+    return;
+  }
+  if (T.tab === 'customs') {
+    const d = await api('/api/admin/trade/customs?direction=' + encodeURIComponent(T.cd || '') + '&status=' + encodeURIComponent(T.cs || '') + '&q=' + encodeURIComponent(T.cq2 || ''));
+    const cal = T.calc || (T.calc = { destination_country: '', currency: 'USD', freight: '', insurance: '', lines: [{ hs_code: '', origin_country: '', value: '' }], out: null });
+    const sts = ['', 'draft', 'incomplete', 'ready', 'submitted', 'held', 'cleared', 'rejected'];
+    frame(`<div class="panel"><h3 style="margin-top:0">Customs declarations</h3><div class="mu2" style="margin-bottom:8px">Open an international order or an import shipment and choose "Customs declaration" to create one. Here you can find and review them.</div>
+      <select id="cdd2"><option value="">Export and import</option><option value="export" ${T.cd === 'export' ? 'selected' : ''}>Export</option><option value="import" ${T.cd === 'import' ? 'selected' : ''}>Import</option></select> <select id="cds2">${sts.map((x) => `<option value="${x}" ${T.cs === x ? 'selected' : ''}>${x || 'All statuses'}</option>`).join('')}</select> <input id="cdq" placeholder="Declaration, order, shipment, entry no." value="${e(T.cq2 || '')}" style="max-width:260px"> <button class="btn ghost sm" id="cdgo">Search</button>
+      <div class="tw" style="margin-top:10px">${d.declarations.length ? `<table class="t"><tr><th>Declaration</th><th>For</th><th>Route</th><th>Value</th><th>Entry no.</th><th>Status</th></tr>${d.declarations.map((c) => `<tr data-cd="${c.id}" style="cursor:pointer"><td>${e(c.ref)}</td><td>${e(c.export_ref || c.import_ref || '')}</td><td>${e(c.export_country)} → ${e(c.import_country)}</td><td>${e(c.currency)} ${Number(c.declared_value).toLocaleString()}</td><td>${e(c.entry_number)}</td><td>${stPill(c.status)}</td></tr>`).join('')}</table>` : '<div class="mu2">No declarations yet.</div>'}</div></div>
+      <div class="panel"><h3 style="margin-top:0">Duty and tax calculator</h3><div class="mu2" style="margin-bottom:8px">Uses only the duty rules saved under Shipping &amp; duties. If there is no rule, nothing is calculated. Estimates must be confirmed with customs or your broker.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px"><label class="f">Destination country<select id="kc">${ccOpts.map(([v, n]) => `<option value="${e(v)}" ${cal.destination_country === v ? 'selected' : ''}>${e(n)}</option>`).join('')}</select></label><label class="f">Currency of the values<select id="kcu">${curList.map((x) => `<option ${cal.currency === x ? 'selected' : ''}>${e(x)}</option>`).join('')}</select></label><label class="f">Freight<input id="kf" value="${e(cal.freight)}"></label><label class="f">Insurance<input id="ki" value="${e(cal.insurance)}"></label></div>
+      <div class="tw" style="margin-top:6px"><table class="t"><tr><th>HS code</th><th>Origin</th><th>Value</th></tr>${cal.lines.map((l, i) => `<tr data-kl="${i}"><td><input data-k="hs_code" value="${e(l.hs_code)}"></td><td><input data-k="origin_country" value="${e(l.origin_country)}" maxlength="2" style="width:60px"></td><td><input data-k="value" value="${e(l.value)}"></td></tr>`).join('')}</table></div>
+      <div style="display:flex;gap:6px;margin-top:6px"><button class="btn ghost sm" id="kadd">Add line</button><button class="btn sm" id="kgo">Calculate</button></div>
+      ${cal.out ? `<div style="margin-top:8px"><span class="pill ${cal.out.status === 'verified' ? 'ok' : ''}">${e(cal.out.status.replace('_', ' '))}</span> <span class="mu2">${e(cal.out.note)}</span>${cal.out.status !== 'not_available' ? `<div style="margin-top:6px">Duty ${ngn(cal.out.totals.duty_ngn)} · VAT / consumption tax ${ngn(cal.out.totals.vat_ngn)} · Other levies ${ngn(cal.out.totals.levy_ngn)} · <b>Total ${ngn(cal.out.totals.total_ngn)}</b>${cal.out.currency !== 'NGN' ? ` (about ${e(cal.out.currency)} ${cal.out.totals.total.toLocaleString()})` : ''}</div>${cal.out.de_minimis ? '<div class="mu2">Below the de-minimis limit in the rule: nothing is payable.</div>' : ''}` : ''}</div>` : ''}</div>
+      ${edit ? '' : ''}`);
+    wireTabs();
+    const readCal = () => { cal.destination_country = $('#kc').value; cal.currency = $('#kcu').value; cal.freight = $('#kf').value; cal.insurance = $('#ki').value; document.querySelectorAll('[data-kl]').forEach((tr) => { const l = cal.lines[Number(tr.dataset.kl)]; tr.querySelectorAll('[data-k]').forEach((el) => { l[el.dataset.k] = el.value; }); }); };
+    on('#cdgo', 'click', () => { T.cd = $('#cdd2').value; T.cs = $('#cds2').value; T.cq2 = $('#cdq').value.trim(); views.trade(); });
+    on('#kadd', 'click', () => { readCal(); cal.lines.push({ hs_code: '', origin_country: '', value: '' }); views.trade(); });
+    on('#kgo', 'click', async () => { readCal(); try { cal.out = await api('/api/admin/trade/customs/calc', { body: { destination_country: cal.destination_country, currency: cal.currency, freight: cal.freight, insurance: cal.insurance, lines: cal.lines } }); } catch (er) { cal.out = null; toast(er.message, 'bad'); } views.trade(); });
+    onAll('[data-cd]', 'click', guard(async (el) => openDecl(el.dataset.cd, () => views.trade())));
     return;
   }
   if (T.tab === 'shipping') {

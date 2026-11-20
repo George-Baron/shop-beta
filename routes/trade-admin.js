@@ -121,6 +121,24 @@ router.post('/orders/:ref/rates', ah(async (req, res) => res.json(await BK.getRa
 router.post('/orders/:ref/book', ah(async (req, res) => res.json(await BK.book(req.params.ref, req.body || {}, req.user, ip(req)))));
 router.post('/bookings/:id/cancel', ah(async (req, res) => res.json(await BK.cancel(req.params.id, req.user, ip(req)))));
 router.post('/bookings/:id/refresh', ah(async (req, res) => res.json(await BK.refresh(req.params.id, req.user, ip(req)))));
+const CUS = require('../lib/trade/customs'), RCV = require('../lib/trade/receiving');
+router.get('/customs', ah(async (req, res) => res.json(await CUS.list(req.query))));
+router.post('/customs/calc', ah(async (req, res) => res.json(await CUS.calc(req.body || {}))));
+router.post('/customs/from-order/:ref', ah(async (req, res) => res.json(await CUS.fromExport(req.params.ref, req.user, ip(req)))));
+router.post('/customs/from-import/:ref', ah(async (req, res) => res.json(await CUS.fromImport(req.params.ref, req.user, ip(req)))));
+router.get('/customs/:id', ah(async (req, res) => res.json(await CUS.detail(req.params.id))));
+router.put('/customs/:id', ah(async (req, res) => res.json(await CUS.save(req.params.id, req.body || {}, req.user, ip(req)))));
+router.post('/customs/:id/status', ah(async (req, res) => res.json(await CUS.setStatus(req.params.id, (req.body || {}).status, req.body || {}, req.user, ip(req)))));
+router.get('/orders/:ref/documents', ah(async (req, res) => res.json(await CUS.docList('export', req.params.ref))));
+router.post('/orders/:ref/documents/generate', ah(async (req, res) => res.json(await CUS.generate((req.body || {}).doc_type, { export_ref: String(req.params.ref).toUpperCase() }, req.user, ip(req)))));
+router.post('/orders/:ref/documents', big, ah(async (req, res) => { const eo = await require('../lib/db').get('SELECT id FROM export_orders WHERE ref=?', String(req.params.ref).toUpperCase()); if (!eo) fail(404, 'International order not found.'); res.json({ document: await SUP.addDocument({ export_order_id: Number(eo.id) }, req.body || {}, fileOf(req.body), req.user, ip(req)) }); }));
+router.get('/imports/:ref/documents', ah(async (req, res) => res.json(await CUS.docList('import', req.params.ref))));
+router.post('/imports/:ref/documents/generate', ah(async (req, res) => res.json(await CUS.generate((req.body || {}).doc_type, { import_ref: String(req.params.ref).toUpperCase() }, req.user, ip(req)))));
+router.post('/imports/:ref/receive-preview', ah(async (req, res) => res.json(await RCV.preview(req.params.ref, req.body || {}))));
+router.post('/imports/:ref/receive', ah(async (req, res) => res.json(await RCV.receive(req.params.ref, req.body || {}, req.user, ip(req)))));
+router.get('/imports/:ref/landed', ah(async (req, res) => res.json(await RCV.landed(req.params.ref))));
+router.put('/imports/:ref/items/:id', ah(async (req, res) => res.json(await RCV.updateItem(req.params.ref, req.params.id, req.body || {}, req.user, ip(req)))));
+router.get('/valuation', ah(async (req, res) => res.json(await RCV.valuation())));
 router.get('/audit', ah(async (req, res) => res.json(await A.auditLog(req.query))));
 
 module.exports = router;

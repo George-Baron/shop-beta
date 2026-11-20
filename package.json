@@ -50,7 +50,8 @@
     "test:trade": "node --disable-warning=ExperimentalWarning test/trade.js",
     "test:trade-export": "node --disable-warning=ExperimentalWarning test/trade-export.js",
     "test:trade-import": "node --disable-warning=ExperimentalWarning test/trade-import.js",
-    "test:trade-carriers": "node --disable-warning=ExperimentalWarning test/trade-carriers.js"
+    "test:trade-carriers": "node --disable-warning=ExperimentalWarning test/trade-carriers.js",
+    "test:trade-customs": "node --disable-warning=ExperimentalWarning test/trade-customs.js"
   },
   "dependencies": {
     "compression": "^1.8.2",
@@ -58,6 +59,7 @@
     "express": "^4.21.2",
     "fflate": "^0.8.3",
     "leaflet": "^1.9.4",
+    "pdfkit": "^0.21.0",
     "pg": "^8.23.1"
   },
   "overrides": {

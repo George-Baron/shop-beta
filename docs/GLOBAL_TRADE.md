@@ -11,7 +11,7 @@ Admin screen: **Admin > Global Trade**. Permission module: `trade` (roles "Trade
 | 3 | Export checkout and international customer orders | Built |
 | 4 | Import procurement and international supplier management | Built |
 | 5 | Freight quotations and carrier API integrations (needs your own carrier accounts and keys) | Built (EasyPost) |
-| 6 | Customs, duties, documentation and landed cost | Not started |
+| 6 | Customs, duties, documentation and landed cost | Built |
 | 7 | International payments and shipment tracking | Not started |
 | 8 | Notifications, reporting and AI assistant | Not started |
 | 9 | Testing, security audit and production deployment | Not started |
@@ -73,3 +73,14 @@ Public API (used by the storefront in phase 3): `GET /api/trade/countries`, `/cu
 - **Not in this phase**: pickup scheduling; insurance quotes in customer prices (insurance can be added at booking); importer-side bookings (imports stay manual).
 - **Verification caveat**: the integration is tested against a stand-in for EasyPost, not the live service. Before going live, run one real test shipment in EasyPost's test mode and confirm the webhook signature format against their current documentation.
 - Tests: `npm run test:trade-carriers`.
+
+## Phase 6: customs, duties, documents, receiving and landed cost
+
+- **Customs declarations** (Global Trade > Customs & docs, or "Customs declaration" inside an order or shipment): built from the order or shipment (HS code, description, origin, quantity, value, weights). Staff add gross weight, packages, dimensions, Incoterm. A **readiness check** lists what must be fixed (short HS code, missing origin or value, net above gross weight, product restricted for that country). Status path: incomplete / ready, then *submitted*, then *cleared*, *held* or *rejected*. **Nothing is filed with customs from here**: "Record as filed" means your broker or the customs portal was used, and the entry number is saved. A filed declaration cannot be edited.
+- **Duty and tax calculator**: uses only the duty rules saved under Shipping & duties. No rule means nothing is calculated. An unverified rule gives an *estimate* and says so; only rules marked verified (with a source) give "verified". De-minimis limits are honoured.
+- **Documents (PDF)**: commercial invoice (only after payment), proforma invoice, packing list, certificate of origin (a **draft**: no legal effect until an authorised body certifies it), export and customs declaration summaries (information only, not an official filing), goods received note. Regenerating creates a new version and marks the old one superseded; old versions stay downloadable. Air waybills, bills of lading, insurance certificates and import permits are **uploaded**, never invented. Files go to the private bucket. The seller address comes from Settings.
+- **Receiving imported stock** (open a shipment that is *delivered to warehouse*): count received and damaged per item (received cannot exceed ordered; shortage is worked out). Only undamaged units are added to stock, to the **retail store** or the **wholesale warehouse** (through its existing stock ledger). Every item must be linked to one of our own products. Done once; a repeat is refused.
+- **Landed cost**: each item's purchase cost plus its share of freight, insurance, duties, taxes, clearing, port, inland and other costs, in NGN at the exchange rate saved with the shipment. Shared by value, weight or quantity (weight needs weights on every item). Shares add up to the exact total (no rounding loss). Damaged and missing units are carried by the units that went into stock. The allocation is saved, per item and cost type, with a goods received note. A weighted-average cost per product is kept for inventory valuation (Trade > valuation report API: `/api/admin/trade/valuation`).
+- **Shipment status**: *stock received* is set only by receiving; *completed* is a manual close afterwards.
+- **Not in this phase**: automatic duty rates (you enter and verify them), electronic filing, a visual valuation report screen, retail stock-movement history (retail stock is a plain counter in this store).
+- Tests: `npm run test:trade-customs` (add `UI_CHECK=1` to also drive the screens in a browser).
