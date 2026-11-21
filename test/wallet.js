@@ -129,6 +129,77 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
       const r = (await call('GET', '/api/admin/wallet/reconcile', null, admin)).j; assert.strictEqual(r.ok, true, JSON.stringify(r)); assert.ok(r.wallet_liability > 0);
     });
     await test('staff accounts do not get shopping wallets', async () => assert.strictEqual(Number((await q("SELECT COUNT(*) n FROM ledger_accounts WHERE kind='customer_wallet' AND user_id IN (SELECT id FROM users WHERE role<>'customer')"))[0].n), 0));
+
+    console.log('Paying for orders with the wallet');
+    const prod = (await q('SELECT id, price, stock FROM products WHERE active=1 AND stock>=30 AND id NOT IN (SELECT product_id FROM variants) ORDER BY id LIMIT 1'))[0];
+    let uniq = 0;
+    const cart = (qty, extra = {}) => ({ items: [{ productId: prod.id, qty }], contact: { name: 'Ada Obi', email: `buyer${Date.now().toString(36)}${uniq++}@example.com`, phone: '0803' + String(2000000 + uniq * 7907).slice(0, 7) }, address: { state: 'Lagos', city: 'Yaba', address: '1 Road Street' }, delivery: 'standard', payment: 'paystack', ...extra });
+    const stockNow = async () => Number((await q('SELECT stock FROM products WHERE id=$1', [prod.id]))[0].stock);
+    const orderRow = async (ref) => (await q('SELECT * FROM orders WHERE ref=$1', [ref]))[0];
+    const buyer = await register('Buyer'), poor = await register('Poor'), carol = await register('Carol');
+    let full;
+    const qtyFor = (minTotal) => Math.max(1, Math.ceil(minTotal / prod.price));
+
+    await test('preview shows what the wallet would cover and holds nothing', async () => {
+      await call('GET', '/api/wallet/fund/' + await fund(buyer, 900000), null, buyer.cookie);
+      const r = await call('POST', '/api/wallet/preview', cart(2), buyer.cookie); assert.strictEqual(r.s, 200, r.t);
+      assert.strictEqual(r.j.wallet_contribution, r.j.order_total); assert.strictEqual(r.j.remaining_payment, 0);
+      assert.strictEqual((await bal(buyer)).available_balance, 900000);
+    });
+    await test('paying with the wallet needs sign-in', async () => assert.strictEqual((await call('POST', '/api/checkout', cart(1, { payment: 'wallet' }))).s, 401));
+    await test('full wallet payment: order is paid, wallet debited exactly the total, stock taken once', async () => {
+      const s0 = await stockNow(), b0 = (await bal(buyer)).available_balance;
+      const r = await call('POST', '/api/checkout', cart(2, { payment: 'wallet' }), buyer.cookie); assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.next, 'wallet');
+      const o = await orderRow(r.j.ref); assert.strictEqual(o.payment_status, 'paid'); assert.strictEqual(o.status, 'paid'); assert.strictEqual(Number(o.wallet_amount), o.total * 100);
+      assert.strictEqual((await bal(buyer)).available_balance, b0 - o.total); assert.strictEqual(await stockNow(), s0 - 2);
+      assert.strictEqual((await call('GET', '/api/wallet/transactions?type=purchases', null, buyer.cookie)).j.transactions[0].order_ref, r.j.ref);
+      full = o;
+    });
+    await test('the same checkout key twice debits once', async () => {
+      const k = crypto.randomUUID(), b0 = (await bal(buyer)).available_balance, body = cart(1, { payment: 'wallet', idempotencyKey: k });
+      const rs = await Promise.all([call('POST', '/api/checkout', body, buyer.cookie), call('POST', '/api/checkout', body, buyer.cookie), call('POST', '/api/checkout', body, buyer.cookie)]);
+      assert.ok(rs.every((r) => r.s === 200), rs.map((r) => r.s + ' ' + r.t).join(' | ')); assert.strictEqual(new Set(rs.map((r) => r.j.ref)).size, 1);
+      const o = await orderRow(rs[0].j.ref); assert.strictEqual((await bal(buyer)).available_balance, b0 - o.total);
+    });
+    await test('an empty wallet is refused, the order is cancelled and stock is returned', async () => {
+      const s0 = await stockNow(), r = await call('POST', '/api/checkout', cart(1, { payment: 'wallet' }), poor.cookie);
+      assert.strictEqual(r.s, 402); assert.strictEqual(await stockNow(), s0);
+    });
+    let part;
+    await test('split payment: wallet part is held, the gateway is asked for only the rest', async () => {
+      await call('GET', '/api/wallet/fund/' + await fund(carol, 1000), null, carol.cookie);
+      const r = await call('POST', '/api/checkout', cart(qtyFor(8000)), carol.cookie); assert.strictEqual(r.s, 200, r.t); // normal paystack order first, to learn the total
+      await call('POST', `/api/orders/${r.j.ref}/cancel`, { token: r.j.token, email: undefined }, carol.cookie).catch(() => {});
+      const r2 = await call('POST', '/api/checkout', cart(qtyFor(8000), { useWallet: true }), carol.cookie); assert.strictEqual(r2.s, 200, r2.t);
+      assert.strictEqual(r2.j.next, 'paystack'); assert.strictEqual(r2.j.wallet_amount, 1000);
+      const o = await orderRow(r2.j.ref); assert.strictEqual(Number(o.wallet_amount), 100000); assert.strictEqual(Number(o.charge_amount), o.total * 100 - 100000);
+      assert.strictEqual(fx.amounts[r2.j.ref], o.total * 100 - 100000); // Paystack was asked for the remainder only
+      const w = await bal(carol); assert.strictEqual(w.available_balance, 0); assert.strictEqual(w.pending_balance, 1000); assert.strictEqual(w.total_spent, 0);
+      part = { ref: r2.j.ref, total: o.total };
+    });
+    await test('when the gateway part is paid, the held money becomes one purchase debit', async () => {
+      fx.status[part.ref] = 'success'; await call('GET', '/api/paystack/verify?reference=' + part.ref);
+      await until(async () => (await orderRow(part.ref)).payment_status === 'paid');
+      const w = await bal(carol); assert.strictEqual(w.balance, 0); assert.strictEqual(w.pending_balance, 0); assert.strictEqual(w.total_spent, 1000);
+      await call('GET', '/api/paystack/verify?reference=' + part.ref); await webhook(part.ref); await sleep(600);
+      assert.strictEqual((await bal(carol)).total_spent, 1000);
+    });
+    await test('an unpaid split order that is cancelled releases the held money', async () => {
+      await call('GET', '/api/wallet/fund/' + await fund(carol, 1000), null, carol.cookie);
+      const r = await call('POST', '/api/checkout', cart(qtyFor(8000), { useWallet: true }), carol.cookie); assert.strictEqual(r.s, 200, r.t);
+      assert.strictEqual((await bal(carol)).pending_balance, 1000);
+      const id = (await orderRow(r.j.ref)).id; assert.strictEqual((await call('PUT', '/api/admin/orders/' + id, { status: 'cancelled' }, admin)).s, 200);
+      const w = await bal(carol); assert.strictEqual(w.pending_balance, 0); assert.strictEqual(w.available_balance, 1000);
+    });
+    await test('refunding a wallet-paid order returns the wallet share once', async () => {
+      const b0 = (await bal(buyer)).available_balance;
+      assert.strictEqual((await call('PUT', '/api/admin/orders/' + full.id, { status: 'refunded' }, admin)).s, 200);
+      assert.strictEqual((await bal(buyer)).available_balance, b0 + full.total);
+      assert.strictEqual((await call('PUT', '/api/admin/orders/' + full.id, { status: 'refunded' }, admin)).s, 400);
+      assert.strictEqual((await bal(buyer)).available_balance, b0 + full.total);
+      assert.strictEqual((await call('GET', '/api/wallet/transactions?type=refunds', null, buyer.cookie)).j.transactions[0].order_ref, full.ref);
+    });
+    await test('the books still balance after all of that', async () => { const r = (await call('GET', '/api/admin/wallet/reconcile', null, admin)).j; assert.strictEqual(r.ok, true, JSON.stringify(r)); });
   } finally {
     app.kill(); fake.close(); await sleep(300);
     await pg(`DROP DATABASE IF EXISTS ${DB} WITH (FORCE)`).catch(() => {});

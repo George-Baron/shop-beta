@@ -24,7 +24,15 @@ Closed-loop shopping wallet. No transfers, no cash withdrawals. Amounts are kobo
 
 Settings (table `settings`): `wallet_enabled`, `wallet_min_fund`, `wallet_max_fund`, `wallet_max_balance`.
 
-## Not built yet (rest of phase 1)
-Wallet payment at checkout (full/partial, reservations), refunds to wallet, low-balance/suspicious-activity alerts, finer staff permissions (admin-only for now), Interswitch/Flutterwave/Monnify funding (each must be confirmed and tested first), website and app screens (the repo has no mobile app code, and mobile token auth does not exist yet: the API uses the existing cookie session).
+## Paying with the wallet at checkout
+`POST /api/checkout` (the existing endpoint) accepts `payment: "wallet"` or `useWallet: true`, for signed-in customers with Naira orders paid through Paystack. The customer's choice is the confirmation; the amounts are always worked out on the server from the stored order.
+- Wallet covers the whole order: the wallet is debited and the order is paid at once (`next: "wallet"`).
+- Wallet covers part: that amount is held (`pending`), the order's gateway amount is reduced to the remainder, and Paystack is asked for only that (`next: "paystack"`, plus `wallet_amount` and `remaining`). When the gateway part is verified the hold becomes one purchase debit; if the order is cancelled or expires unpaid the hold is released. At least ₦50 is always left for the gateway.
+- Not enough balance, frozen wallet, or a non-Naira / Stripe order: the order is cancelled, stock returned, and an error is returned.
+- `POST /api/wallet/preview` (same cart body as checkout) shows the wallet share and the remainder before confirming; display only.
+- Refund: marking an order Refunded returns the wallet share to the wallet once (idempotent). The Paystack share is still refunded by hand to the card.
+
+## Not built yet
+Wallet notifications for low balance and suspicious activity, finer staff permissions (admin-only for now), Interswitch/Flutterwave/Monnify funding (each must be confirmed and tested first), mobile token sign-in (the API uses the existing cookie session), and the website/app screens. The repo contains no Android or iOS code; the API is ready for the apps to use when they go live.
 
 Run: `npm run test:wallet`.

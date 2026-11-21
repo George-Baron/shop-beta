@@ -13,6 +13,8 @@ customer.use(A.requireUser);
 customer.get('/', ah(async (req, res) => { res.set('Cache-Control', 'no-store'); res.json(await W.overview(req.user)); }));
 customer.get('/transactions', ah(async (req, res) => { res.set('Cache-Control', 'no-store'); res.json(await W.history(req.user, req.query)); }));
 customer.get('/statement.csv', ah(async (req, res) => { res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="velto-wallet-statement.csv"', 'Cache-Control': 'no-store' }); res.send(await W.statement(req.user, req.query)); }));
+// Shows what the wallet would cover before the customer confirms. Display only; nothing is held or charged.
+customer.post('/preview', A.limiter('wallet-preview', 60, 600000), ah(async (req, res) => res.json(await W.preview(req.user, req.body || {}))));
 customer.post('/fund', A.limiter('wallet-fund', 10, 3600000), ah(async (req, res) => res.json(await W.initFunding(req.user, req.body))));
 // The customer coming back from the payment page. We still ask the gateway; the browser's word is never enough.
 customer.get('/fund/:ref', A.limiter('wallet-verify', 40, 600000), ah(async (req, res) => {
