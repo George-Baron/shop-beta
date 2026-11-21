@@ -91,7 +91,7 @@ app.get('/health', async (req, res) => {
 /* ---------- API ---------- */
 // Request bodies are small by default. The photo upload is the one exception, and it reads its larger body only AFTER the admin check (see routes/admin.js).
 const smallJson = express.json({ limit: '100kb', verify: (req, res, buf) => { req.rawBody = buf; } });
-app.use('/api', (req, res, next) => (req.path === '/admin/upload' || (req.method === 'POST' && /^\/admin\/trade\/products\/import\/(preview|commit)$/.test(req.path)) || (req.method === 'POST' && /^\/admin\/trade\/(suppliers|purchase-orders|imports|orders)\/[^/]+\/documents$/.test(req.path)) || req.path === '/partner/upload' || req.path === '/rider/photo' || req.path === '/admin/rider-ops/upload' || req.path === '/partner/photos' || (req.method === 'POST' && /^\/(admin|partner)\/catalog\/(parse|validate|commit)$/.test(req.path)) || /^\/(wholesale|admin)\/rfq\/(parse|[A-Z0-9-]+\/files)$/.test(req.path) || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) ? next() : smallJson(req, res, next)));
+app.use('/api', (req, res, next) => (req.path === '/admin/upload' || (req.method === 'POST' && /^\/admin\/trade\/products\/import\/(preview|commit)$/.test(req.path)) || (req.method === 'POST' && /^\/admin\/trade\/(suppliers|purchase-orders|imports|orders)\/[^/]+\/documents$/.test(req.path)) || req.path === '/partner/upload' || req.path === '/rider/photo' || req.path === '/admin/rider-ops/upload' || req.path === '/partner/photos' || (req.method === 'POST' && /^\/(admin|partner)\/catalog\/(parse|validate|commit)$/.test(req.path)) || /^\/(wholesale|admin)\/rfq\/(parse|[A-Z0-9-]+\/files)$/.test(req.path) || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) || /^\/admin\/dropship\/(suppliers\/\d+\/documents|trade\/shipments\/\d+\/files|import\/(preview|commit))$/.test(req.path) ? next() : smallJson(req, res, next)));
 // A NUL character is never valid text and makes the database fail with a server error, so it is refused up front.
 app.use('/api', (req, res, next) => {
   const bad = (v, d = 0) => (typeof v === 'string' ? v.includes('\u0000') : d < 6 && v && typeof v === 'object' ? Object.entries(v).some(([k, x]) => k.includes('\u0000') || bad(x, d + 1)) : false);
@@ -115,18 +115,19 @@ app.use('/api/trade', require('./routes/trade-public'));
 app.use('/api/pharmacy', require('./routes/pharmacy'));
 app.use('/api/rider', require('./routes/rider'));
 app.use('/api/partner', require('./routes/partner'));
+app.use('/api/supplier', require('./routes/supplier-portal'));
 app.use('/api/wholesale', require('./routes/wholesale'));
 app.use('/api', require('./routes/public'));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
 /* ---------- robots & sitemap ---------- */
 app.get('/robots.txt', (req, res) => {
-  res.type('text/plain').send(`User-agent: *\nDisallow: /admin\nDisallow: /rider\nDisallow: /pharmacist\nDisallow: /partner\nDisallow: /wholesale\nDisallow: /api/\nDisallow: /checkout\nDisallow: /account\nDisallow: /order/\nDisallow: /login\nDisallow: /register\n\nSitemap: ${BASE_URL}/sitemap.xml\n`);
+  res.type('text/plain').send(`User-agent: *\nDisallow: /admin\nDisallow: /rider\nDisallow: /pharmacist\nDisallow: /partner\nDisallow: /supplier\nDisallow: /wholesale\nDisallow: /api/\nDisallow: /checkout\nDisallow: /account\nDisallow: /order/\nDisallow: /login\nDisallow: /register\n\nSitemap: ${BASE_URL}/sitemap.xml\n`);
 });
 app.get('/sitemap.xml', ah(async (req, res) => {
   const urls = [BASE_URL + '/'];
   for (const s of await all(`SELECT slug FROM stores s WHERE active=1 AND ${PC.storeVisibleSql('s')} ORDER BY sort`)) urls.push(`${BASE_URL}/d/${s.slug}`);
-  urls.push(BASE_URL + '/stores');
+  urls.push(BASE_URL + '/stores', BASE_URL + '/dropshipping');
   for (const v of await all("SELECT slug FROM vendors WHERE status='approved' ORDER BY name LIMIT 2000")) urls.push(`${BASE_URL}/store/${v.slug}`);
   for (const p of ['about', 'faq', 'shipping', 'contact', 'privacy', 'terms']) urls.push(`${BASE_URL}/page/${p}`);
   for (const p of await all(`SELECT p.slug FROM products p JOIN stores s ON s.slug=p.store WHERE p.active=1 AND s.active=1 AND ${PC.visibleSql('p')} AND ${PC.storeVisibleSql('s')} ORDER BY p.id DESC LIMIT 5000`)) urls.push(`${BASE_URL}/product/${p.slug}`);
@@ -136,7 +137,7 @@ app.get('/sitemap.xml', ah(async (req, res) => {
 /* ---------- pages (one HTML shell, filled in per URL for search engines and link previews) ---------- */
 const TEMPLATE = fs.readFileSync(path.join(__dirname, 'views', 'index.html'), 'utf8');
 const PAGES = { about: 'About us', faq: 'Frequently asked questions', shipping: 'Shipping & Returns', privacy: 'Privacy policy', terms: 'Terms of service', contact: 'Contact us' };
-const NOINDEX = new Set(['rider', 'pharmacist', 'partner', 'wholesale', 'import-export', 'dropshipping', 'global-trade', 'trade', 'checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
+const NOINDEX = new Set(['rider', 'pharmacist', 'partner', 'supplier', 'global-trade', 'trade', 'wholesale', 'import-export', 'checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
 const clip = (s, n) => { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s; };
 const absUrl = (u) => (!u ? '' : /^https?:\/\//.test(u) ? u : BASE_URL + u);
 
@@ -190,6 +191,10 @@ async function describe(req) {
   if (seg[0] === 'page' && seg[1]) {
     if (!PAGES[seg[1]]) { out.status = 404; out.noindex = true; return out; }
     out.title = `${PAGES[seg[1]]} · ${S0.store_name}`; out.canonical = `${BASE_URL}/page/${seg[1]}`; return out;
+  }
+  if (seg[0] === 'dropshipping' && seg.length === 1) {
+    out.title = `Dropshipping: more products, shipped straight to you · ${S0.store_name}`; out.desc = 'Shop items shipped directly from our partner suppliers, with honest delivery times, tracking and a refund or alternative if a supplier cannot deliver.'; out.canonical = `${BASE_URL}/dropshipping`;
+    out.body = `<h1>Dropshipping</h1><p>${esc(out.desc)}</p>${nav}`; return out;
   }
   if (p === '/') return out;
   out.status = 404; out.noindex = true; out.title = 'Page not found · ' + S0.store_name;

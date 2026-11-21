@@ -144,7 +144,7 @@ const up = async (port) => { for (let i = 0; i < 200; i++) { try { await fetch(`
   });
   await test('timed chores are queued once per slot', async () => {
     const c = new Pg({ connectionString: URL_DB }); await c.connect();
-    const r = await c.query("SELECT key, state FROM jobs WHERE kind LIKE 'cron.%'"); await c.end();
+    const r = await c.query("SELECT key, state FROM jobs WHERE kind LIKE 'cron.%' AND key NOT LIKE '%Now:%'"); await c.end();
     assert.ok(r.rows.length >= 3); assert.strictEqual(new Set(r.rows.map((x) => x.key)).size, r.rows.length); assert.ok(r.rows.every((x) => x.state === 'done'));
   });
 

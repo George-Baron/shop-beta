@@ -346,7 +346,13 @@ body.is-rider .ann,body.is-rider .head,body.is-rider .foot,body.is-rider .cookie
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const e = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const naira = (n) => '₦' + Number(n || 0).toLocaleString('en-NG');
+// The customer's chosen currency (storefront only). Prices are kept in Naira; this shows them in the customer's money at the current rate. The exact amount is fixed by the server at checkout.
+const fxc = { code: 'NGN', rate: 1 };
+const fmtMinor = (minor, code) => { try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).format(Number(minor) / 10 ** new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).resolvedOptions().maximumFractionDigits); } catch { return Number(minor) / 100 + ' ' + code; } };
+const naira = (n) => {
+  if (fxc.code !== 'NGN' && !location.pathname.startsWith('/admin')) { try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: fxc.code }).format(Number(n || 0) / fxc.rate); } catch { /* show Naira */ } }
+  return '₦' + Number(n || 0).toLocaleString('en-NG');
+};
 const store = { cfg: null, user: null };
 
 // Printing: documents are written into a hidden frame so the page behind them is never printed with them.
@@ -597,11 +603,11 @@ function paint() {
 async function shopView(main, u, cfg) {
   const q = Object.fromEntries(u.searchParams.entries());
   const seg = u.pathname.split('/').filter(Boolean); if (seg[0] === 'd' && seg[1]) q.store = seg[1];
-  const params = new URLSearchParams(); for (const k of ['store', 'category', 'q', 'min', 'max', 'size', 'color', 'rating', 'sort', 'page', 'flag', 'instock', 'vendor']) if (q[k]) params.set(k, q[k]);
+  const params = new URLSearchParams(); for (const k of ['store', 'category', 'q', 'min', 'max', 'size', 'color', 'rating', 'sort', 'page', 'flag', 'instock', 'vendor', 'fulfilment']) if (q[k]) params.set(k, q[k]);
   const d = await api('/api/products?' + params.toString());
   const stObj = cfg.stores.find((s) => s.slug === q.store); const cats = cfg.categories.filter((c) => !q.store || c.store === q.store);
   const url = (over) => { const p = new URLSearchParams(params); for (const [k, v] of Object.entries(over)) { if (v === '' || v == null) p.delete(k); else p.set(k, v); } if (!('page' in over)) p.delete('page'); return '/shop?' + p.toString(); };
-  const title = q.q ? `Results for “${q.q}”` : q.flag === 'deals' ? 'Deals' : q.flag === 'new' ? 'New arrivals' : q.flag === 'best' ? 'Best sellers' : (cats.find((c) => c.slug === q.category) || {}).name || (stObj ? stObj.name : 'All products');
+  const title = q.q ? `Results for “${q.q}”` : q.fulfilment === 'dropship' ? 'Shipped by our partner suppliers' : q.flag === 'deals' ? 'Deals' : q.flag === 'new' ? 'New arrivals' : q.flag === 'best' ? 'Best sellers' : (cats.find((c) => c.slug === q.category) || {}).name || (stObj ? stObj.name : 'All products');
   main.innerHTML = `<div class="wrap">
    <nav class="crumbs" aria-label="Breadcrumb"><a href="/" data-link>Home</a> › ${stObj ? `<a href="/d/${e(stObj.slug)}" data-link>${e(stObj.name)}</a> › ` : ''}${e(title)}</nav>
    <div class="shop-top"><div><h1 style="font-size:28px;margin:0">${e(title)}</h1><span class="mu">${d.total} product${d.total === 1 ? '' : 's'}</span></div>
@@ -627,6 +633,12 @@ async function shopView(main, u, cfg) {
 }
 
 /* ================= product ================= */
+// Dropship items: say honestly where it ships from and how long it takes (processing + shipping + a safety margin). Nothing about the supplier or cost.
+const dropshipNote = (p) => {
+  const d = p.dropship; if (!d) return '';
+  const t = d.eta && (d.eta.NG || d.eta.ALL);
+  return `<div class="panel" style="margin:10px 0;padding:10px 12px;font-size:14px">🌍 <b>Ships from ${e(d.ships_from_name)}</b>${t ? `<br>Estimated delivery: <b>${t.min}–${t.max} days</b> after you order` : '<br>Delivery time shown at checkout'}${d.orderable ? '' : '<br><span class="mu">Not available to order just yet.</span>'}</div>`;
+};
 async function productView(main, slug, cfg) {
   const d = await api('/api/products/' + encodeURIComponent(slug)); const p = d.product;
   recent(p.id);
@@ -649,6 +661,7 @@ async function productView(main, slug, cfg) {
      ${sizes.length ? `<div class="opt-label">${e(p.size_label || 'Size')}</div><div class="chips" id="osize">${sizes.map((s) => `<button class="chip ${sel.size === s ? 'on' : ''}" data-size="${e(s)}">${e(s)}</button>`).join('')}</div>` : ''}
      ${colors.length ? `<div class="opt-label">Colour</div><div class="chips" id="ocolor">${colors.map((s) => `<button class="chip ${sel.color === s ? 'on' : ''}" data-color="${e(s)}">${e(s)}</button>`).join('')}</div>` : ''}
      <p class="stock" id="stock" style="margin:14px 0 0"></p>
+     ${dropshipNote(p)}
      <div class="buy"><div class="qty"><button id="qm" aria-label="Decrease">−</button><span id="qv">1</span><button id="qp" aria-label="Increase">+</button></div>
        <button class="btn lg" id="addbtn">Add to cart</button><button class="btn ghost lg" data-wish="${p.id}" id="wbtn">${wish.has(p.id) ? '♥ Saved' : '♡ Save'}</button></div>
      <div class="note">🚚 Delivery fee depends on your state, and is free over ${naira(cfg.settings.free_shipping_threshold)}. 💳 Pay by card, transfer or pay on delivery.</div>
@@ -662,7 +675,7 @@ async function productView(main, slug, cfg) {
     const s = stockOf(), el = $('#stock'); const need = hasVar && (!find());
     el.className = 'stock ' + (need ? '' : s <= 0 ? 'out' : s <= 5 ? 'low' : 'in');
     el.textContent = need ? 'Select your options' : s <= 0 ? 'Out of stock' : s <= 5 ? `Only ${s} left!` : 'In stock';
-    $('#addbtn').disabled = need || s <= 0; $('#qv').textContent = sel.qty;
+    $('#addbtn').disabled = need || s <= 0 || !!(p.dropship && !p.dropship.orderable); $('#qv').textContent = sel.qty;
     if (!need && sel.qty > s) { sel.qty = Math.max(1, s); $('#qv').textContent = sel.qty; }
   };
   main.addEventListener('click', (ev) => {
@@ -864,6 +877,7 @@ async function view(main, seg, u, cfg) {
   if (name === 'rider') return riderPage(main);
   if (name === 'pharmacist') return pharmacistPage(main);
   if (name === 'partner') return partnerPortal(main);
+  if (name === 'supplier') return supplierPortal(main);
   if (name === 'wholesale') return wholesalePage(main);
   if (name === 'notifications') return notificationsPage(main);
   return '';
@@ -874,13 +888,16 @@ async function checkout(main, cfg) {
   if (!cart.items.length) { main.innerHTML = '<div class="wrap empty"><div class="em">🛒</div><h2>Your cart is empty</h2><p><a class="btn" href="/" data-link>Continue shopping</a></p></div>'; return 'Checkout'; }
   const user = store.user; let addrs = []; if (user) { try { addrs = (await api('/api/addresses')).addresses; } catch { /* optional */ } }
   const saved = ls.get('sb_checkout', {}); const A = addrs[0] || {};
-  const st = { state: A.state || saved.state || '', delivery: 'standard', payment: '', data: null };
+  const known = (c) => (cfg.countries || []).some((x) => x.code === c);
+  const st = { country: known(saved.country) ? saved.country : 'NG', state: '', delivery: 'standard', payment: '', data: null };
+  st.state = st.country === 'NG' ? (A.state || saved.state || '') : (saved.state || '');
   main.innerHTML = `<div class="wrap page"><h1>Checkout</h1>${user ? '' : '<p class="note">Checking out as a guest. <a href="/login?next=/checkout" data-link style="color:var(--accent);font-weight:700">Sign in</a> to use saved addresses and track orders.</p>'}
    <form id="cof" class="row" style="grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:24px;align-items:start" novalidate>
     <div style="display:grid;gap:18px">
      <div class="card"><h3>1. Contact</h3><div class="row c2">${field('cn', 'Full name', { req: 1, auto: 'name', val: user ? user.name : saved.name, max: 80 })}${field('cp', 'Phone', { req: 1, type: 'tel', auto: 'tel', ph: '0801 234 5678', val: (user && user.phone) || saved.phone })}</div>${field('ce', 'Email (for your receipt)', { req: 1, type: 'email', auto: 'email', val: user ? user.email : saved.email })}</div>
      <div class="card"><h3>2. Delivery address</h3>${addrs.length ? `<label class="f">Saved addresses<select id="saddr"><option value="">Enter a new address</option>${addrs.map((a) => `<option value="${a.id}">${e(a.label)} · ${e(a.address)}, ${e(a.state)}</option>`).join('')}</select></label>` : ''}
-       <label class="f">State<select id="cs" required><option value="">Choose your state…</option>${cfg.zones.map((z) => `<option ${z.state === st.state ? 'selected' : ''}>${e(z.state)}</option>`).join('')}</select></label>
+       ${(cfg.countries || []).length > 1 ? `<label class="f">Country<select id="cco">${cfg.countries.map((c) => `<option value="${e(c.code)}" ${c.code === st.country ? 'selected' : ''}>${e(c.name)}</option>`).join('')}</select></label>` : ''}
+       <div id="regionwrap"></div>
        <div id="addrfields"><div class="row c2">${field('cc', 'City / area', { val: A.city || saved.city, max: 60 })}${field('ca', 'Street address', { val: A.address || saved.address, max: 200 })}</div></div>
        <label class="f">Delivery notes (optional)<input id="cnotes" maxlength="300" placeholder="Landmark, gate code, preferred time…"></label></div>
      <div class="card hide" id="mapcard"><h3>Pin your delivery location</h3><p class="mu" style="margin-top:0">Drop a pin on your door so the rider finds you. We use it to work out the distance, the delivery time and any distance fee.</p>
@@ -895,19 +912,31 @@ async function checkout(main, cfg) {
      <div style="display:flex;gap:8px;margin:12px 0"><input id="ocode" placeholder="Promo code" value="${e(cart.coupon)}"><button type="button" class="btn ghost sm" id="oapply">Apply</button></div>
      <p class="err hide" id="cerr" role="alert"></p><button class="btn lg block" id="place" disabled>Place order</button><p class="mu" style="font-size:12px;margin-top:8px">🔒 Secure checkout. Prices are confirmed by our server.</p></aside></form></div>`;
   const pay = cfg.payments;
-  const methods = [];
-  if (pay.paystack) methods.push(['paystack', '💳 Pay online', 'Card, bank transfer or USSD via Paystack' + (pay.demo ? ' (demo mode: no real money)' : '')]);
-  if (pay.pod) methods.push(['pod', '💵 Pay on delivery', 'Pay cash or transfer to our rider when your order arrives']);
-  st.payment = methods.length ? methods[0][0] : '';
-  $('#popts').innerHTML = methods.length ? methods.map(([v, t, d], i) => `<label class="chk" style="padding:10px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px"><input type="radio" name="pm" value="${v}" ${i ? '' : 'checked'}><span><b>${t}</b><br><small class="mu">${d}</small></span></label>`).join('') : '<p class="err">No payment method is available right now.</p>';
+  // The server says which ways of paying are open for this country, currency and delivery; the list is redrawn whenever it changes.
+  const PAYINFO = { paystack: ['💳 Pay online', 'Card, bank transfer or USSD via Paystack' + (pay.demo ? ' (demo mode: no real money)' : '')], stripe: ['💳 Pay by international card', 'Visa, Mastercard and more, securely through Stripe'], pod: ['💵 Pay on delivery', 'Pay cash or transfer to our rider when your order arrives'] };
+  let methods = [];
+  function drawPay(list) {
+    if (JSON.stringify(list) === JSON.stringify(methods)) return;
+    methods = list; if (!methods.includes(st.payment)) st.payment = methods[0] || '';
+    $('#popts').innerHTML = methods.length ? methods.map((v) => `<label class="chk" style="padding:10px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px"><input type="radio" name="pm" value="${v}" ${v === st.payment ? 'checked' : ''}><span><b>${PAYINFO[v][0]}</b><br><small class="mu">${PAYINFO[v][1]}</small></span></label>`).join('') : '<p class="err">No way of paying is open for this country and currency. Try another currency at the bottom of the page.</p>';
+  }
+  const ctry = () => (cfg.countries || []).find((c) => c.code === st.country) || { code: 'NG', name: 'Nigeria', region_label: 'State' };
+  function drawRegion() {
+    const c = ctry();
+    $('#regionwrap').innerHTML = c.code === 'NG'
+      ? `<label class="f">State<select id="cs" required><option value="">Choose your state…</option>${cfg.zones.map((z) => `<option ${z.state === st.state ? 'selected' : ''}>${e(z.state)}</option>`).join('')}</select></label>`
+      : `<div class="row c2"><label class="f">${e(c.region_label)}<input id="cs" required maxlength="60" value="${e(st.state)}" autocomplete="address-level1"></label><label class="f">Postcode${c.postcode_required ? '' : ' (optional)'}<input id="cpc" maxlength="12" autocomplete="postal-code"></label></div>`;
+    $('#cp').placeholder = c.code === 'NG' ? '0801 234 5678' : '+' + c.dial_code + ' …';
+  }
+  drawRegion();
   const err = (m) => { const el = $('#cerr'); el.textContent = m || ''; el.classList.toggle('hide', !m); };
   /* ---- delivery pin ---- */
   const mp = { cfg: null, map: null, L: null, marker: null, lines: [], pin: null, quote: null, seq: 0 };
-  const needPin = () => !!(mp.cfg && mp.cfg.mapped && st.delivery !== 'pickup');
-  function refreshPlace() { $('#place').disabled = !st.state || !methods.length || (needPin() && !(mp.quote && mp.quote.ok)); }
+  const needPin = () => !!(mp.cfg && mp.cfg.mapped && st.delivery !== 'pickup' && st.country === 'NG');
+  function refreshPlace() { $('#place').disabled = (st.country === 'NG' && !st.state) || !methods.length || (needPin() && !(mp.quote && mp.quote.ok)); }
   async function mapSync() {
     mp.cfg = mp.cfg || await dcfg();
-    const show = needPin() && !!st.state;
+    const show = needPin() && (st.country !== 'NG' || !!st.state);
     $('#mapcard').classList.toggle('hide', !show);
     if (!show) { refreshPlace(); return; }
     if (!mp.map) {
@@ -952,24 +981,28 @@ async function checkout(main, cfg) {
     navigator.geolocation.getCurrentPosition((pos) => setPin(pos.coords.latitude, pos.coords.longitude, 16), () => toast('We could not get your location. Search or tap the map instead.', 'bad'), { enableHighAccuracy: true, timeout: 10000 });
   });
   async function reprice() {
-    try { const r = await priceNow({ state: st.state, delivery: st.delivery }); st.data = r;
+    try { const r = await priceNow({ state: st.state, delivery: st.delivery, country: st.country, currency: fxc.code }); st.data = r;
       if (r.couponError) { err(r.couponError); cart.setCoupon(''); } 
       if (r.issues.length) err(r.issues[0].message);
       if (!r.lines.length) { go('/checkout', true); return; }
       const d = r.delivery;
       $('#osum').className = ''; $('#osum').innerHTML = (() => { const gs = byStore(r.lines); return gs.map((g) => groupHead(g.name, gs) + g.lines.map((l) => `<div class="line" style="grid-template-columns:48px 1fr auto"><div class="lt" style="width:48px;height:48px">${tile({ id: l.productId, emoji: l.emoji, image: l.image, name: l.name })}</div><div style="font-size:13px"><b>${e(l.name)}</b><br><span class="mu">${e(l.variantLabel)} × ${l.qty}</span></div><b style="font-size:13px">${naira(l.price * l.qty)}</b></div>`).join('')).join(''); })()
-        + `<div class="sum"><span>Subtotal</span><span>${naira(r.subtotal)}</span></div>${r.discount ? `<div class="sum" style="color:var(--ok)"><span>Discount (${e(r.coupon)})</span><span>−${naira(r.discount)}</span></div>` : ''}<div class="sum"><span>Delivery</span><span>${d.options ? (d.fee ? naira(d.fee) : 'Free') : '—'}</span></div><div class="sum total"><span>Total</span><span>${naira(r.total)}</span></div>`;
+        + `<div class="sum"><span>Subtotal</span><span>${naira(r.subtotal)}</span></div>${r.discount ? `<div class="sum" style="color:var(--ok)"><span>Discount (${e(r.coupon)})</span><span>−${naira(r.discount)}</span></div>` : ''}<div class="sum"><span>Delivery</span><span>${d.options ? (d.fee ? naira(d.fee) : 'Free') : '—'}</span></div>${r.tax ? `<div class="sum"><span>${e(r.tax_label)}</span><span>${naira(r.tax)}</span></div>` : ''}<div class="sum total"><span>Total${r.charge && r.currency !== 'NGN' ? ' (you will be charged)' : ''}</span><span>${r.charge && r.currency !== 'NGN' ? e(fmtMinor(r.charge.amount, r.currency)) : naira(r.total)}</span></div>`;
       if (d.options) $('#dopts').innerHTML = Object.entries(d.options).map(([k, o]) => `<label class="chk" style="padding:10px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px"><input type="radio" name="dm" value="${k}" ${d.selected === k ? 'checked' : ''}><span style="flex:1"><b>${e(o.label)}</b> · ${o.fee ? naira(o.fee) : 'Free'}<br><small class="mu">${e(o.eta)}</small></span></label>`).join('') + (d.free ? '<p class="note">🎉 You qualify for free standard delivery.</p>' : d.threshold ? `<p class="mu" style="font-size:13px">Spend ${naira(d.threshold)} to get free standard delivery.</p>` : '');
       st.delivery = d.selected || st.delivery;
+      if (r.blocked && r.blocked.length) err(r.blocked[0]);
+      drawPay(r.payments || []);
       const zone = cfg.zones.find((z) => z.state === st.state);
       $$('input[name=pm]').forEach((i) => { if (i.value === 'pod') { const ok = zone && zone.pod && st.delivery !== 'pickup'; i.disabled = !ok; if (!ok && i.checked) { const o = $$('input[name=pm]').find((x) => x.value !== 'pod' && !x.disabled); if (o) { o.checked = true; st.payment = o.value; } } } });
       $('#addrfields').classList.toggle('hide', st.delivery === 'pickup');
-      $('#place').disabled = !st.state || !methods.length;
+      $('#place').disabled = (st.country === 'NG' && !st.state) || !methods.length || !!(r.blocked && r.blocked.length);
       mapSync(); rxSync(st, r.lines);
     } catch (er) { err(er.message); }
   }
   $('#cof').addEventListener('change', (ev) => {
     const t = ev.target;
+    if (t.id === 'cco') { st.country = t.value; st.state = ''; mp.pin = null; mp.quote = null; if (mp.marker) { mp.marker.remove(); mp.marker = null; } drawRegion(); reprice(); return; }
+    if (t.id === 'cs' && st.country !== 'NG') { st.state = t.value.trim(); return; }
     if (t.id === 'cs') { st.state = t.value; mp.pin = null; mp.quote = null; if (mp.marker) { mp.marker.remove(); mp.marker = null; } reprice(); }
     if (t.name === 'dm') { st.delivery = t.value; reprice(); }
     if (t.name === 'pm') st.payment = t.value;
@@ -981,7 +1014,8 @@ async function checkout(main, cfg) {
     ev.preventDefault(); err('');
     const g = (i) => $('#' + i).value.trim();
     if (!g('cn') || !g('ce') || !g('cp')) return err('Please fill in your name, email and phone number.');
-    if (!st.state) return err('Please choose your state.');
+    if (st.country !== 'NG') st.state = g('cs');
+    if (!st.state) return err(st.country === 'NG' ? 'Please choose your state.' : 'Please enter your ' + ctry().region_label.toLowerCase() + '.');
     if (st.delivery !== 'pickup' && !g('ca')) return err('Please enter your street address.');
     if (needPin() && !mp.pin) return err('Please drop a pin on the map so we know where to deliver.');
     if (needPin() && !(mp.quote && mp.quote.ok)) return err(mp.quote ? mp.quote.message : 'Please wait while we check delivery to your pin.');
@@ -989,12 +1023,12 @@ async function checkout(main, cfg) {
     const btn = $('#place'); btn.disabled = true; btn.textContent = 'Placing order…';
     // One key per attempt: if the connection drops and the shopper tries again, the server hands back the same order instead of making a second.
     if (!st.idem) st.idem = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2))).replace(/[^A-Za-z0-9_-]/g, '');
-    ls.set('sb_checkout', { name: g('cn'), email: g('ce'), phone: g('cp'), state: st.state, city: g('cc'), address: g('ca') });
+    ls.set('sb_checkout', { name: g('cn'), email: g('ce'), phone: g('cp'), country: st.country, state: st.state, city: g('cc'), address: g('ca') });
     try {
-      const r = await api('/api/checkout', { body: { items: cart.items, coupon: cart.coupon, contact: { name: g('cn'), email: g('ce'), phone: g('cp') }, address: { state: st.state, city: g('cc'), address: g('ca') }, prescriptionIds: st.rx || [], delivery: st.delivery, payment: st.payment, notes: g('cnotes'), idempotencyKey: st.idem, location: needPin() && mp.pin ? { ...mp.pin, landmark: g('mland') } : undefined } });
+      const r = await api('/api/checkout', { body: { items: cart.items, coupon: cart.coupon, contact: { name: g('cn'), email: g('ce'), phone: g('cp') }, address: { state: st.state, city: g('cc'), address: g('ca'), country: st.country, postcode: st.country === 'NG' ? '' : g('cpc') }, currency: fxc.code, prescriptionIds: st.rx || [], delivery: st.delivery, payment: st.payment, notes: g('cnotes'), idempotencyKey: st.idem, location: needPin() && mp.pin ? { ...mp.pin, landmark: g('mland') } : undefined } });
       try { sessionStorage.setItem('sb_last', JSON.stringify({ ref: r.ref, email: g('ce'), token: r.token || '' })); } catch { /* private mode */ }
       try { if (window.gtag) window.gtag('event', 'begin_checkout', { value: st.data.total, currency: 'NGN' }); if (window.fbq) window.fbq('track', 'InitiateCheckout'); } catch { /* blocked */ }
-      if (r.next === 'paystack') { location.href = r.url; return; }
+      if (r.next === 'paystack' || r.next === 'stripe') { location.href = r.url; return; }
       cart.clear(); cart.setCoupon('');
       go('/order/' + r.ref + (r.next === 'demo' ? '?demo=1' : '?new=1'));
     } catch (er) { if (er.status) st.idem = null; /* the server answered, so a new attempt needs a new key; a dropped connection keeps the key */ err(er.message); btn.disabled = false; btn.textContent = 'Place order'; reprice(); }
@@ -1029,9 +1063,10 @@ async function orderPage(main, ref, u, cfg) {
    ${order.masked ? '<div class="card" style="margin-bottom:16px;font-size:14px">For your privacy, your phone number and address are hidden here. Open the link in your order email, or sign in, to see everything, including your delivery code.</div>' : ''}
    ${!['cancelled', 'refunded'].includes(order.status) ? `<div class="card" style="margin-bottom:16px"><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;text-align:center;font-size:12px">${flow.map((s, i) => `<div><div style="height:6px;border-radius:3px;background:${i <= stepIdx ? 'var(--accent)' : 'var(--border)'};margin-bottom:6px"></div><span class="${i <= stepIdx ? '' : 'mu'}" style="font-weight:${i === stepIdx ? 800 : 500}">${STATUS[s]}</span></div>`).join('')}</div></div>` : ''}
    ${deliveryCard(order)}
+   ${shipmentsCard(order, ref, email, token)}
    <div class="row c2" style="align-items:start"><div class="card"><h3>Items</h3>${(() => { const gs = byStore(order.items, (i) => i.store || ''); return gs.map((g) => groupHead(g.name, gs) + g.lines.map((i) => `<div class="line" style="grid-template-columns:48px 1fr auto"><div class="lt" style="width:48px;height:48px">${tile({ id: i.product_id, emoji: i.emoji, image: i.image, name: i.name })}</div><div style="font-size:14px"><b>${e(i.name)}</b><br><span class="mu">${e(i.variant_label)} × ${i.qty}</span></div><b>${naira(i.price * i.qty)}</b></div>`).join('')).join(''); })()}
-     <div class="sum"><span>Subtotal</span><span>${naira(order.subtotal)}</span></div>${order.discount ? `<div class="sum"><span>Discount ${e(order.coupon || '')}</span><span>−${naira(order.discount)}</span></div>` : ''}<div class="sum"><span>Delivery</span><span>${order.delivery_fee ? naira(order.delivery_fee) : 'Free'}</span></div><div class="sum total"><span>Total</span><span>${naira(order.total)}</span></div></div>
-    <div style="display:grid;gap:16px"><div class="card"><h3>Delivery</h3><p style="margin:0">${e(order.name)}<br>${e(order.address)}${order.city ? ', ' + e(order.city) : ''}, ${e(order.state)}<br>${e(order.phone)}</p><p class="mu" style="margin-bottom:0">${e({ standard: 'Standard delivery', express: 'Express delivery', pickup: 'Store pickup' }[order.delivery] || '')} · ${order.payment_method === 'pod' ? 'Pay on delivery' : order.payment_status === 'paid' ? 'Paid online' : 'Online payment pending'}</p></div>
+     <div class="sum"><span>Subtotal</span><span>${naira(order.subtotal)}</span></div>${order.discount ? `<div class="sum"><span>Discount ${e(order.coupon || '')}</span><span>−${naira(order.discount)}</span></div>` : ''}<div class="sum"><span>Delivery</span><span>${order.delivery_fee ? naira(order.delivery_fee) : 'Free'}</span></div>${order.tax ? `<div class="sum"><span>${e(order.tax_label)}</span><span>${naira(order.tax)}</span></div>` : ''}<div class="sum total"><span>${order.currency !== 'NGN' && order.charge_amount != null ? (order.payment_status === 'paid' ? 'Total paid' : 'Total to pay') : 'Total'}</span><span>${order.currency !== 'NGN' && order.charge_amount != null ? e(fmtMinor(order.charge_amount, order.currency)) : naira(order.total)}</span></div></div>
+    <div style="display:grid;gap:16px"><div class="card"><h3>Delivery</h3><p style="margin:0">${e(order.name)}<br>${e(order.address)}${order.city ? ', ' + e(order.city) : ''}, ${e(order.state)}${order.postcode ? ' ' + e(order.postcode) : ''}${order.country && order.country !== 'NG' ? ', ' + e(order.country) : ''}<br>${e(order.phone)}</p><p class="mu" style="margin-bottom:0">${e({ standard: 'Standard delivery', express: 'Express delivery', pickup: 'Store pickup' }[order.delivery] || '')} · ${order.payment_method === 'pod' ? 'Pay on delivery' : order.payment_status === 'paid' ? 'Paid online' : 'Online payment pending'}</p></div>
      <div class="card"><h3>Updates</h3>${order.events.slice().reverse().map((ev) => `<div style="font-size:13px;margin-bottom:8px"><b>${e(STATUS[ev.status] || ev.status)}</b> <span class="mu">· ${fmt(ev.created)}</span>${ev.note ? `<br><span class="mu">${e(ev.note)}</span>` : ''}</div>`).join('')}</div></div></div>
    <p style="text-align:center;margin-top:20px"><button class="btn ghost sm" id="print">🖨 Print receipt</button> ${order.status === 'pending' && order.payment_status !== 'paid' ? '<button class="btn ghost sm" id="cancelo">Cancel order</button>' : ''} <a class="btn sm" href="/" data-link>Continue shopping</a></p></div>`;
   if (order.pharmacy) { main.querySelector('.wrap .card').insertAdjacentHTML('afterend', pharmOrderCard(order)); }
@@ -1063,8 +1098,20 @@ async function orderPage(main, ref, u, cfg) {
     });
   }
   $('#print').addEventListener('click', () => window.print());
+  $$('[data-choose]').forEach((el) => el.addEventListener('click', async () => { const [lid, choice] = el.dataset.choose.split(':'); if (!confirm(choice === 'refund' ? 'Refund this item in full?' : 'Take the alternative at the same price?')) return; try { await api(`/api/orders/${ref}/items/${lid}/choose`, { body: { token, email, choice } }); toast('Thank you. We have your choice.'); rerender(); } catch (er) { toast(er.message, 'bad'); } }));
   const co = $('#cancelo'); if (co) co.addEventListener('click', async () => { if (!confirm('Cancel this order?')) return; try { await api('/api/orders/' + ref + '/cancel', { body: { email } }); toast('Order cancelled'); rerender(); } catch (er) { toast(er.message, 'bad'); } });
   return 'Order ' + order.ref;
+}
+
+function shipmentsCard(order, ref, email, token, rerender) {
+  const ss = order.shipments; if (!ss || !ss.length) return '';
+  const bar = (x) => `<div style="display:grid;grid-template-columns:repeat(${x.stages.length},1fr);gap:3px;margin:8px 0">${x.stages.map((n, i) => `<div title="${e(n)}" style="height:5px;border-radius:3px;background:${i <= x.stage ? 'var(--ok,#16a34a)' : 'var(--line,#e5e7eb)'}"></div>`).join('')}</div>`;
+  return `<div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">Shipments from our partners</h3>${ss.map((x) => `<div style="padding:10px 0;border-top:1px solid var(--line,#eee)"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${e(x.name)}${x.variant_label ? ' (' + e(x.variant_label) + ')' : ''} × ${x.qty}</b><span class="chip">${e(x.label)}</span></div>
+   ${x.stage >= 0 ? bar(x) : ''}
+   ${x.carrier || x.tracking_no ? `<div style="font-size:13px">${e(x.carrier)} ${x.tracking_no ? '· tracking <b>' + e(x.tracking_no) + '</b>' : ''} ${x.tracking_url ? `<a href="${e(x.tracking_url)}" target="_blank" rel="noopener noreferrer">Track parcel</a>` : ''}</div>` : ''}
+   ${x.needs_choice ? `<div class="note" style="margin-top:8px"><b>We need your decision.</b> ${e(x.issue)}<div style="font-size:13px;margin-top:4px">${x.alternative ? 'We found an alternative: <b>' + e(x.alternative.name) + '</b>, at the same price you paid.' : 'You can have a full refund for this item.'}</div>
+    ${token ? `<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">${x.alternative ? `<button class="btn sm" data-choose="${x.id}:alternative">Take the alternative</button>` : ''}<button class="btn ghost sm" data-choose="${x.id}:refund">Full refund</button></div>` : '<div class="mu" style="font-size:12px;margin-top:6px">Open this page from the link in your email, or sign in, to choose.</div>'}</div>` : ''}
+   ${x.refund_due ? `<div style="font-size:13px">Refund due to you: <b>${naira(x.refund_due)}</b></div>` : ''}</div>`).join('')}</div>`;
 }
 
 function deliveryCard(order) {
@@ -1668,12 +1715,12 @@ async function route() {
     else if (seg[0] === 'shop' || (seg[0] === 'd' && seg[2] === 'shop')) title = await shopView(main, u, cfg);
     else if (seg[0] === 'product' && seg[1]) title = await productView(main, seg[1], cfg);
     else if (seg[0] === 'international' || (seg[0] === 'import-export' && seg.length === 1)) title = await intlView(main, seg[0] === 'international' ? seg : ['international'], u, cfg);
-    else if (seg[0] === 'dropshipping' && seg.length === 1) { const t = 'Dropshipping'; main.innerHTML = `<div class="wrap page" style="max-width:640px;text-align:center"><nav class="crumbs" style="text-align:left"><a href="/" data-link>Home</a> › ${e(t)}</nav><div class="card"><div style="font-size:46px">🚧</div><h1 style="margin:8px 0">${e(t)}</h1><p class="mu">This page is under construction. Please check back soon.</p><a class="btn" href="/" data-link>Back to home</a></div></div>`; title = t; }
+    else if (seg[0] === 'dropshipping' && seg.length === 1) title = await dropshippingPage(main, cfg);
     else if (seg[0] === 'stores' && seg.length === 1) title = await storesView(main, u, cfg);
     else if (seg[0] === 'store' && seg[1]) title = await storeView(main, seg[1], u, cfg);
     else if (seg[0] === 'sell' && seg.length === 1) title = await sellView(main, cfg);
     else if (seg[0] === 'page' && seg[1]) title = staticPage(main, seg[1], cfg);
-    else if (['checkout', 'order', 'account', 'login', 'register', 'wishlist', 'track', 'forgot', 'rider', 'pharmacist', 'partner', 'wholesale', 'notifications'].includes(seg[0])) { title = await view(main, seg, u, cfg); refreshBell(); }
+    else if (['checkout', 'order', 'account', 'login', 'register', 'wishlist', 'track', 'forgot', 'rider', 'pharmacist', 'partner', 'supplier', 'wholesale', 'notifications'].includes(seg[0])) { title = await view(main, seg, u, cfg); refreshBell(); }
     else main.innerHTML = `<div class="wrap empty"><div class="em">🧭</div><h2>Page not found</h2><p><a class="btn" href="/" data-link>Back to the store</a></p></div>`;
     document.title = (title ? title + ' · ' : '') + cfg.settings.store_name;
     syncHeader(); $('#main').focus({ preventScroll: true });
@@ -1745,6 +1792,77 @@ async function sellView(main, cfg) {
   return 'Open a partner store';
 }
 
+/* ---------- Supplier portal (step 7): what a supplier sees at /supplier ---------- */
+/* ---------- public Dropshipping page (/dropshipping) ---------- */
+async function dropshippingPage(main, cfg) {
+  const [info, list] = await Promise.all([api('/api/dropshipping'), api('/api/products?fulfilment=dropship&sort=newest&nostores=1')]);
+  const items = (list.products || []).slice(0, 12), flags = info.countries.map((c) => `<span class="chip">🌍 ${e(c.name)} · ${c.count}</span>`).join(' ');
+  const steps = [['🛍️', 'You choose', 'Browse the items below and pay online, the same way as the rest of the store.'], ['📦', 'We order for you', 'Only after your payment is confirmed, we place the order with our partner supplier.'], ['🚚', 'The supplier ships to you', 'It goes straight from the supplier to your address. You get tracking by email and on your order page.'], ['✅', 'You receive it', 'We follow your parcel until it arrives, and we are here if anything goes wrong.']];
+  const faq = [
+    ['Why is delivery longer than for other items?', 'These items ship from our partner suppliers, sometimes from another country. Every product page shows where it ships from and an honest delivery estimate before you pay.'],
+    ['When do you order my item?', 'Only after your payment is confirmed. We never order from a supplier on a promise.'],
+    ['What if the supplier cannot deliver?', 'We tell you straight away. You choose either an alternative at the same price (you are never charged more) or a full refund of that item.'],
+    ['How do I track my parcel?', 'Open your order from your account or use Track an order. The carrier and tracking number appear there as soon as the supplier ships, and we email you too.'],
+    ['Can I pay on delivery?', 'No. Items shipped by a supplier are paid online, because we order them for you straight away.'],
+    ['Are there extra charges?', 'The price you see already includes the duty and tax we work out for the item. Delivery is shown at checkout before you pay.'],
+    ['What about returns?', 'See our Shipping & Returns page for how returns work. Contact us first so we can arrange it with the supplier.'],
+  ];
+  main.innerHTML = `<div class="wrap page" style="max-width:1000px"><nav class="crumbs"><a href="/" data-link>Home</a> › Dropshipping</nav>
+   <div class="card" style="text-align:center;padding:28px 18px"><div style="font-size:42px">🌍</div><h1 style="margin:6px 0">Dropshipping</h1><p class="mu" style="max-width:640px;margin:0 auto 14px">More products than we could ever keep on a shelf, shipped straight from our partner suppliers to your door, with honest delivery times and tracking all the way.</p>
+    ${info.count ? `<div>${flags}</div>` : ''}${items.length ? '<p style="margin-top:14px"><a class="btn" href="#dsitems">See the items</a></p>' : ''}</div>
+   <h2 style="margin:26px 0 10px">How it works</h2><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px">${steps.map(([i, t, d], n) => `<div class="card"><div style="font-size:28px">${i}</div><b>${n + 1}. ${e(t)}</b><p class="mu" style="margin:6px 0 0;font-size:14px">${e(d)}</p></div>`).join('')}</div>
+   <h2 id="dsitems" style="margin:26px 0 10px">Shipped by our partner suppliers</h2>
+   ${!info.orderable ? '<div class="note">Ordering these items is opening soon. Check back shortly.</div>' : items.length ? `<div class="grid">${items.map(productCard).join('')}</div>${list.total > items.length ? `<p style="text-align:center;margin-top:12px"><a class="btn ghost" href="/shop?fulfilment=dropship" data-link>See all ${list.total} items</a></p>` : ''}` : '<div class="card"><p class="mu">New items are being added. Please check back soon.</p></div>'}
+   <h2 style="margin:26px 0 10px">Our promise</h2><div class="card"><ul style="margin:0;padding-left:20px;line-height:1.7"><li><b>Honest delivery times</b> on every product, before you pay.</li><li><b>Tracking</b> by email and on your order page.</li><li><b>Alternative or full refund</b> if a supplier cannot deliver. Never charged more.</li><li><b>We order only after you have paid.</b></li><li>Your details go only to the supplier that ships your parcel, and only what it needs to deliver it.</li></ul></div>
+   <h2 style="margin:26px 0 10px">Questions</h2>${faq.map(([q, a]) => `<details class="card" style="margin-bottom:8px"><summary><b>${e(q)}</b></summary><p class="mu" style="margin:8px 0 0">${e(a)}</p></details>`).join('')}
+   <div class="card" style="margin-top:22px;text-align:center"><b>Are you a supplier?</b><p class="mu" style="margin:6px 0 10px">Tell us what you make or sell and where you ship.</p><a class="btn ghost" href="/page/contact" data-link>Get in touch</a></div></div>`;
+  return 'Dropshipping';
+}
+async function supplierPortal(main) {
+  const draw = (inner) => { main.innerHTML = `<div class="wrap page" style="max-width:980px"><h1 style="font-size:26px">🚚 Supplier portal</h1>${inner}</div>`; };
+  if (!store.user || store.user.role !== 'supplier') {
+    draw('<div class="card"><p class="mu">Sign in with the email and password you chose from our invitation. Your account shows only your own purchase orders.</p><form id="sl">' + field('se', 'Email', { type: 'email', req: 1 }) + field('sp', 'Password', { type: 'password', req: 1 }) + '<p class="err hide" id="serr"></p><button class="btn">Sign in</button> <a href="/forgot" data-link class="mu" style="margin-left:10px">Forgot your password?</a></form></div>');
+    $('#sl').addEventListener('submit', async (ev) => { ev.preventDefault(); try { const r = await api('/api/auth/login', { body: { email: $('#se').value.trim(), password: $('#sp').value } }); if (r.user.role !== 'supplier') { await api('/api/auth/logout', { body: {} }); throw new Error('This account is not a supplier account.'); } location.reload(); } catch (x) { $('#serr').textContent = x.message; $('#serr').classList.remove('hide'); } });
+    return 'Supplier portal';
+  }
+  const P = (p, o) => api('/api/supplier' + p, o);
+  const dt = (t) => (t ? new Date(t * 1000).toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
+  const mEl = $('#modal'), openModal = (html) => { mEl.innerHTML = `<div class="box">${html}</div>`; mEl.classList.add('on'); }, closeModal = () => { mEl.classList.remove('on'); mEl.innerHTML = ''; };
+  let tab = 'orders', showAll = false;
+  const run = (fn) => async (ev) => { try { await fn(ev); } catch (x) { toast(x.message, 'bad'); } };
+  const mny = (x, c) => `${e(c)} ${Number(x).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const RS = { pending: ['Waiting for us', 'mu'], approved: ['Approved', 'ok'], rejected: ['Not accepted', 'err'] };
+  const show = run(async () => {
+    const { supplier: me, reject_reasons } = await P('/me');
+    const tabs = [['orders', 'Purchase orders' + (me.to_confirm ? ` (${me.to_confirm} to confirm)` : '')], ['products', 'My products'], ['requests', 'My requests']];
+    let inner = '';
+    if (tab === 'orders') {
+      const { orders, currency } = await P('/orders' + (showAll ? '?all=1' : ''));
+      inner = `<label class="mu" style="display:block;margin:8px 0"><input type="checkbox" id="sall" ${showAll ? 'checked' : ''}> Show finished orders too</label>` + (orders.map((po) => `<div class="card" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b>${e(po.ref)}</b> <span class="mu">${po.sent_at ? dt(po.sent_at) : ''}</span><br><span class="mu" style="font-size:13px">Ship to: <b>${e(po.ship_to.name)}</b>, ${e(po.ship_to.address)}, ${e(po.ship_to.city)}, ${e(po.ship_to.country)} · ${e(po.ship_to.phone)}</span></div><div style="text-align:right"><b>${mny(po.total, po.currency)}</b></div></div>
+        <p class="mu" style="font-size:12px;margin:6px 0">Ship directly to the customer. Please put no invoice, price list or promotion in the parcel.</p>
+        ${po.lines.map((l) => `<div style="border-top:1px solid var(--line);padding:8px 0;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><b>${e(l.name)}</b> × ${l.qty}<br><span class="mu" style="font-size:12px">${e(l.sku)} · ${mny(l.total, po.currency)}${l.supplier_order_no ? ' · your order ' + e(l.supplier_order_no) : ''}${l.tracking_no ? ' · ' + e(l.carrier) + ' ' + e(l.tracking_no) : ''}</span><br><span class="chip">${e(l.label)}</span>${l.rejected_reason ? ` <span class="mu" style="font-size:12px">${e(l.rejected_reason)}: ${e(l.rejected_note)}</span>` : ''}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start">${l.can_confirm ? `<button class="btn sm" data-cf="${l.id}">Confirm</button>` : ''}${l.can_ship ? `<button class="btn ${l.can_confirm ? 'ghost ' : ''}sm" data-tk="${l.id}" data-car="${e(l.carrier)}" data-no="${e(l.tracking_no)}">${l.tracking_no ? 'Update tracking' : 'Add tracking'}</button>` : ''}${l.can_reject ? `<button class="btn ghost sm" data-rj="${l.id}">We cannot supply this</button>` : ''}</div></div>`).join('')}</div>`).join('') || '<div class="card"><p class="mu">No purchase orders waiting. New ones appear here, and we email you.</p></div>');
+    } else if (tab === 'products') {
+      const { products, currency } = await P('/products');
+      inner = `<div class="card"><p class="mu">Price and stock changes are sent to us as a proposal. They apply once we approve them.</p><div style="overflow:auto"><table class="t" style="width:100%"><tr><th>Code</th><th>Product</th><th>Price</th><th>Shipping</th><th>Stock</th><th></th></tr>${products.map((p) => `<tr><td>${e(p.sku)}</td><td>${e(p.name)}</td><td>${mny(p.cost, currency)}</td><td>${mny(p.ship_cost, currency)}</td><td>${p.stock == null ? '—' : p.stock}</td><td><button class="btn ghost sm" data-pp="${p.id}" data-cost="${p.cost}" data-ship="${p.ship_cost}">Propose price</button> <button class="btn ghost sm" data-ps="${p.id}" data-stock="${p.stock == null ? '' : p.stock}">Propose stock</button>${p.pending ? ' <span class="chip">waiting</span>' : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="mu">No products yet.</td></tr>'}</table></div></div>`;
+    } else {
+      const { requests } = await P('/requests');
+      inner = `<div class="card">${requests.map((r) => `<div style="border-bottom:1px solid var(--line);padding:8px 0"><b>${e(r.name)}</b> <span class="chip ${RS[r.status][1]}">${RS[r.status][0]}</span><br><span class="mu" style="font-size:13px">${r.kind === 'price' ? `Price ${mny(r.old_cost, r.currency)} → <b>${mny(r.new_cost, r.currency)}</b>, shipping ${mny(r.new_ship_cost, r.currency)}` : `Stock ${r.old_stock == null ? '—' : r.old_stock} → <b>${r.new_stock}</b>`} · ${dt(r.created)}${r.decision_note ? ' · ' + e(r.decision_note) : ''}</span></div>`).join('') || '<p class="mu">You have not sent any requests.</p>'}</div>`;
+    }
+    draw(`<p class="mu">${e(me.name)} · ${e(me.user.name)} · <button class="btn ghost sm" id="slo">Sign out</button></p><div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">${tabs.map(([k, t]) => `<button class="btn ${tab === k ? '' : 'ghost'} sm" data-tab="${k}">${t}</button>`).join('')}</div>${inner}`);
+    $('#slo').addEventListener('click', async () => { await api('/api/auth/logout', { body: {} }); location.reload(); });
+    $$('[data-tab]', main).forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; show(); }));
+    const sa = $('#sall'); if (sa) sa.addEventListener('change', () => { showAll = sa.checked; show(); });
+    const form = (title, body, label, fn) => { openModal(`<h2>${title}</h2>${body}<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn ghost" id="mx">Close</button><button class="btn" id="mok">${label}</button></div>`); $('#mx').addEventListener('click', closeModal); $('#mok').addEventListener('click', run(async () => { await fn(); closeModal(); show(); })); };
+    $$('[data-cf]', main).forEach((b) => b.addEventListener('click', () => form('Confirm this item', `<div class="fgrid"><label class="f full">Your order number<input id="f1" maxlength="80"></label><label class="f">Carrier (if already shipped)<input id="f2" maxlength="60"></label><label class="f">Tracking number<input id="f3" maxlength="80"></label></div>`, 'Confirm', async () => { await P(`/lines/${b.dataset.cf}/confirm`, { body: { supplier_order_no: $('#f1').value, carrier: $('#f2').value, tracking_no: $('#f3').value } }); toast('Confirmed'); })));
+    $$('[data-tk]', main).forEach((b) => b.addEventListener('click', () => form('Tracking', `<div class="fgrid"><label class="f">Stage<select id="f0"><option value="shipped">Shipped</option><option value="in_transit">In transit</option><option value="customs">In customs</option></select></label><label class="f">Carrier<input id="f1" maxlength="60" value="${e(b.dataset.car)}"></label><label class="f">Tracking number<input id="f2" maxlength="80" value="${e(b.dataset.no)}"></label><label class="f full">Tracking link (https, optional)<input id="f3" maxlength="300"></label></div><p class="mu" style="font-size:12px">The customer is emailed. We confirm delivery ourselves.</p>`, 'Save', async () => { await P(`/lines/${b.dataset.tk}/tracking`, { body: { status: $('#f0').value, carrier: $('#f1').value, tracking_no: $('#f2').value, tracking_url: $('#f3').value } }); toast('Tracking saved'); })));
+    $$('[data-rj]', main).forEach((b) => b.addEventListener('click', () => form('We cannot supply this item', `<div class="fgrid"><label class="f">Why<select id="f1">${Object.entries(reject_reasons).map(([k, v]) => `<option value="${k}">${e(v)}</option>`).join('')}</select></label><label class="f full">Tell us more<input id="f2" maxlength="300"></label></div><p class="mu" style="font-size:12px">We will decide what to do with the customer's order. Nothing changes until we do.</p>`, 'Send to us', async () => { await P(`/lines/${b.dataset.rj}/reject`, { body: { kind: $('#f1').value, note: $('#f2').value } }); toast('Sent. We will decide shortly.'); })));
+    $$('[data-pp]', main).forEach((b) => b.addEventListener('click', () => form('Propose a new price', `<div class="fgrid"><label class="f">New price per unit<input id="f1" type="number" min="0" step="any" value="${e(b.dataset.cost)}"></label><label class="f">Shipping per unit<input id="f2" type="number" min="0" step="any" value="${e(b.dataset.ship)}"></label><label class="f full">Reason (optional)<input id="f3" maxlength="300"></label></div>`, 'Send proposal', async () => { await P('/requests', { body: { product_id: Number(b.dataset.pp), kind: 'price', cost: $('#f1').value, ship_cost: $('#f2').value, note: $('#f3').value } }); toast('Sent. It applies once we approve it.'); })));
+    $$('[data-ps]', main).forEach((b) => b.addEventListener('click', () => form('Propose a new stock level', `<div class="fgrid"><label class="f">Units in stock (0 = sold out)<input id="f1" type="number" min="0" step="1" value="${e(b.dataset.stock)}"></label><label class="f full">Note (optional)<input id="f3" maxlength="300"></label></div>`, 'Send proposal', async () => { await P('/requests', { body: { product_id: Number(b.dataset.ps), kind: 'stock', stock: $('#f1').value, note: $('#f3').value } }); toast('Sent. It applies once we approve it.'); })));
+  });
+  await show();
+  return 'Supplier portal';
+}
 async function partnerPortal(main) {
   const draw = (inner) => { main.innerHTML = `<div class="wrap page" style="max-width:960px"><h1 style="font-size:26px">🏪 Partner store</h1>${inner}</div>`; };
   if (!store.user || store.user.role !== 'vendor') {
@@ -1876,7 +1994,7 @@ async function partnerPortal(main) {
       const dl = (k) => `/api/partner/reports/${rep.name}/download?${new URLSearchParams({ format: k, ...(cur.dated ? { from: r.from, to: r.to } : {}) })}`;
       wrap(`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px"><label class="f" style="margin:0">Report<select id="rrp">${list.map((x) => `<option value="${x.name}" ${x.name === rep.name ? 'selected' : ''}>${e(x.title)}</option>`).join('')}</select></label>
         ${cur.dated ? `<label class="f" style="margin:0">From<input type="date" id="rrf" value="${e(r.from)}"></label><label class="f" style="margin:0">To<input type="date" id="rrt" value="${e(r.to)}"></label>` : ''}
-        <a class="btn ghost sm" href="${dl('xlsx')}" download>Download Excel</a><a class="btn ghost sm" href="${dl('csv')}" download>Download CSV</a></div>
+        <a class="btn ghost sm" href="${dl('pdf')}" download>Download PDF</a><a class="btn ghost sm" href="${dl('xlsx')}" download>Download Excel</a><a class="btn ghost sm" href="${dl('csv')}" download>Download CSV</a></div>
         <h3 style="margin:6px 0">${e(r.title)}</h3><p class="mu">${e(r.note || '')}</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">${r.summary.map((s) => `<div class="card" style="margin:0;min-width:130px"><div class="mu" style="font-size:12px">${e(s.label)}</div><b>${val(s.value, s.type)}</b></div>`).join('')}</div>
         <div class="card" style="overflow:auto"><table class="t"><tr>${r.columns.map((c) => `<th${['money', 'int'].includes(c.type) ? ' style="text-align:right"' : ''}>${e(c.label)}</th>`).join('')}</tr>${r.rows.map((row) => `<tr>${r.columns.map((c) => `<td${['money', 'int'].includes(c.type) ? ' style="text-align:right"' : ''}>${val(row[c.key], c.type)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${r.columns.length}" class="mu">Nothing to show.</td></tr>`}</table></div>`);
@@ -2154,6 +2272,7 @@ function shell() {
         ${s.instagram ? `<a href="${e(s.instagram)}" target="_blank" rel="noopener">Instagram</a>` : ''}${s.facebook ? `<a href="${e(s.facebook)}" target="_blank" rel="noopener">Facebook</a>` : ''}</div>
     </div>
     ${cfg.pharmacy && (s.pharm_aggregator_licence || s.pharm_pcn_logo || s.pharm_statement) ? `<div class="legal" style="display:block;text-align:left">${s.pharm_pcn_logo ? `<img src="${e(s.pharm_pcn_logo)}" alt="Pharmacists Council of Nigeria" style="height:44px;vertical-align:middle;margin-right:10px">` : ''}${s.pharm_aggregator_licence ? `<b>Pharmacy aggregator licence no. ${e(s.pharm_aggregator_licence)}</b><br>` : ''}${s.pharm_statement ? e(s.pharm_statement) : ''}</div>` : ''}
+    ${(cfg.currencies || []).length > 1 ? `<div class="legal" style="display:block;text-align:left"><label class="mu" style="font-size:13px">Show prices in <select id="curpick" aria-label="Currency">${cfg.currencies.map((c) => `<option ${c.code === fxc.code ? 'selected' : ''}>${e(c.code)}</option>`).join('')}</select></label> <span class="mu2" style="font-size:12px">Converted for display. You are charged the exact amount shown at checkout.</span></div>` : ''}
     <div class="legal"><span>© ${new Date().getFullYear()} ${e(s.store_name)}. All rights reserved.</span><span>${e(s.tax_note || '')}</span></div></div></footer>
   ${s.whatsapp ? `<a class="wa" href="https://wa.me/${e(s.whatsapp)}?text=${encodeURIComponent('Hello ' + s.store_name + ', I need help with…')}" target="_blank" rel="noopener" aria-label="Chat on WhatsApp">💬</a>` : ''}`;
   $('#nav2').innerHTML = '';
@@ -2187,6 +2306,11 @@ document.addEventListener('click', async (ev) => {
   if (t.closest('#modeBtn')) { const m = document.documentElement.getAttribute('data-mode') === 'dark' ? 'light' : 'dark'; document.documentElement.setAttribute('data-mode', m); ls.set('sb_mode', m); return; }
   if (t.closest('#scrim')) closeCart();
 });
+document.addEventListener('change', (ev) => {
+  if (ev.target.id !== 'curpick') return;
+  try { localStorage.setItem('sb_currency', ev.target.value); } catch { /* private mode */ }
+  location.reload();
+});
 document.addEventListener('submit', async (ev) => {
   if (ev.target.id === 'sform') { ev.preventDefault(); const q = $('#sq').value.trim(); if (q) go('/shop?q=' + encodeURIComponent(q) + (new URL(location.href).searchParams.get('store') ? '&store=' + new URL(location.href).searchParams.get('store') : '')); }
   if (ev.target.id === 'nform') { ev.preventDefault(); const i = ev.target.querySelector('input'); try { await api('/api/newsletter', { body: { email: i.value } }); toast('Thanks for subscribing!'); i.value = ''; } catch (er) { toast(er.message, 'bad'); } }
@@ -2199,6 +2323,7 @@ onChange(() => { syncHeader(); });
 (async () => {
   try {
     cfg = await api('/api/config'); store.cfg = cfg; store.user = cfg.user;
+    try { const want = localStorage.getItem('sb_currency'); const c = (cfg.currencies || []).find((x) => x.code === want); if (c) { fxc.code = c.code; fxc.rate = c.rate; } } catch { /* private mode */ }
     if (store.user) { try { const d = await api('/api/wishlist'); d.ids.forEach((i) => wish.ids.add(i)); ls.set('sb_wish', [...wish.ids]); } catch { /* optional */ } }
     app.cfg = cfg; shell(); setInterval(() => { if (!document.hidden) refreshBell(); }, 30000); initCart(cfg); if (cfg.assistant) initAssistant();
     if (cfg.settings.ga_id) { const s = document.createElement('script'); s.async = true; s.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(cfg.settings.ga_id); document.head.appendChild(s); window.dataLayer = window.dataLayer || []; window.gtag = function () { window.dataLayer.push(arguments); }; window.gtag('js', new Date()); window.gtag('config', cfg.settings.ga_id); }
@@ -2264,7 +2389,7 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['commercial', '🧭', 'Commercial operations'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['riders', '📍', 'Riders live'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['activity', '🕵️', 'Activity log'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['trade', '🌍', 'Global Trade'], ['pharmacy', '💊', 'Pharmacy'], ['staff', '👤', 'Employees & roles'], ['notifications', '🔔', 'Notifications']];
+const NAV = [['dashboard', '📊', 'Dashboard'], ['commercial', '🧭', 'Commercial operations'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['riders', '📍', 'Riders live'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['activity', '🕵️', 'Activity log'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['trade', '🌍', 'Global Trade'], ['pharmacy', '💊', 'Pharmacy'], ['dropship', '🚚', 'Dropshipping'], ['staff', '👤', 'Employees & roles'], ['notifications', '🔔', 'Notifications']];
 const NAVMOD = { dashboard: 'any', notifications: 'any', orders: 'orders', products: 'catalog', catalogio: 'catalog', trade: 'trade', categories: 'catalog', reviews: 'catalog', customers: 'customers', messages: 'customers', coupons: 'marketing', marketing: 'marketing', deliveries: 'delivery', riders: 'delivery', partners: 'delivery', vendors: 'partners', wholesale: 'wholesale', warehouse: 'warehouse', rfq: 'rfq' };
 const can = (m, w) => { const p = (me && me.perms) || []; return p.includes('*') || p.includes(m + (w ? ':edit' : ':view')); };
 const visible = (k) => k === 'commercial' ? !!(me && (me.role === 'admin' || can('partners') || can('rfq') || can('reports') || can('finance'))) : (me && me.role === 'admin') || (NAVMOD[k] === 'any') || (NAVMOD[k] && can(NAVMOD[k], false));
@@ -3967,14 +4092,666 @@ async function commReports() {
   const dl = (f) => `/api/admin/commercial/reports/${cs.rep}/download?${new URLSearchParams({ format: f, ...(cur.dated ? { from: r.from, to: r.to } : {}) })}`;
   return `<div class="tbar" style="flex-wrap:wrap;gap:8px"><label style="width:auto">Report<select id="crp">${list.map((x) => `<option value="${x.name}" ${x.name === cs.rep ? 'selected' : ''}>${e(x.title)}</option>`).join('')}</select></label>
     ${cur.dated ? `<label style="width:auto">From<input type="date" id="crf" value="${e(r.from)}"></label><label style="width:auto">To<input type="date" id="crt" value="${e(r.to)}"></label>` : ''}
-    <a class="btn ghost sm" href="${dl('xlsx')}" download>Download Excel</a><a class="btn ghost sm" href="${dl('csv')}" download>Download CSV</a></div>
+    <a class="btn ghost sm" href="${dl('pdf')}" download>Download PDF</a><a class="btn ghost sm" href="${dl('xlsx')}" download>Download Excel</a><a class="btn ghost sm" href="${dl('csv')}" download>Download CSV</a></div>
   <h3 style="margin:8px 0 4px">${e(r.title)}</h3>${r.note ? `<p class="mu2">${e(r.note)}</p>` : ''}
   <div style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0">${r.summary.map((s) => cCard(s.label, s.value == null ? '—' : cfmt(s.value, s.type))).join('')}</div>
-  <div class="panel"><div class="tw"><table class="t"><tr>${r.columns.map((c) => `<th${['money', 'int', 'hours'].includes(c.type) ? ' style="text-align:right"' : ''}>${e(c.label)}</th>`).join('')}</tr>${r.rows.map((row) => `<tr>${r.columns.map((c) => `<td${['money', 'int', 'hours'].includes(c.type) ? ' style="text-align:right"' : ''}>${cfmt(row[c.key], c.type)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${r.columns.length}" class="mu2">Nothing in this period.</td></tr>`}</table></div></div>`;
+  <div class="panel"><div class="tw"><table class="t"><tr>${r.columns.map((c) => `<th${['money', 'int', 'hours'].includes(c.type) ? ' style="text-align:right"' : ''}>${e(c.label)}</th>`).join('')}</tr>${r.rows.map((row) => `<tr>${r.columns.map((c) => `<td${['money', 'int', 'hours'].includes(c.type) ? ' style="text-align:right"' : ''}>${cfmt(row[c.key], c.type)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${r.columns.length}" class="mu2">Nothing in this period.</td></tr>`}</table></div></div>
+  <h3 style="margin:18px 0 4px">Reports by email</h3><p class="mu2">Send a report to employees on a schedule: every day (yesterday), every Monday (last week) or on the 1st (last month), shortly after 7am Lagos time. The email carries the headline figures and a link; sign in for every row and the PDF or Excel download.</p><div id="csched"></div>`;
+}
+async function loadSched() {
+  const box = $('#csched'); if (!box) return;
+  const d = await api('/api/admin/commercial/schedules');
+  const rows = d.schedules.map((x) => `<tr><td>${e(x.title)}${x.source === 'warehouse' ? ' <span class="mu2">(warehouse)</span>' : ''}</td><td>${e(x.when)}</td><td>${x.recipients.map((r) => e(r.name)).join(', ') || '<span class="mu2">nobody left</span>'}</td><td class="mu2">${x.last_sent ? dt(x.last_sent) + '<br>' + e(x.last_note) : 'Not sent yet'}</td><td style="white-space:nowrap"><button class="btn ghost sm" data-sn="${x.id}">Send now</button> <button class="btn ghost sm" data-st="${x.id}" data-on="${x.active ? 1 : 0}">${x.active ? 'Pause' : 'Resume'}</button> <button class="btn ghost sm" data-sd="${x.id}">Delete</button></td></tr>`).join('');
+  box.innerHTML = `<div class="panel"><div class="tw"><table class="t"><tr><th>Report</th><th>When</th><th>Sent to</th><th>Last send</th><th></th></tr>${rows || '<tr><td colspan="5" class="mu2">No scheduled reports yet.</td></tr>'}</table></div></div>
+    <div class="tbar" style="flex-wrap:wrap;gap:8px;margin-top:10px"><label style="width:auto">Report<select id="sr">${d.reports.map((r) => `<option value="${r.source}|${r.name}">${e(r.title)}${r.source === 'warehouse' ? ' (warehouse)' : ''}</option>`).join('')}</select></label>
+    <label style="width:auto">How often<select id="sf">${Object.entries(d.frequencies).map(([k, v]) => `<option value="${k}">${e(v)}</option>`).join('')}</select></label>
+    <label style="width:auto">Send to<select id="sp" multiple size="4">${d.people.map((p) => `<option value="${p.id}">${e(p.name)}${p.owner ? ' (owner)' : ''}</option>`).join('')}</select></label>
+    <button class="btn" id="sadd2">Schedule it</button></div>`;
+  $('#sadd2').addEventListener('click', guard(async () => {
+    const [source, report] = $('#sr').value.split('|'), recipients = [...$('#sp').selectedOptions].map((o) => Number(o.value));
+    await api('/api/admin/commercial/schedules', { body: { source, report, frequency: $('#sf').value, recipients } }); toast('Scheduled'); loadSched();
+  }));
+  box.querySelectorAll('[data-sn]').forEach((b) => b.addEventListener('click', guard(async () => { const r = await api(`/api/admin/commercial/schedules/${b.dataset.sn}/send`, { body: {} }); toast(r.note); loadSched(); })));
+  box.querySelectorAll('[data-st]').forEach((b) => b.addEventListener('click', guard(async () => { await api(`/api/admin/commercial/schedules/${b.dataset.st}`, { method: 'PUT', body: { active: b.dataset.on !== '1' } }); loadSched(); })));
+  box.querySelectorAll('[data-sd]').forEach((b) => b.addEventListener('click', guard(async () => { if (!confirm('Stop and delete this scheduled report?')) return; await api(`/api/admin/commercial/schedules/${b.dataset.sd}`, { method: 'DELETE' }); loadSched(); })));
 }
 function bindCommReports() {
+  loadSched().catch(() => {});
   on('#crp', 'change', () => { cs.rep = $('#crp').value; return views.commercial(); });
   on('#crf', 'change', () => { cs.from = $('#crf').value; return views.commercial(); }); on('#crt', 'change', () => { cs.to = $('#crt').value; return views.commercial(); });
+
+}
+
+/* ---------------- dropshipping (admin) ---------------- */
+const dstate = { tab: 'suppliers', sstatus: '', sq: '', plist: 'pending', pq: '', psup: '' };
+let dmeta = null;
+const DS = (p, o) => api('/api/admin/dropship' + p, o);
+const dsdate = (t) => (t ? new Date(t * 1000).toLocaleDateString('en-NG') : '');
+const ETAB = [['suppliers', 'Suppliers'], ['products', 'Products'], ['settings', 'Settings & rates'], ['trade', 'Countries & currencies'], ['orders', 'Supplier orders'], ['shipments', 'Imports & exports'], ['money', 'Money & reports'], ['portal', 'Supplier portal']];
+views.dropship = async () => {
+  if (!dmeta) dmeta = await DS('/meta');
+  let body = '';
+  if (dstate.tab === 'suppliers') {
+    const { suppliers } = await DS('/suppliers?' + new URLSearchParams({ status: dstate.sstatus, q: dstate.sq }));
+    body = `<div class="tbar"><input id="dsq" placeholder="Search suppliers" value="${e(dstate.sq)}"><select id="dsst"><option value="">All</option><option value="active" ${dstate.sstatus === 'active' ? 'selected' : ''}>Active</option><option value="paused" ${dstate.sstatus === 'paused' ? 'selected' : ''}>Paused</option></select><button class="btn sm" id="dsnew">+ Add supplier</button></div>
+    <div class="panel"><div class="tw"><table class="t"><tr><th>Supplier</th><th>Country</th><th>Currency</th><th>Processing</th><th>Orders</th><th>Rating</th><th>Status</th></tr>${suppliers.map((s) => `<tr class="click" data-sup="${s.id}"><td><b>${e(s.name)}</b><div class="mu2">${e(s.contact_name)}${s.email ? ' · ' + e(s.email) : ''}</div></td><td>${e(s.country_name)}</td><td>${e(s.currency)}</td><td>${s.processing_days} days</td><td>${s.orders}</td><td>${s.rating == null ? '<span class="mu2">not rated</span>' : '★ ' + s.rating}</td><td><span class="pill ${s.status === 'active' ? 'ok' : 'bad'}">${e(s.status)}</span></td></tr>`).join('') || '<tr><td colspan="7" class="mu">No suppliers yet. Press “Add supplier” to onboard your first one.</td></tr>'}</table></div>
+    <p class="mu2">A paused supplier's products are hidden from customers until you make the supplier active again.</p></div>`;
+  }
+  if (dstate.tab === 'products') body = await dsProducts();
+  if (dstate.tab === 'settings') body = await dsSettings();
+  if (dstate.tab === 'trade') body = await dsTrade();
+  if (dstate.tab === 'orders') body = await soTab();
+  if (dstate.tab === 'shipments') body = await trTab();
+  if (dstate.tab === 'money') body = await moTab();
+  if (dstate.tab === 'portal') body = await spTab();
+  mn(hd('🚚 Dropshipping') + `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">${ETAB.map(([k, t]) => `<button class="btn ${dstate.tab === k ? '' : 'ghost'} sm" data-dt="${k}">${t}</button>`).join('')}</div>` + body);
+  onAll('[data-dt]', 'click', (el) => { dstate.tab = el.dataset.dt; return views.dropship(); });
+  on('#dsq', 'change', () => { dstate.sq = $('#dsq').value; return views.dropship(); });
+  on('#dsst', 'change', () => { dstate.sstatus = $('#dsst').value; return views.dropship(); });
+  on('#dsnew', 'click', () => supplierForm(0));
+  on('#dpq', 'change', () => { dstate.pq = $('#dpq').value; return views.dropship(); });
+  on('#dpl', 'change', () => { dstate.plist = $('#dpl').value; return views.dropship(); });
+  on('#dps', 'change', () => { dstate.psup = $('#dps').value; return views.dropship(); });
+  on('#dpnew', 'click', () => productDS(0));
+  on('#dpimp', 'click', () => importWizard());
+  onAll('[data-dp]', 'click', (el) => productDS(el.dataset.dp));
+  if (dstate.tab === 'settings') dsSettingsWire();
+  if (dstate.tab === 'trade') dsTradeWire();
+  if (dstate.tab === 'orders') soWire();
+  if (dstate.tab === 'shipments') trWire();
+  if (dstate.tab === 'money') moWire();
+  if (dstate.tab === 'portal') spWire();
+  onAll('[data-sup]', 'click', (el) => supplierForm(el.dataset.sup));
+};
+/* ---------- Supplier orders (Step 4): order from suppliers, track parcels, handle problems and refunds ---------- */
+const SOLBL = { pending_payment: 'Awaiting payment', paid: 'Paid, to order', sent: 'Sent to supplier', confirmed: 'Confirmed', shipped: 'Shipped', in_transit: 'In transit', customs: 'In customs', delivered: 'Delivered', issue: 'Problem', cancelled: 'Cancelled', returned: 'Returned', refunded: 'Refunded' };
+const SOISSUE = { out_of_stock: 'Out of stock', supplier_cancelled: 'Supplier cancelled', price_changed: 'Price changed', lost: 'Lost in transit', damaged: 'Damaged', other: 'Other' };
+let soData = null;
+const soLine = (l) => `<div class="card" style="margin-bottom:8px;padding:10px"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b>${e(l.order_ref)}</b> · ${e(l.name)}${l.variant_label ? ' (' + e(l.variant_label) + ')' : ''} × ${l.qty}<br><span class="mu" style="font-size:12px">${e(l.supplier_name)}${l.po_ref ? ' · ' + e(l.po_ref) : ''}${l.supplier_order_no ? ' · supplier order ' + e(l.supplier_order_no) : ''}${l.tracking_no ? ' · ' + e(l.carrier) + ' ' + e(l.tracking_no) : ''}</span>${l.overdue ? `<br><span style="color:var(--bad);font-size:12px">⚠ ${e(l.overdue)}</span>` : ''}${l.status === 'issue' ? `<br><span style="font-size:12px">${e(SOISSUE[l.issue_kind] || '')}${l.issue_note ? ': ' + e(l.issue_note) : ''} · ${l.customer_choice ? 'customer chose ' + e(l.customer_choice) : l.alt_product_id ? 'alternative offered, waiting for the customer' : 'waiting for you to offer an alternative or the customer to choose'}</span>` : ''}${l.refund_due ? `<br><b style="font-size:12px">Refund due: ${naira0(l.refund_due)}</b>` : ''}</div>
+  <div style="text-align:right"><span class="chip">${e(SOLBL[l.status] || l.status)}</span><br><button class="btn ghost sm" data-soact="${l.id}" style="margin-top:6px">Update</button></div></div></div>`;
+async function soTab() {
+  soData = await DS('/supplier-orders/queue');
+  const q = soData;
+  const sec = (t, n, inner) => `<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">${t} <span class="mu" style="font-weight:400">(${n})</span></h3>${inner}</div>`;
+  const ready = q.ready.map((g) => `<div class="card" style="margin-bottom:8px;padding:10px"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center"><div><b>${e(g.order_ref)}</b> → <b>${e(g.supplier_name)}</b><br><span class="mu" style="font-size:12px">${e(g.customer_name)} · ${e(g.country || '')}</span>${g.lines.map((l) => `<div style="font-size:13px">${e(l.name)} × ${l.qty}${l.overdue ? ` <span style="color:var(--bad)">⚠ ${e(l.overdue)}</span>` : ''}</div>`).join('')}</div><button class="btn sm" data-mkpo="${g.order_id}:${g.supplier_id}">Create purchase order</button></div></div>`).join('') || '<p class="mu">Nothing is waiting. Paid supplier items appear here.</p>';
+  const drafts = q.drafts.length ? sec('Purchase orders to send', q.drafts.length, q.drafts.map((d) => `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)"><span><b>${e(d.ref)}</b> · ${e(d.supplier_name)} · ${e(d.order_ref)}</span><button class="btn sm" data-po="${d.id}">Open</button></div>`).join('')) : '';
+  const refunds = q.refunds.length ? sec('Refunds to pay the customer', q.refunds.length, '<p class="mu" style="margin-top:0">Refund these in your payment dashboard, then record the reference here.</p>' + q.refunds.map(soLine).join('')) : '';
+  return `${q.overdue ? `<div class="note" style="margin-bottom:12px;border-color:var(--bad)"><b>${q.overdue} item(s) need attention</b>: marked ⚠ below.</div>` : ''}
+   ${!q.orders_open ? '<div class="note" style="margin-bottom:12px">The supplier order flow is switched off (DROPSHIP_ORDERS_ENABLED is not 1), so customers cannot buy supplier items yet.</div>' : ''}
+   ${sec('Ready to order from the supplier', q.ready.length, ready)}${drafts}${refunds}${sec('In progress', q.active.length, q.active.map(soLine).join('') || '<p class="mu">No parcels in progress.</p>')}
+   <div style="text-align:right"><button class="btn ghost sm" id="sowatch">Check for stuck orders now</button></div>`;
+}
+function soWire() {
+  onAll('[data-mkpo]', 'click', guard(async (el) => { const [order_id, supplier_id] = el.dataset.mkpo.split(':'); const r = await DS('/supplier-orders/po', { body: { order_id: Number(order_id), supplier_id: Number(supplier_id) } }); toast('Purchase order created'); poView(r.id); }));
+  onAll('[data-po]', 'click', (el) => poView(el.dataset.po));
+  onAll('[data-soact]', 'click', (el) => lineView(el.dataset.soact));
+  on('#sowatch', 'click', guard(async () => { const r = await DS('/supplier-orders/watch', { body: {} }); toast(r.stuck ? r.stuck + ' stuck' + (r.emailed ? ', email sent' : '') : 'Nothing is stuck'); }));
+}
+async function poView(id) {
+  const d = await DS('/supplier-orders/po/' + id), po = d.po, sent = po.status !== 'draft';
+  openModal(`<h2>${e(po.ref)} · ${e(d.supplier.name)}</h2><p class="mu">${sent ? 'Sent' + (po.sent_via ? ' by ' + e(po.sent_via) : '') : 'Not sent yet. Send it, then the items move to "Sent to supplier".'}</p>
+   <pre style="white-space:pre-wrap;background:var(--bg2,#f4f5f7);padding:10px;border-radius:8px;font-size:12px;max-height:260px;overflow:auto">${e(d.text)}</pre>
+   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><a class="btn ghost sm" href="/api/admin/dropship/supplier-orders/po/${po.id}/pdf" target="_blank" rel="noopener">Download PDF</a>
+   ${!sent ? `<button class="btn sm" id="poem">Email supplier (PDF attached)</button>${d.whatsapp_url ? `<a class="btn sm" id="powa" href="${e(d.whatsapp_url)}" target="_blank" rel="noopener">WhatsApp</a>` : ''}<button class="btn ghost sm" id="pomn">I sent it myself</button><button class="btn ghost sm" id="pocn">Cancel this draft</button>` : ''}
+   <button class="btn ghost sm" id="pox">Close</button></div>`, true);
+  const done = (m) => { toast(m); closeModal(); views.dropship(); };
+  $('#pox').addEventListener('click', () => { closeModal(); views.dropship(); });
+  const b = (sel, fn) => { const el = $(sel); if (el) el.addEventListener('click', guard(fn)); };
+  b('#poem', async () => { await DS(`/supplier-orders/po/${po.id}/send`, { body: { via: 'email' } }); done('Emailed to the supplier'); });
+  b('#pomn', async () => { await DS(`/supplier-orders/po/${po.id}/send`, { body: { via: 'manual' } }); done('Marked as sent'); });
+  const wa = $('#powa'); if (wa) wa.addEventListener('click', guard(async () => { await DS(`/supplier-orders/po/${po.id}/send`, { body: { via: 'whatsapp' } }); toast('Marked as sent by WhatsApp'); setTimeout(() => { closeModal(); views.dropship(); }, 400); }));
+  b('#pocn', async () => { await DS(`/supplier-orders/po/${po.id}/cancel`, { body: {} }); done('Draft cancelled'); });
+}
+async function lineView(id) {
+  const d = await DS('/supplier-orders/lines/' + id), l = d.line;
+  const tr = (to, label, cls = 'btn sm') => l.next.includes(to) ? `<button class="${cls}" data-to="${to}">${label}</button>` : '';
+  openModal(`<h2>${e(l.order_ref)} · ${e(l.name)} × ${l.qty}</h2><p class="mu">${e(l.supplier_name)} · <b>${e(SOLBL[l.status])}</b> · customer paid ${naira0(l.sell_total)} · our cost ${e(l.cost_currency)} ${l.unit_cost * l.qty + l.ship_cost * l.qty}</p>
+   <div class="fgrid"><label class="f">Supplier's order number<input id="lno" maxlength="80" value="${e(l.supplier_order_no)}"></label><label class="f">Carrier<input id="lca" maxlength="60" value="${e(l.carrier)}"></label>
+   <label class="f">Tracking number<input id="ltn" maxlength="80" value="${e(l.tracking_no)}"></label><label class="f">Tracking link (https)<input id="ltu" maxlength="300" value="${e(l.tracking_url)}"></label>
+   <label class="f">Note (kept in the history)<input id="lnt" maxlength="300"></label></div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${tr('confirmed', 'Supplier confirmed')}${tr('shipped', 'Shipped')}${tr('in_transit', 'In transit')}${tr('customs', 'In customs')}${tr('delivered', 'Delivered')}${tr('cancelled', 'Cancel item', 'btn ghost sm')}<button class="btn ghost sm" id="lmoney">Money</button></div>
+   ${l.next.includes('issue') ? `<div class="card" style="margin-top:12px;padding:10px"><b>Supplier problem</b><div class="fgrid"><label class="f">What went wrong<select id="lik">${Object.entries(SOISSUE).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label><label class="f">Details for us<input id="lin" maxlength="300"></label></div><button class="btn ghost sm" id="liss" style="margin-top:8px">Report the problem (the customer is asked to choose)</button></div>` : ''}
+   ${l.status === 'issue' && !l.customer_choice ? `<div class="card" style="margin-top:12px;padding:10px"><b>Offer an alternative</b> (same price for the customer)<div style="display:flex;gap:8px;margin-top:6px"><select id="lalt" style="flex:1"><option value="">Choose a product…</option></select><button class="btn sm" id="lofr">Offer</button></div><div id="lwarn" class="mu" style="font-size:12px;margin-top:4px"></div></div>` : ''}
+   ${(l.status === 'cancelled' || l.status === 'returned') && l.refund_due ? `<div class="card" style="margin-top:12px;padding:10px"><b>Refund due ${naira0(l.refund_due)}</b><div style="display:flex;gap:8px;margin-top:6px"><input id="lrf" placeholder="Refund reference" maxlength="80" style="flex:1"><input id="lra" type="number" min="0" step="1" placeholder="Amount sent" style="width:120px" value="${l.refund_due}"><button class="btn sm" id="lrec">Record refund</button></div></div>` : ''}
+   <h3 style="margin-top:14px">History</h3>${d.events.slice().reverse().map((ev) => `<div style="font-size:12px;margin-bottom:4px"><b>${e(SOLBL[ev.to_status] || ev.to_status)}</b> · ${dt(ev.created)} · ${e(ev.actor)}${ev.note ? '<br><span class="mu">' + e(ev.note) + '</span>' : ''}</div>`).join('')}
+   <div style="text-align:right;margin-top:10px"><button class="btn ghost sm" id="lx">Close</button></div>`, true);
+  const after = (m) => { toast(m); closeModal(); views.dropship(); };
+  $('#lx').addEventListener('click', () => { closeModal(); views.dropship(); });
+  $$('[data-to]').forEach((el) => el.addEventListener('click', guard(async () => {
+    const to = el.dataset.to; if (to === 'cancelled' && !confirm('Cancel this item? The customer will be owed a refund.')) return;
+    await DS(`/supplier-orders/lines/${l.id}/transition`, { body: { to, expected_from: l.status, supplier_order_no: $('#lno').value, carrier: $('#lca').value, tracking_no: $('#ltn').value, tracking_url: $('#ltu').value, note: $('#lnt').value } }); after('Updated');
+  })));
+  const b = (sel, fn) => { const el = $(sel); if (el) el.addEventListener('click', guard(fn)); };
+  b('#lmoney', async () => moneyItem(l.id));
+  b('#liss', async () => { await DS(`/supplier-orders/lines/${l.id}/transition`, { body: { to: 'issue', expected_from: l.status, issue_kind: $('#lik').value, issue_note: $('#lin').value, note: $('#lnt').value } }); after('Problem reported. The customer was emailed.'); });
+  b('#lofr', async () => { if (!$('#lalt').value) return toast('Choose a product', 'bad'); const r = await DS(`/supplier-orders/lines/${l.id}/alternative`, { body: { product_id: Number($('#lalt').value) } }); after(r.loses_money ? 'Offered. Note: you lose money on this one.' : 'Offered. The customer was emailed.'); });
+  b('#lrec', async () => { await DS(`/supplier-orders/lines/${l.id}/refund`, { body: { reference: $('#lrf').value, amount: $('#lra').value } }); after('Refund recorded'); });
+  const alt = $('#lalt'); if (alt) DS('/products?listing=approved').then(({ products }) => { alt.insertAdjacentHTML('beforeend', products.filter((x) => String(x.id) !== String(l.product_id)).map((x) => `<option value="${x.id}">${e(x.name)} (${e(x.supplier_name || '')})</option>`).join('')); }).catch(() => {});
+}
+/* ---------- Supplier portal (step 7), admin side: logins and decisions ---------- */
+const spstate = { sup: '' };
+const SPD = (p, o) => DS('/portal' + p, o);
+async function spTab() {
+  const [inbox, hist, sl] = await Promise.all([SPD('/inbox'), SPD('/history'), DS('/suppliers')]);
+  const sups = sl.suppliers || [];
+  if (!spstate.sup && sups[0]) spstate.sup = String(sups[0].id);
+  const lg = spstate.sup ? await DS(`/suppliers/${spstate.sup}/portal`) : { logins: [] };
+  const kindTxt = (r) => (r.kind === 'price' ? `Price ${r.currency} ${r.old_cost} → <b>${r.new_cost}</b>, shipping ${r.old_ship_cost} → <b>${r.new_ship_cost}</b>` : `Stock ${r.old_stock == null ? '—' : r.old_stock} → <b>${r.new_stock}</b>`);
+  return `${inbox.enabled ? '' : '<div class="note">The supplier portal is switched off. Set <b>SUPPLIER_PORTAL_ENABLED=1</b> and restart to let suppliers sign in. You can still prepare logins after you switch it on.</div>'}
+   <div class="panel"><h3>Waiting for your decision</h3><h4>Suppliers who cannot supply an item (${inbox.rejections.length})</h4>${inbox.rejections.length ? `<div class="tw"><table class="t"><tr><th>Supplier</th><th>Order</th><th>Item</th><th>Reason</th><th></th></tr>${inbox.rejections.map((r) => `<tr><td>${e(r.supplier)}</td><td>${e(r.order_ref)}<br><span class="mu2">${e(r.po_ref)}</span></td><td>${e(r.name)} × ${r.qty}</td><td>${e(r.reason)}<br><span class="mu2">${e(r.note)}</span></td><td style="white-space:nowrap"><button class="btn sm" data-ra="${r.line_id}">Accept</button> <button class="btn ghost sm" data-rd="${r.line_id}">Decline</button></td></tr>`).join('')}</table></div><p class="mu2">Accept: the customer is told and chooses an alternative or a full refund. Decline: the supplier is asked to supply it.</p>` : '<p class="mu">None.</p>'}
+    <h4>Price and stock proposals (${inbox.requests.length})</h4>${inbox.requests.length ? `<div class="tw"><table class="t"><tr><th>Supplier</th><th>Product</th><th>Proposal</th><th class="r">Our price now</th><th>Note</th><th></th></tr>${inbox.requests.map((r) => `<tr><td>${e(r.supplier)}</td><td>${e(r.name)}<br><span class="mu2">${e(r.sku)}</span></td><td>${kindTxt(r)}</td><td class="r">${r.current_price == null ? '—' : naira0(r.current_price)}<br><span class="mu2">${r.price_mode === 'manual' ? 'price kept by hand' : 'automatic'}</span></td><td>${e(r.note)}</td><td style="white-space:nowrap"><button class="btn sm" data-qa="${r.id}">Approve</button> <button class="btn ghost sm" data-qr="${r.id}">Reject</button></td></tr>`).join('')}</table></div><p class="mu2">Approving changes the product like an edit would: an automatic selling price follows the new cost, a price you set by hand stays. Orders already placed keep their price.</p>` : '<p class="mu">None.</p>'}</div>
+   <div class="panel"><h3>Supplier logins</h3><div class="tbar"><select id="spsel">${sups.map((s) => `<option value="${s.id}" ${String(s.id) === spstate.sup ? 'selected' : ''}>${e(s.name)}</option>`).join('')}</select></div>
+    <div class="tw"><table class="t"><tr><th>Name</th><th>Email</th><th>Status</th><th></th></tr>${lg.logins.map((u) => `<tr><td>${e(u.name)}</td><td>${e(u.email)}</td><td>${u.active ? 'Active' : '<span class="pill bad">Switched off</span>'}</td><td style="white-space:nowrap">${u.active ? `<button class="btn ghost sm" data-li="${u.id}">Send invite again</button> <button class="btn ghost sm" data-lo="${u.id}">Switch off</button>` : `<button class="btn ghost sm" data-lon="${u.id}">Switch on</button>`}</td></tr>`).join('') || '<tr><td colspan="4" class="mu">No logins for this supplier yet.</td></tr>'}</table></div>
+    <div class="fgrid" style="margin-top:8px"><label class="f">Name<input id="spn" maxlength="80"></label><label class="f">Email<input id="spe" maxlength="120" type="email"></label><label class="f">Phone<input id="spp" maxlength="30"></label></div><button class="btn sm" id="spadd" style="margin-top:6px">Create login and send invite</button><div id="spout" class="mu2" style="margin-top:6px"></div>
+    <p class="mu2">The person gets a link to choose their own password. They see only this supplier's purchase orders and products. Portal address: ${e(location.origin)}/supplier</p></div>
+   ${hist.requests.length ? `<div class="panel"><h3>Recent decisions</h3><div class="tw"><table class="t">${hist.requests.slice(0, 20).map((r) => `<tr><td>${e(r.supplier)}</td><td>${e(r.name)}</td><td>${kindTxt(r)}</td><td>${e(r.status)} by ${e(r.decided_by)}${r.decision_note ? ': ' + e(r.decision_note) : ''}</td></tr>`).join('')}</table></div></div>` : ''}`;
+}
+function spWire() {
+  const done = () => views.dropship(), sid = () => spstate.sup;
+  on('#spsel', 'change', () => { spstate.sup = $('#spsel').value; return done(); });
+  onAll('[data-ra]', 'click', guard2((el) => SPD(`/lines/${el.dataset.ra}/decide`, { body: { decision: 'accept' } }).then(() => toast('Accepted. The customer was told.'))));
+  onAll('[data-rd]', 'click', guard2((el) => { const note = prompt('Message to the supplier (optional)') ; if (note === null) return; return SPD(`/lines/${el.dataset.rd}/decide`, { body: { decision: 'decline', note } }).then(() => toast('Declined')); }));
+  onAll('[data-qa]', 'click', guard2((el) => SPD(`/requests/${el.dataset.qa}/decide`, { body: { decision: 'approved' } }).then((r) => toast(r.price_before !== r.price_after ? `Approved. The price is now ${naira0(r.price_after)}` : 'Approved'))));
+  onAll('[data-qr]', 'click', guard2((el) => { const note = prompt('Why are you rejecting it? (the supplier is told)'); if (!note) return; return SPD(`/requests/${el.dataset.qr}/decide`, { body: { decision: 'rejected', note } }).then(() => toast('Rejected')); }));
+  onAll('[data-li]', 'click', guard2((el) => DS(`/suppliers/${sid()}/portal/${el.dataset.li}/invite`, { body: {} }).then((r) => toast(r.emailed ? 'Invite sent' : 'Email is off. Link: ' + r.invite_link))));
+  onAll('[data-lo]', 'click', guard2((el) => { if (!confirm('Switch this login off? They are signed out at once.')) return; return DS(`/suppliers/${sid()}/portal/${el.dataset.lo}/active`, { body: { active: false } }); }));
+  onAll('[data-lon]', 'click', guard2((el) => DS(`/suppliers/${sid()}/portal/${el.dataset.lon}/active`, { body: { active: true } })));
+  on('#spadd', 'click', guard(async () => { const r = await DS(`/suppliers/${sid()}/portal`, { body: { name: $('#spn').value, email: $('#spe').value, phone: $('#spp').value } }); if (r.emailed) { toast('Invite sent'); return done(); } $('#spout').innerHTML = `Email is not set up, so pass this link on yourself (works for 72 hours): <br><input readonly style="width:100%" value="${e(r.invite_link)}">`; }));
+  function guard2(fn) { return async (el) => { try { await fn(el); done(); } catch (x) { toast(x.message, 'bad'); } }; }
+}
+/* ---------- Money (Step 6): what we owe suppliers, refunds, returns to the supplier, profit reports ---------- */
+let mpay = [];
+const mstate = { view: 'payables', status: 'open', group: 'order', from: '', to: '', sup: '' };
+const MRET = { requested: 'Return requested', approved: 'Approved by supplier', sent_back: 'Sent back', received: 'Received by supplier', rejected: 'Rejected by supplier', closed: 'Closed' };
+const MCOST = { duty: 'Import duty', shipping: 'Extra shipping', handling: 'Handling', gateway_fee: 'Payment fee charged', other: 'Other' };
+const MON = (p, o) => DS('/money' + p, o);
+const mm = (x, c = 'NGN') => (c === 'NGN' ? naira0(x) : `${e(c)} ${Number(x).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+const mpr = (n) => `<span style="color:${n < 0 ? 'var(--bad,#c0392b)' : 'inherit'}">${naira0(n)}</span>`;
+async function moTab() {
+  const nav = [['payables', 'What we owe suppliers'], ['returns', 'Returns to suppliers'], ['report', 'Profit reports']];
+  let inner = '';
+  if (mstate.view === 'payables') {
+    const r = await MON('/payables?status=' + mstate.status); mpay = r.payables;
+    inner = `<div class="panel"><h3>Owed to suppliers</h3>${r.suppliers.length ? `<div class="tw"><table class="t"><tr><th>Supplier</th><th class="r">Owed</th><th class="r">Overdue</th><th class="r">Due in 7 days</th><th class="r">Orders</th><th class="r">In Naira</th></tr>${r.suppliers.map((g) => `<tr><td>${e(g.supplier)}</td><td class="r">${mm(g.owed, g.currency)}</td><td class="r">${g.overdue ? `<b style="color:var(--bad,#c0392b)">${mm(g.overdue, g.currency)}</b>` : '—'}</td><td class="r">${g.due_7d ? mm(g.due_7d, g.currency) : '—'}</td><td class="r">${g.orders}</td><td class="r">${g.owed_ngn == null ? 'no rate' : naira0(g.owed_ngn)}</td></tr>`).join('')}</table></div>${r.total_owed_ngn == null ? '' : `<p><b>Total owed: ${naira0(r.total_owed_ngn)}</b> <span class="mu2">at today's rates</span></p>`}` : '<p class="mu">Nothing owed right now.</p>'}</div>
+     ${r.expecting.length ? `<div class="panel"><h3>Ask these suppliers for a refund</h3><p class="mu2">We ordered these, then they went wrong. Record the refund when the supplier gives it as credit or cash.</p><div class="tw"><table class="t">${r.expecting.map((x) => `<tr><td>${e(x.order_ref)}</td><td>${e(x.name)}</td><td>${e(x.supplier)}</td><td class="r">${mm(x.cost - x.recorded, x.currency)}</td><td><button class="btn ghost sm" data-mi="${x.line_id}">Open</button></td></tr>`).join('')}</table></div></div>` : ''}
+     <div class="tbar"><select id="mst"><option value="open" ${mstate.status === 'open' ? 'selected' : ''}>Open</option><option value="paid" ${mstate.status === 'paid' ? 'selected' : ''}>Paid</option><option value="" ${mstate.status === '' ? 'selected' : ''}>All</option></select></div>
+     <div class="panel"><div class="tw"><table class="t"><tr><th>Supplier</th><th>Purchase order</th><th>Order</th><th class="r">Amount</th><th class="r">Credit</th><th class="r">To pay</th><th>Due</th><th></th></tr>${r.payables.map((p) => `<tr><td>${e(p.supplier)}</td><td>${e(p.po_ref)}</td><td>${e(p.order_ref)}</td><td class="r">${mm(p.amount, p.currency)}</td><td class="r">${p.credit ? mm(p.credit, p.currency) : '—'}</td><td class="r"><b>${mm(p.net, p.currency)}</b></td>
+      <td>${p.status === 'paid' ? `Paid ${e(dt(p.paid_at))}<br><span class="mu2">${e(p.paid_ref)} · ${e(p.paid_by)}</span>` : `${e(dt(p.due_at))}${p.overdue ? ' <span class="pill bad">Overdue</span>' : ''}`}</td><td>${p.status === 'open' ? `<button class="btn sm" data-mp="${p.id}">Mark paid</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="mu">Nothing here yet. A payable appears when you send a purchase order.</td></tr>'}</table></div></div>`;
+  } else if (mstate.view === 'returns') {
+    const { returns } = await MON('/returns');
+    inner = `<div class="panel"><h3>Returns going back to suppliers</h3><p class="mu2">Start a return from the item (Supplier orders → item → Money). The customer's refund and the supplier's refund are recorded separately.</p><div class="tw"><table class="t"><tr><th>Order</th><th>Item</th><th>Supplier</th><th>Reason</th><th>Status</th><th>Parcel</th><th></th></tr>${returns.map((x) => `<tr><td>${e(x.order_ref)}</td><td>${e(x.name)}</td><td>${e(x.supplier)}</td><td>${e(x.reason)}${x.rma_no ? '<br><span class="mu2">RMA ' + e(x.rma_no) + '</span>' : ''}</td><td>${e(x.label)}</td><td>${e([x.carrier, x.tracking_no].filter(Boolean).join(' '))}</td><td><button class="btn ghost sm" data-mi="${x.line_id}">Open</button></td></tr>`).join('') || '<tr><td colspan="7" class="mu">No open returns.</td></tr>'}</table></div></div>`;
+  } else {
+    const sups = (await DS('/suppliers')).suppliers || [];
+    const q = new URLSearchParams({ group: mstate.group, from: mstate.from, to: mstate.to, supplier_id: mstate.sup });
+    const r = await MON('/report?' + q), t = r.total;
+    inner = `<div class="tbar"><select id="mg">${Object.entries({ order: 'By order', supplier: 'By supplier', country: 'By country', product: 'By product', day: 'By day', month: 'By month' }).map(([k, v]) => `<option value="${k}" ${mstate.group === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      <label class="mu2">From <input type="date" id="mfr" value="${e(mstate.from)}"></label><label class="mu2">To <input type="date" id="mto" value="${e(mstate.to)}"></label>
+      <select id="msu"><option value="">All suppliers</option>${sups.map((s) => `<option value="${s.id}" ${String(s.id) === String(mstate.sup) ? 'selected' : ''}>${e(s.name)}</option>`).join('')}</select><a class="btn ghost sm" href="/api/admin/dropship/money/report.xlsx?${q}" target="_blank" rel="noopener">Download Excel</a></div>
+     <div class="panel"><div class="tw"><table class="t"><tr><th>${e(r.group_label)}</th><th class="r">Items</th>${r.group === 'order' ? '<th>Customer rate</th>' : ''}<th>Supplier rate</th><th class="r">Revenue</th><th class="r">Refunds</th><th class="r">Supplier cost</th><th class="r">Shipping</th><th class="r">Duty</th><th class="r">Fees</th><th class="r">Other</th><th class="r">Supplier refunds</th><th class="r">Net profit</th><th class="r">Margin</th></tr>
+      ${r.rows.map((x) => `<tr><td>${e(x.key)}</td><td class="r">${x.lines}</td>${r.group === 'order' ? `<td>${e(x.customer_rate)}</td>` : ''}<td>${e(x.supplier_rates)}</td><td class="r">${naira0(x.revenue)}</td><td class="r">${x.refunds ? naira0(x.refunds) : '—'}</td><td class="r">${naira0(x.supplier_cost)}${x.unknown_cost ? ' <span class="bad" title="No exchange rate was available when this was ordered">?</span>' : ''}</td><td class="r">${naira0(x.supplier_shipping + x.extra_shipping)}</td><td class="r">${x.duty ? naira0(x.duty) : '—'}</td><td class="r">${naira0(x.fees)}${x.estimated_fees ? '*' : ''}</td><td class="r">${x.other ? naira0(x.other) : '—'}</td><td class="r">${x.supplier_refunds ? naira0(x.supplier_refunds) : '—'}</td><td class="r"><b>${mpr(x.net_profit)}</b></td><td class="r">${x.margin_pct == null ? '—' : x.margin_pct + '%'}</td></tr>`).join('') || `<tr><td colspan="14" class="mu">No paid dropship items in this period.</td></tr>`}
+      <tr><td><b>Total</b></td><td class="r"><b>${t.lines || 0}</b></td>${r.group === 'order' ? '<td></td>' : ''}<td></td><td class="r"><b>${naira0(t.revenue || 0)}</b></td><td class="r">${naira0(t.refunds || 0)}</td><td class="r">${naira0(t.supplier_cost || 0)}</td><td class="r">${naira0((t.supplier_shipping || 0) + (t.extra_shipping || 0))}</td><td class="r">${naira0(t.duty || 0)}</td><td class="r">${naira0(t.fees || 0)}</td><td class="r">${naira0(t.other || 0)}</td><td class="r">${naira0(t.supplier_refunds || 0)}</td><td class="r"><b>${mpr(t.net_profit || 0)}</b></td><td class="r">${t.margin_pct == null ? '—' : t.margin_pct + '%'}</td></tr></table></div>
+      <p class="mu2">* payment fee estimated from your fee settings. ${e(r.note)}</p></div>`;
+  }
+  return `<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">${nav.map(([k, t]) => `<button class="btn ${mstate.view === k ? '' : 'ghost'} sm" data-mv="${k}">${t}</button>`).join('')}</div>${inner}`;
+}
+function moWire() {
+  onAll('[data-mv]', 'click', (el) => { mstate.view = el.dataset.mv; return views.dropship(); });
+  onAll('[data-mi]', 'click', (el) => moneyItem(el.dataset.mi));
+  on('#mst', 'change', () => { mstate.status = $('#mst').value; return views.dropship(); });
+  for (const [id, k] of [['#mg', 'group'], ['#mfr', 'from'], ['#mto', 'to'], ['#msu', 'sup']]) on(id, 'change', () => { mstate[k] = $(id).value; return views.dropship(); });
+  const rows = mpay;
+  onAll('[data-mp]', 'click', (el) => {
+    const p = rows.find((x) => String(x.id) === el.dataset.mp);
+    openModal(`<h2>Mark paid · ${e(p.po_ref)}</h2><p class="mu">${e(p.supplier)} · to pay ${mm(p.net, p.currency)}. This records a payment you already made. It does not send money.</p><div class="fgrid"><label class="f full">Payment reference (transfer or wire number)<input id="mpr" maxlength="80"></label>
+     <label class="f">Amount you paid (${e(p.currency)})<input id="mpa" type="number" min="0" step="any" value="${p.net}"></label><label class="f">Naira that left the bank (optional)<input id="mpn" type="number" min="0" step="any"></label><label class="f full">Note<input id="mpt" maxlength="300"></label></div>
+     <div class="acts"><button class="btn ghost" id="mpx">Close</button><button class="btn" id="mpg">Mark paid</button></div>`);
+    $('#mpx').addEventListener('click', closeModal);
+    $('#mpg').addEventListener('click', guard(async () => { await MON(`/payables/${p.id}/pay`, { body: { reference: $('#mpr').value, paid_amount: $('#mpa').value, paid_ngn: $('#mpn').value, note: $('#mpt').value } }); toast('Marked paid'); closeModal(); views.dropship(); }));
+  });
+}
+async function moneyItem(id) {
+  const m = await MON('/lines/' + id), r = m.return, p = m.profit;
+  const canClaim = ['issue', 'cancelled', 'refunded', 'returned'].includes(m.status);
+  openModal(`<h2>${e(m.order_ref)} · money</h2><p class="mu">Customer paid ${naira0(m.sell_total)} · supplier price ${mm(m.cost_supplier, m.cost_currency)}${m.cost_fx_rate ? ` at ${m.cost_fx_rate} Naira each (fixed when ordered)` : ''}${m.cost_ngn != null ? ' = ' + naira0(m.cost_ngn) : ''}</p>
+   ${p ? `<div class="card" style="padding:10px"><b>Net profit so far: ${mpr(p.net_profit)}</b> <span class="mu2">(${p.margin_pct == null ? '—' : p.margin_pct + '%'}${p.fee_estimated ? ', payment fee estimated' : ''})</span></div>` : ''}
+   <h3>Extra costs</h3>${m.costs.map((c) => `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--line)"><span>${e(c.label)}: <b>${naira0(c.amount_ngn)}</b> <span class="mu2">${e(c.note)} · ${e(c.created_by)}</span></span><button class="btn ghost sm" data-mdc="${c.id}">Remove</button></div>`).join('') || '<p class="mu">None recorded.</p>'}
+   <div class="fgrid" style="margin-top:6px"><label class="f">Type<select id="mck">${Object.entries(MCOST).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label><label class="f">Amount (Naira)<input id="mca" type="number" min="1" step="1"></label><label class="f full">Note<input id="mcn" maxlength="200" placeholder="Receipt number, who was paid"></label></div><button class="btn sm" id="mcadd">Add cost</button>
+   ${m.customer_refund ? `<h3>Refund to the customer</h3><p>${naira0(m.customer_refund.amount_ngn)} · ${e(m.customer_refund.reference)} · ${e(m.customer_refund.created_by)}</p>` : ''}
+   <h3>Refund from the supplier</h3>${m.supplier_refunds.map((x) => `<div style="padding:3px 0">${mm(x.amount, x.currency)} as ${x.mode === 'credit' ? 'credit' : 'cash'} <span class="mu2">${e(x.reference)} · ${e(x.created_by)}</span></div>`).join('') || '<p class="mu">None recorded.</p>'}
+   ${canClaim ? `<div class="fgrid" style="margin-top:6px"><label class="f">Amount (${e(m.cost_currency)})<input id="msa" type="number" min="0" step="any"></label><label class="f">How<select id="msm"><option value="credit">Credit against what we owe</option><option value="cash">Cash received</option></select></label><label class="f">Reference<input id="msr" maxlength="80"></label></div><button class="btn sm" id="msadd">Record supplier refund</button>` : '<p class="mu2">Available once an ordered item has a problem, is cancelled or is returned.</p>'}
+   <h3>Return to supplier</h3>${r ? `<p><b>${e(r.label)}</b> · ${e(r.reason)}</p><div class="fgrid"><label class="f">RMA number<input id="mrm" maxlength="60" value="${e(r.rma_no)}"></label><label class="f">Carrier<input id="mrc" maxlength="80" value="${e(r.carrier)}"></label><label class="f">Tracking<input id="mrt" maxlength="80" value="${e(r.tracking_no)}"></label></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${r.next.map((n) => `<button class="btn ${n === 'rejected' ? 'ghost' : ''} sm" data-mrn="${n}">${e(MRET[n])}</button>`).join('')}<button class="btn ghost sm" id="mrsv">Save details</button></div>`
+     : m.status === 'delivered' ? `<div class="fgrid"><label class="f full">Why is it coming back?<input id="mrr" maxlength="300"></label><label class="f">RMA number<input id="mrn" maxlength="60"></label></div><button class="btn sm" id="mrst">Start a return</button>` : '<p class="mu2">A delivered item can be returned.</p>'}
+   <div class="acts"><button class="btn ghost" id="mix">Close</button></div>`, true);
+  const again = () => moneyItem(id), b = (sel, fn) => { const el = $(sel); if (el) el.addEventListener('click', guard(fn)); };
+  $('#mix').addEventListener('click', () => { closeModal(); views.dropship(); });
+  b('#mcadd', async () => { await MON(`/lines/${id}/costs`, { body: { kind: $('#mck').value, amount: $('#mca').value, note: $('#mcn').value } }); again(); });
+  $$('[data-mdc]').forEach((x) => x.addEventListener('click', guard(async () => { await MON('/costs/' + x.dataset.mdc, { method: 'DELETE' }); again(); })));
+  b('#msadd', async () => { await MON(`/lines/${id}/supplier-refund`, { body: { amount: $('#msa').value, mode: $('#msm').value, reference: $('#msr').value } }); toast('Recorded'); again(); });
+  b('#mrst', async () => { await MON(`/lines/${id}/return`, { body: { reason: $('#mrr').value, rma_no: $('#mrn').value } }); toast('Return started. Refund the customer from the item screen.'); again(); });
+  b('#mrsv', async () => { await MON('/returns/' + r.id, { method: 'PUT', body: { rma_no: $('#mrm').value, carrier: $('#mrc').value, tracking_no: $('#mrt').value } }); toast('Saved'); again(); });
+  $$('[data-mrn]').forEach((x) => x.addEventListener('click', guard(async () => { await MON('/returns/' + r.id, { method: 'PUT', body: { status: x.dataset.mrn, rma_no: $('#mrm').value, carrier: $('#mrc').value, tracking_no: $('#mrt').value } }); again(); })));
+}
+/* ---------- Imports and exports (Step 5): shipments, trade documents, landed cost, compliance reminders, restricted items ---------- */
+const TRS = { draft: 'Draft', booked: 'Booked', in_transit: 'In transit', arrived: 'Arrived', cleared: 'Cleared', delivered: 'Delivered', cancelled: 'Cancelled' };
+const CUSL = { not_started: 'Not started', docs_ready: 'Documents ready', submitted: 'Submitted', queried: 'Queried', held: 'Held by customs', cleared: 'Cleared' };
+const TRCAT = { permit: 'Permit', licence: 'Licence', registration: 'Registration', banned: 'Banned goods', tax: 'Duty and tax', document: 'Document', other: 'Other' };
+const FILEL = { bill_of_lading: 'Bill of lading', airway_bill: 'Airway bill', certificate: 'Certificate', permit: 'Permit', invoice: 'Supplier invoice', packing_list: 'Packing list', customs: 'Customs paper', insurance: 'Insurance', other: 'Other' };
+const tstate = { view: 'shipments', dir: '', st: '', q: '' };
+let tmeta = null;
+const TRD = (p, o) => DS('/trade' + p, o);
+const tday = (t) => (t ? new Date(t * 1000).toISOString().slice(0, 10) : '');
+const tnum = (n, d = 2) => Number(n).toLocaleString('en', { minimumFractionDigits: d, maximumFractionDigits: d });
+const tpill = (st) => `<span class="pill ${st === 'delivered' || st === 'cleared' ? 'ok' : st === 'cancelled' ? 'bad' : ''}">${e(TRS[st] || st)}</span>`;
+async function trTab() {
+  if (!tmeta) tmeta = await TRD('/meta');
+  const nav = [['shipments', 'Shipments'], ['calc', 'Landed-cost calculator'], ['rules', 'Reminders and restricted items'], ['company', 'Our company details']];
+  let inner = '';
+  if (tstate.view === 'shipments') {
+    const { shipments } = await TRD('/shipments?' + new URLSearchParams({ direction: tstate.dir, status: tstate.st, q: tstate.q }));
+    inner = `<div class="tbar"><input id="trq" placeholder="Search reference, supplier or bill number" value="${e(tstate.q)}"><select id="trdir"><option value="">Imports and exports</option><option value="import" ${tstate.dir === 'import' ? 'selected' : ''}>Imports</option><option value="export" ${tstate.dir === 'export' ? 'selected' : ''}>Exports</option></select>
+     <select id="trst"><option value="">Any status</option>${Object.entries(TRS).map(([k, v]) => `<option value="${k}" ${tstate.st === k ? 'selected' : ''}>${v}</option>`).join('')}</select><button class="btn" id="trnew">+ New shipment</button></div>
+     <div class="panel"><div class="tw"><table class="t"><tr><th>Ref</th><th>Type</th><th>Other party</th><th>Route</th><th>Terms</th><th class="r">Goods</th><th>ETA</th><th>Status</th><th>Customs</th></tr>${shipments.map((s) => `<tr class="click" data-sh="${s.id}"><td><b>${e(s.ref)}</b></td><td>${s.direction === 'import' ? 'Import' : 'Export'}</td><td>${e(s.party_name)}</td><td>${e(s.origin_country)} → ${e(s.dest_country)}</td><td>${e(s.incoterm)}</td><td class="r">${e(s.currency)} ${tnum(s.goods)}</td><td>${e(tday(s.eta) || '—')}</td><td>${tpill(s.status)}</td><td>${e(CUSL[s.customs_status])}</td></tr>`).join('') || '<tr><td colspan="9" class="mu">No shipments yet. Create one to make the invoice, packing list and customs sheet.</td></tr>'}</table></div></div>`;
+  } else if (tstate.view === 'calc') {
+    inner = calcForm();
+  } else if (tstate.view === 'rules') {
+    const { rules, classes, note } = await TRD('/rules');
+    inner = `<div class="panel"><h3>Restricted items</h3><p class="mu2">A product whose name, description or HS code matches a <b>block</b> class can never be listed or shipped. A <b>review</b> class keeps it hidden until a person records that the permits were checked. Words are separated by commas.</p>
+     <div class="tw"><table class="t"><tr><th>Class</th><th>Action</th><th>Words</th><th>HS starts</th><th></th></tr>${classes.map((c) => `<tr><td><b>${e(c.label)}</b>${c.active ? '' : ' <span class="mu2">(off)</span>'}</td><td>${c.action === 'block' ? '<span class="pill bad">Block</span>' : '<span class="pill">Check first</span>'}</td><td style="max-width:320px">${e(c.keywords)}</td><td>${e(c.hs_prefixes)}</td><td><button class="btn ghost sm" data-cl="${e(c.slug)}">Edit</button></td></tr>`).join('')}</table></div><button class="btn sm" id="clnew" style="margin-top:8px">+ Add a class</button></div>
+     <div class="panel"><h3>Reminders by country</h3><p class="mu2">${e(note)} Shown on each shipment as a checklist for its countries.</p>
+     <div class="tw"><table class="t"><tr><th>From</th><th>To</th><th>Type</th><th>Class</th><th>Reminder</th><th></th></tr>${rules.map((r) => `<tr><td>${e(r.from_country)}</td><td>${e(r.to_country)}</td><td>${r.direction}</td><td>${e(r.product_class || '—')}</td><td>${e(r.title)}${r.active ? '' : ' <span class="mu2">(off)</span>'}${r.required ? '' : ' <span class="mu2">(optional)</span>'}<br><span class="mu2">${e(TRCAT[r.category])}${r.authority ? ' · ' + e(r.authority) : ''}</span></td><td><button class="btn ghost sm" data-ru="${r.id}">Edit</button></td></tr>`).join('')}</table></div><button class="btn sm" id="runew" style="margin-top:8px">+ Add a reminder</button></div>`;
+    tmeta.rules = rules; tmeta.classes = classes;
+  } else {
+    const c = tmeta.company = (await TRD('/meta')).company;
+    inner = `<div class="panel"><h3>Our company details</h3><p class="mu2">Printed on every invoice, packing list and purchase order. They start from your store settings.</p><div class="fgrid">
+     <label class="f">Company name<input id="cn" maxlength="120" value="${e(c.name)}"></label><label class="f">Phone<input id="cp" maxlength="40" value="${e(c.phone)}"></label><label class="f full">Address<input id="ca" maxlength="300" value="${e(c.address)}"></label>
+     <label class="f">Tax ID (TIN)<input id="ct" maxlength="40" value="${e(c.tax_id)}"></label><label class="f">Company registration (RC) number<input id="cr" maxlength="40" value="${e(c.rc)}"></label><label class="f">Email<input id="ce" maxlength="120" value="${e(c.email)}"></label>
+     <label class="f full">Payment details for exports (printed on the invoice)<input id="cb" maxlength="300" value="${e(c.bank_note)}" placeholder="Bank, account name, account number, SWIFT"></label></div><button class="btn" id="cosave" style="margin-top:10px">Save</button></div>`;
+  }
+  return `<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">${nav.map(([k, t]) => `<button class="btn ${tstate.view === k ? '' : 'ghost'} sm" data-trv="${k}">${t}</button>`).join('')}</div>${inner}`;
+}
+const trSel = (list, sel) => list.map((x) => `<option value="${e(x)}" ${x === sel ? 'selected' : ''}>${e(x)}</option>`).join('');
+function calcForm() {
+  const m = tmeta;
+  return `<div class="panel"><h3>Landed-cost calculator</h3><p class="mu2">Works out what an import or export really costs: goods, freight, insurance, duty, VAT and agent fees, in any currency. Duty and VAT are estimates for planning. Your clearing agent has the final figures.</p>
+   <div class="fgrid"><label class="f">Type<select id="kd"><option value="import">Import (we buy)</option><option value="export">Export (we sell)</option></select></label>
+   <label class="f">Incoterm<select id="ki">${m.incoterms.map((i) => `<option value="${i.code}" ${i.code === 'FOB' ? 'selected' : ''}>${i.code} · ${e(i.name)}</option>`).join('')}</select></label>
+   <label class="f">Currency of the prices<select id="kc">${trSel(m.currencies, 'USD')}</select></label><label class="f">Also show in<select id="kt">${trSel(m.currencies, 'NGN')}</select></label>
+   <label class="f">Goods value<input id="kg" type="number" min="0" step="any" value="1000"></label><label class="f">Freight<input id="kf" type="number" min="0" step="any" value="0"></label><label class="f">Insurance<input id="kn" type="number" min="0" step="any" value="0"></label>
+   <label class="f">Duty %<input id="ku" type="number" min="0" max="500" step="any" value="0"></label><label class="f">VAT %<input id="kv" type="number" min="0" max="100" step="any" value="0"></label><label class="f">Clearing agent, flat fee<input id="ka" type="number" min="0" step="any" value="0"></label>
+   <label class="f">Clearing agent, % of customs value<input id="kp" type="number" min="0" max="100" step="any" value="0"></label><label class="f">Other charges<input id="ko" type="number" min="0" step="any" value="0"></label></div>
+   <button class="btn" id="kgo" style="margin-top:10px">Calculate</button><div id="kout" style="margin-top:12px"></div><p class="mu2" id="khint"></p></div>`;
+}
+function landedHtml(r, ccy) {
+  if (r.error) return `<p class="err">${e(r.error)}</p>`;
+  const cv = r.converted, ln = (l) => `<tr><td>${e(l.label)}${l.included_in_price ? ' <span class="mu2">(already in the price)</span>' : ''}</td><td class="r">${tnum(l.amount, r.decimals)}</td>${cv ? `<td class="r">${tnum(cv.lines[l.key], 2)}</td>` : ''}<td>${l.included_in_price ? 'Seller' : l.paid_by === 'us' ? 'We pay' : 'Other side pays'}</td></tr>`;
+  const T = r.totals_major, row = (label, k) => `<tr><td><b>${label}</b></td><td class="r"><b>${tnum(T[k], r.decimals)}</b></td>${cv ? `<td class="r"><b>${tnum(cv.totals[k], 2)}</b></td>` : ''}<td></td></tr>`;
+  return `<div class="tw"><table class="t"><tr><th>Cost</th><th class="r">${e(r.currency)}</th>${cv ? `<th class="r">${e(cv.currency)}</th>` : ''}<th>Who pays</th></tr>${r.lines.map(ln).join('')}${row('Customs value (duty basis)', 'customs_value')}${row('Total landed cost', 'landed_total')}${row(r.direction === 'import' ? 'Total we pay' : 'Our costs of this sale', 'our_cost')}</table></div>
+   ${cv ? `<p class="mu2">Rate used: 1 ${e(r.currency)} = ${tnum(cv.rate, 4)} ${e(cv.currency)}</p>` : ''}${r.convert_error ? `<p class="err">${e(r.convert_error)} Add the rate in Settings.</p>` : ''}${r.warnings.map((w) => `<p class="mu2">• ${e(w)}</p>`).join('')}`;
+}
+function trWire() {
+  onAll('[data-trv]', 'click', (el) => { tstate.view = el.dataset.trv; return views.dropship(); });
+  on('#trq', 'change', () => { tstate.q = $('#trq').value; return views.dropship(); }); on('#trdir', 'change', () => { tstate.dir = $('#trdir').value; return views.dropship(); }); on('#trst', 'change', () => { tstate.st = $('#trst').value; return views.dropship(); });
+  on('#trnew', 'click', () => shipForm(0)); onAll('[data-sh]', 'click', (el) => shipForm(el.dataset.sh));
+  on('#kgo', 'click', guard(async () => {
+    const v = (id) => $(id).value, body = { direction: v('#kd'), incoterm: v('#ki'), currency: v('#kc'), show_in: v('#kt'), goods: v('#kg'), freight: v('#kf'), insurance: v('#kn'), duty_pct: v('#ku'), vat_pct: v('#kv'), agent_fee: v('#ka'), agent_pct: v('#kp'), other_fees: v('#ko') };
+    $('#kout').innerHTML = landedHtml(await TRD('/landed', { body }));
+  }));
+  on('#ki', 'change', () => { const i = tmeta.incoterms.find((x) => x.code === $('#ki').value); $('#khint').textContent = i.seller_pays.length ? `Under ${i.code} the seller already pays and includes: ${i.seller_pays.join(', ')}.` : `Under ${i.code} the buyer pays freight, insurance and duties.`; });
+  on('#cosave', 'click', guard(async () => { await TRD('/company', { method: 'PUT', body: { co_name: $('#cn').value, co_phone: $('#cp').value, co_address: $('#ca').value, co_tax_id: $('#ct').value, co_rc: $('#cr').value, co_email: $('#ce').value, co_bank_note: $('#cb').value } }); toast('Saved'); }));
+  on('#clnew', 'click', () => classForm(null)); onAll('[data-cl]', 'click', (el) => classForm(tmeta.classes.find((c) => c.slug === el.dataset.cl)));
+  on('#runew', 'click', () => ruleForm(null)); onAll('[data-ru]', 'click', (el) => ruleForm(tmeta.rules.find((r) => String(r.id) === el.dataset.ru)));
+}
+function classForm(c) {
+  const n = !c; c = c || { slug: '', label: '', action: 'review', keywords: '', hs_prefixes: '', note: '', active: 1 };
+  openModal(`<h2>${n ? 'Add a restricted class' : e(c.label)}</h2><div class="fgrid">${n ? '<label class="f">Short code (letters, numbers, _)<input id="qs" maxlength="31"></label>' : ''}<label class="f">Name<input id="ql" maxlength="80" value="${e(c.label)}"></label>
+   <label class="f">What happens<select id="qa"><option value="review" ${c.action === 'review' ? 'selected' : ''}>Check first (hidden until a person checks the permits)</option><option value="block" ${c.action === 'block' ? 'selected' : ''}>Block (never listed or shipped)</option></select></label>
+   <label class="f full">Words that match (comma separated)<input id="qk" value="${e(c.keywords)}"></label><label class="f full">HS code starts (comma separated, like 3004,8507)<input id="qh" value="${e(c.hs_prefixes)}"></label>
+   <label class="f full">Note for the team<input id="qn" maxlength="300" value="${e(c.note)}"></label><label class="f"><span><input type="checkbox" id="qo" ${c.active ? 'checked' : ''}> Switched on</span></label></div>
+   <div class="acts"><button class="btn ghost" id="qx">Close</button>${!n && !['medicines', 'weapons'].includes(c.slug) ? '<button class="btn ghost" id="qd">Delete</button>' : ''}<button class="btn" id="qsv">Save</button></div>`, true);
+  const done = () => { closeModal(); views.dropship(); };
+  $('#qx').addEventListener('click', closeModal);
+  $('#qsv').addEventListener('click', guard(async () => { await TRD('/classes/' + encodeURIComponent(n ? $('#qs').value.trim().toLowerCase() : c.slug), { method: 'PUT', body: { label: $('#ql').value, action: $('#qa').value, keywords: $('#qk').value, hs_prefixes: $('#qh').value, note: $('#qn').value, active: $('#qo').checked } }); toast('Saved'); done(); }));
+  const d = $('#qd'); if (d) d.addEventListener('click', guard(async () => { if (!confirm('Delete this class?')) return; await TRD('/classes/' + c.slug, { method: 'DELETE' }); done(); }));
+}
+function ruleForm(r) {
+  const n = !r; r = r || { from_country: '*', to_country: '*', direction: 'both', product_class: '', category: 'permit', title: '', detail: '', authority: '', url: '', required: 1, active: 1 };
+  const cs = [['*', 'Any country'], ...tmeta.countries.map((c) => [c.code, c.name + ' (' + c.code + ')'])];
+  openModal(`<h2>${n ? 'Add a reminder' : 'Edit reminder'}</h2><div class="fgrid"><label class="f">Goods leave from<select id="rf">${cs.map(([k, v]) => `<option value="${k}" ${k === r.from_country ? 'selected' : ''}>${e(v)}</option>`).join('')}</select></label>
+   <label class="f">Goods go to<select id="rt">${cs.map(([k, v]) => `<option value="${k}" ${k === r.to_country ? 'selected' : ''}>${e(v)}</option>`).join('')}</select></label>
+   <label class="f">Applies to<select id="rd">${[['both', 'Imports and exports'], ['import', 'Imports only'], ['export', 'Exports only']].map(([k, v]) => `<option value="${k}" ${k === r.direction ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+   <label class="f">Only when the goods are<select id="rc"><option value="">Any goods</option>${(tmeta.classes || []).map((c) => `<option value="${e(c.slug)}" ${c.slug === r.product_class ? 'selected' : ''}>${e(c.label)}</option>`).join('')}</select></label>
+   <label class="f">Type<select id="rk">${Object.entries(TRCAT).map(([k, v]) => `<option value="${k}" ${k === r.category ? 'selected' : ''}>${v}</option>`).join('')}</select></label><label class="f">Authority<input id="ra" maxlength="120" value="${e(r.authority)}"></label>
+   <label class="f full">What to check<input id="rl" maxlength="160" value="${e(r.title)}"></label><label class="f full">Details<input id="rn" maxlength="600" value="${e(r.detail)}"></label><label class="f full">Official link (https)<input id="ru" maxlength="300" value="${e(r.url)}"></label>
+   <label class="f"><span><input type="checkbox" id="rq" ${r.required ? 'checked' : ''}> Required</span></label><label class="f"><span><input type="checkbox" id="ro" ${r.active ? 'checked' : ''}> Switched on</span></label></div>
+   <p class="mu2">Reminders are for you to verify with the official source. Nothing here is legal advice.</p><div class="acts"><button class="btn ghost" id="rx">Close</button>${!n ? '<button class="btn ghost" id="rdl">Delete</button>' : ''}<button class="btn" id="rsv">Save</button></div>`, true);
+  const done = () => { closeModal(); views.dropship(); };
+  $('#rx').addEventListener('click', closeModal);
+  $('#rsv').addEventListener('click', guard(async () => { const body = { from_country: $('#rf').value, to_country: $('#rt').value, direction: $('#rd').value, product_class: $('#rc').value, category: $('#rk').value, authority: $('#ra').value, title: $('#rl').value, detail: $('#rn').value, url: $('#ru').value, required: $('#rq').checked, active: $('#ro').checked }; await TRD(n ? '/rules' : '/rules/' + r.id, { method: n ? 'POST' : 'PUT', body }); toast('Saved'); done(); }));
+  const d = $('#rdl'); if (d) d.addEventListener('click', guard(async () => { if (!confirm('Delete this reminder?')) return; await TRD('/rules/' + r.id, { method: 'DELETE' }); done(); }));
+}
+const shipFields = (s, m) => {
+  const v = (k) => (s[k] == null ? '' : e(s[k])), dis = s.locked ? 'disabled' : '', cs = m.countries;
+  const csel = (id, sel) => `<select id="${id}" ${dis}><option value="">Choose…</option>${cs.map((c) => `<option value="${c.code}" ${c.code === sel ? 'selected' : ''}>${e(c.name)}</option>`).join('')}</select>`;
+  return `<div class="fgrid"><label class="f">Type<select id="sd" ${s.id ? 'disabled' : ''}><option value="import" ${s.direction === 'import' ? 'selected' : ''}>Import (we buy from a supplier)</option><option value="export" ${s.direction === 'export' ? 'selected' : ''}>Export (we sell to a buyer)</option></select></label>
+   <label class="f">Incoterm<select id="si" ${dis}>${m.incoterms.map((i) => `<option value="${i.code}" ${i.code === s.incoterm ? 'selected' : ''}>${i.code} · ${e(i.name)}</option>`).join('')}</select></label>
+   <label class="f">Currency of the documents<select id="sc" ${dis}>${trSel(m.currencies, s.currency)}</select></label>
+   <label class="f">Goods leave from${csel('so', s.origin_country)}</label><label class="f">Goods go to${csel('sde', s.dest_country)}</label><label class="f">Transport<select id="str">${trSel(m.transport, s.transport)}</select></label>
+   <label class="f">Supplier or buyer name<input id="spn" maxlength="140" value="${v('party_name')}" ${dis}></label><label class="f">Their country${csel('spc', s.party_country)}</label><label class="f">Their tax ID<input id="sptid" maxlength="40" value="${v('party_tax_id')}"></label>
+   <label class="f full">Their address<input id="spa" maxlength="300" value="${v('party_address')}" ${dis}></label><label class="f full">Their contact<input id="spct" maxlength="160" value="${v('party_contact')}"></label>
+   <label class="f">Forwarder or clearing agent<input id="sfw" maxlength="120" value="${v('forwarder')}"></label><label class="f">Forwarder contact<input id="sfwc" maxlength="160" value="${v('forwarder_contact')}"></label>
+   <label class="f">Airway bill / bill of lading no.<input id="sbn" maxlength="40" value="${v('bill_no')}"></label><label class="f">Container no.<input id="scn" maxlength="40" value="${v('container_no')}"></label>
+   <label class="f">Port or airport of loading<input id="spol" maxlength="80" value="${v('port_of_loading')}"></label><label class="f">Port or airport of arrival<input id="spod" maxlength="80" value="${v('port_of_discharge')}"></label>
+   <label class="f">Departure date<input id="setd" type="date" value="${tday(s.etd)}"></label><label class="f">Expected arrival (ETA)<input id="seta" type="date" value="${tday(s.eta)}"></label>
+   <label class="f">Customs status<select id="scs">${Object.entries(CUSL).map(([k, t]) => `<option value="${k}" ${k === s.customs_status ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+   <label class="f">Packages<input id="spk" type="number" min="0" value="${v('packages')}"></label><label class="f">Gross weight (kg)<input id="sgw" type="number" min="0" step="any" value="${v('gross_weight_kg')}"></label>
+   <label class="f">Freight<input id="sfr" type="number" min="0" step="any" value="${s.freight || 0}" ${dis}></label><label class="f">Insurance<input id="sin" type="number" min="0" step="any" value="${s.insurance || 0}" ${dis}></label>
+   <label class="f">Import duty %<input id="sdu" type="number" min="0" max="500" step="any" value="${s.duty_pct || 0}" ${dis}></label><label class="f">VAT %<input id="sva" type="number" min="0" max="100" step="any" value="${s.vat_pct || 0}" ${dis}></label>
+   <label class="f">Clearing agent fees<input id="sag" type="number" min="0" step="any" value="${s.agent_fee || 0}"></label><label class="f">Other charges<input id="sot" type="number" min="0" step="any" value="${s.other_fees || 0}"></label>
+   <label class="f full">Notes<input id="sno" maxlength="1000" value="${v('notes')}"></label></div>`;
+};
+async function shipForm(id) {
+  if (!tmeta) tmeta = await TRD('/meta');
+  const m = tmeta, d = id ? await TRD('/shipments/' + id) : null;
+  const s = d ? d.shipment : { direction: 'import', incoterm: 'FOB', currency: 'USD', origin_country: '', dest_country: 'NG', transport: 'air', customs_status: 'not_started', freight: 0, insurance: 0, duty_pct: 0, vat_pct: 0, agent_fee: 0, other_fees: 0 };
+  const val = (i) => $(i).value;
+  const readForm = () => ({ direction: val('#sd'), incoterm: val('#si'), currency: val('#sc'), origin_country: val('#so'), dest_country: val('#sde'), transport: val('#str'), party_name: val('#spn'), party_country: val('#spc'), party_tax_id: val('#sptid'), party_address: val('#spa'), party_contact: val('#spct'), forwarder: val('#sfw'), forwarder_contact: val('#sfwc'), bill_no: val('#sbn'), container_no: val('#scn'), port_of_loading: val('#spol'), port_of_discharge: val('#spod'), etd: val('#setd'), eta: val('#seta'), customs_status: val('#scs'), packages: val('#spk'), gross_weight_kg: val('#sgw'), freight: val('#sfr'), insurance: val('#sin'), duty_pct: val('#sdu'), vat_pct: val('#sva'), agent_fee: val('#sag'), other_fees: val('#sot'), notes: val('#sno') });
+  const reload = () => shipForm(id);
+  if (!id) {
+    openModal(`<h2>New shipment</h2>${shipFields(s, m)}<div class="acts"><button class="btn ghost" id="sx">Close</button><button class="btn" id="ssv">Create</button></div>`, true);
+    $('#sx').addEventListener('click', () => { closeModal(); views.dropship(); });
+    $('#ssv').addEventListener('click', guard(async () => { const r = await TRD('/shipments', { body: readForm() }); toast('Shipment created. Now add the goods.'); shipForm(r.id); }));
+    return;
+  }
+  const L = d.landed, docKinds = Object.entries(d.docs).filter(([k]) => k !== 'purchase_order' || s.direction === 'import');
+  const issued = Object.fromEntries(d.issued.map((x) => [x.kind, x.number]));
+  const url = (p) => `/api/admin/dropship/trade/shipments/${id}${p}`;
+  const ck = d.checklist;
+  openModal(`<h2>${e(s.ref)} · ${s.direction === 'import' ? 'Import from' : 'Export to'} ${e(s.party_name)} ${tpill(s.status)}</h2>
+   <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${s.next.map((n) => `<button class="btn ${n === 'cancelled' ? 'ghost' : ''} sm" data-sn="${n}">${n === 'cancelled' ? 'Cancel shipment' : 'Mark ' + e(TRS[n].toLowerCase())}</button>`).join('')}</div>
+   ${s.locked ? '<p class="mu2">The goods are moving, so the goods, values and parties are fixed. You can still update tracking, customs and fees.</p>' : ''}
+   <details ${id ? '' : 'open'}><summary><b>Shipment details</b></summary>${shipFields(s, m)}<div class="acts"><button class="btn" id="ssv">Save details</button></div></details>
+   <h3>Goods <span class="mu2">(${e(s.currency)})</span></h3><div class="tw"><table class="t"><tr><th>Description</th><th>HS code</th><th>Origin</th><th class="r">Qty</th><th class="r">Unit</th><th class="r">Total</th><th class="r">kg/unit</th><th></th></tr>${d.items.map((i) => `<tr><td>${e(i.description)}</td><td>${e(i.hs_code || '—')}${i.hs_code ? '' : ' <span class="bad">!</span>'}</td><td>${e(i.origin_country || '')}</td><td class="r">${i.qty}</td><td class="r">${tnum(i.unit_value, 2)}</td><td class="r">${tnum(i.total)}</td><td class="r">${i.weight_kg == null ? '—' : i.weight_kg}</td><td>${s.locked ? '' : `<button class="btn ghost sm" data-di="${i.id}">Remove</button>`}</td></tr>`).join('') || '<tr><td colspan="8" class="mu">No goods yet.</td></tr>'}</table></div>
+   ${s.locked || s.status === 'cancelled' ? '' : `<div class="fgrid" style="margin-top:8px"><label class="f full">Add a line by hand<input id="gd" maxlength="200" placeholder="Description of the goods"></label><label class="f">Qty<input id="gq" type="number" min="1" value="1"></label><label class="f">Unit value<input id="gu" type="number" min="0" step="any"></label><label class="f">HS code<input id="gh" maxlength="14" placeholder="8517.12"></label><label class="f">Origin<input id="go" maxlength="2" placeholder="CN"></label><label class="f">kg per unit<input id="gw" type="number" min="0" step="any"></label></div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn sm" id="gadd">Add line</button><select id="gp" style="max-width:260px"><option value="">…or take a dropship product</option></select><input id="gpq" type="number" min="1" value="1" style="width:70px"><button class="btn ghost sm" id="gpa">Add product</button></div>`}
+   ${d.item_classes.length ? `<div class="note" style="margin-top:8px">Contains restricted goods: ${d.item_classes.map(e).join(', ')}. See the reminders below.</div>` : ''}
+   <h3>Landed cost</h3>${landedHtml(L)}
+   <h3>Documents</h3><p class="mu2">Each document gets its number the first time you open it, and keeps it after that.${s.locked ? '' : ' Until the goods are moving they follow any change you make.'}</p><div style="display:flex;gap:8px;flex-wrap:wrap">${docKinds.map(([k, x]) => `<a class="btn ${issued[k] ? 'ghost' : ''} sm" href="${url('/documents/' + k + '/pdf')}" target="_blank" rel="noopener">${e(x.label)}${issued[k] ? ' · ' + e(issued[k]) : ''}</a>`).join('')}</div>
+   <h3>Files</h3>${d.files.map((f) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid var(--line)"><span><a href="${url('/files/' + f.id)}" target="_blank" rel="noopener">${e(f.file_name)}</a> <span class="mu2">${e(FILEL[f.kind])} · ${dt(f.created)}</span></span><button class="btn ghost sm" data-df="${f.id}">Remove</button></div>`).join('') || '<p class="mu">No files yet.</p>'}
+   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><select id="fk">${m.file_kinds.map((k) => `<option value="${k}">${e(FILEL[k])}</option>`).join('')}</select><input type="file" id="ff" accept=".pdf,.jpg,.jpeg,.png,.docx"><button class="btn sm" id="fup">Upload</button></div>
+   <h3>Checklist <span class="mu2">(${ck.open} still to check)</span></h3><p class="mu2">${e(ck.note)}</p>
+   ${ck.items.map((r) => `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span><b>${r.status === 'done' ? '✓' : r.status === 'na' ? '–' : '○'}</b> ${e(r.title)}${r.required ? '' : ' <span class="mu2">(optional)</span>'}<br><span class="mu2">${e(TRCAT[r.category])}${r.authority ? ' · ' + e(r.authority) : ''}${r.detail ? ' · ' + e(r.detail) : ''}${r.url ? ` · <a href="${e(r.url)}" target="_blank" rel="noopener noreferrer">official page</a>` : ''}</span>${r.status !== 'pending' ? `<br><span class="mu2">${r.status === 'done' ? 'Done' : 'Not applicable'} by ${e(r.checked_by)}${r.note ? ': ' + e(r.note) : ''}</span>` : ''}</span>
+   <span style="display:flex;gap:4px;align-items:flex-start"><button class="btn ${r.status === 'done' ? '' : 'ghost'} sm" data-ck="${r.id}:done">Done</button><button class="btn ghost sm" data-ck="${r.id}:na">Not needed</button>${r.status !== 'pending' ? `<button class="btn ghost sm" data-ck="${r.id}:pending">Reset</button>` : ''}</span></div></div>`).join('')}
+   <h3>History</h3>${d.events.map((ev) => `<div style="font-size:12px;margin-bottom:3px"><b>${e(ev.note || ev.kind)}</b> <span class="mu2">${dt(ev.created)} · ${e(ev.actor)}</span></div>`).join('')}
+   <div class="acts"><button class="btn ghost" id="sx">Close</button>${s.status === 'draft' || s.status === 'cancelled' ? '<button class="btn ghost" id="sdl">Delete</button>' : ''}</div>`, true);
+  const bind = (sel, fn) => { const el = $(sel); if (el) el.addEventListener('click', guard(fn)); };
+  $('#sx').addEventListener('click', () => { closeModal(); views.dropship(); });
+  bind('#ssv', async () => { await TRD('/shipments/' + id, { method: 'PUT', body: readForm() }); toast('Saved'); reload(); });
+  bind('#sdl', async () => { if (!confirm('Delete this shipment?')) return; await TRD('/shipments/' + id, { method: 'DELETE' }); toast('Deleted'); closeModal(); views.dropship(); });
+  $$('[data-sn]').forEach((b) => b.addEventListener('click', guard(async () => { const to = b.dataset.sn; if (to === 'cancelled' && !confirm('Cancel this shipment?')) return; const note = to === 'in_transit' || to === 'cancelled' ? prompt('Add a note (optional)') || '' : ''; await TRD(`/shipments/${id}/status`, { body: { to, note } }); toast('Updated'); reload(); })));
+  $$('[data-di]').forEach((b) => b.addEventListener('click', guard(async () => { await TRD(`/shipments/${id}/items/${b.dataset.di}`, { method: 'DELETE' }); reload(); })));
+  bind('#gadd', async () => { await TRD(`/shipments/${id}/items`, { body: { description: val('#gd'), qty: val('#gq'), unit_value: val('#gu'), hs_code: val('#gh'), origin_country: val('#go'), weight_kg: val('#gw') } }); reload(); });
+  bind('#gpa', async () => { if (!val('#gp')) return toast('Choose a product', 'bad'); await TRD(`/shipments/${id}/items/from-product`, { body: { product_id: Number(val('#gp')), qty: val('#gpq') } }); reload(); });
+  const gp = $('#gp'); if (gp) DS('/products?listing=approved').then(({ products }) => gp.insertAdjacentHTML('beforeend', products.map((x) => `<option value="${x.id}">${e(x.name)}</option>`).join(''))).catch(() => {});
+  $$('[data-df]').forEach((b) => b.addEventListener('click', guard(async () => { if (!confirm('Remove this file?')) return; await TRD(`/shipments/${id}/files/${b.dataset.df}`, { method: 'DELETE' }); reload(); })));
+  bind('#fup', async () => {
+    const f = $('#ff').files[0]; if (!f) return toast('Choose a file', 'bad'); if (f.size > 6_000_000) return toast('That file is over 6 MB', 'bad');
+    const data = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => no(new Error('Could not read the file')); r.readAsDataURL(f); });
+    await TRD(`/shipments/${id}/files`, { body: { kind: val('#fk'), name: f.name, data } }); toast('File added'); reload();
+  });
+  $$('[data-ck]').forEach((b) => b.addEventListener('click', guard(async () => {
+    const [rid, status] = b.dataset.ck.split(':'); let note = '';
+    if (status === 'na') { note = prompt('Why does this not apply?') || ''; if (!note.trim()) return; } else if (status === 'done') note = prompt('What did you check? (reference number, who confirmed...)') || '';
+    await TRD(`/shipments/${id}/checklist/${rid}`, { method: 'PUT', body: { status, note } }); reload();
+  })));
+}
+const dsOpts = (list, sel, label = (x) => x.name) => list.map((x) => `<option value="${e(x.code)}" ${x.code === sel ? 'selected' : ''}>${e(label(x))}</option>`).join('');
+async function supplierForm(id) {
+  const d = id ? await DS('/suppliers/' + id) : { supplier: { name: '', country: '', currency: '', contact_name: '', email: '', whatsapp: '', address: '', payment_terms: '', payment_days: 0, processing_days: 3, shipping_methods: [], margin_type: null, margin_value: null, notes: '', status: 'active' }, performance: null, events: [], documents: [] };
+  const s = d.supplier, perf = d.performance;
+  openModal(`<h2>${id ? e(s.name) : 'Add a supplier'}</h2>
+   <div class="fgrid"><label class="f">Supplier name<input id="sn" maxlength="100" value="${e(s.name)}"></label>
+   <label class="f">Country<select id="sc"><option value="">Choose…</option>${dsOpts(dmeta.countries, s.country)}</select></label>
+   <label class="f">Contact person<input id="sct" maxlength="80" value="${e(s.contact_name)}"></label><label class="f">Email<input id="se" type="email" value="${e(s.email)}"></label>
+   <label class="f">WhatsApp (with country code)<input id="sw" value="${e(s.whatsapp)}" placeholder="+86 138 0000 0000"></label>
+   <label class="f">Invoices us in (currency)<select id="scu"><option value="">Choose…</option>${dsOpts(dmeta.currencies, s.currency, (x) => x.code + ' · ' + x.name)}</select></label>
+   <label class="f full">Address<input id="sa" maxlength="300" value="${e(s.address)}"></label>
+   <label class="f">Payment terms<input id="spt" maxlength="60" value="${e(s.payment_terms)}" placeholder="e.g. Prepaid, Net 14"></label>
+   <label class="f">Days we have to pay (0 = prepaid)<input id="spd" type="number" min="0" max="365" value="${e(s.payment_days)}"></label>
+   <label class="f">Average processing days<input id="sp" type="number" min="0" max="120" value="${e(s.processing_days)}"></label>
+   <div class="f"><span>Shipping methods</span><div style="display:flex;gap:12px;flex-wrap:wrap;padding-top:6px">${[['air', 'Air'], ['sea', 'Sea'], ['courier', 'Courier'], ['local', 'Local delivery']].map(([k, t]) => `<label class="chk"><input type="checkbox" class="sm" value="${k}" ${s.shipping_methods.includes(k) ? 'checked' : ''}> ${t}</label>`).join('')}</div></div>
+   <label class="f">Margin rule for this supplier<select id="smt"><option value="">Use the shop default</option><option value="percent" ${s.margin_type === 'percent' ? 'selected' : ''}>Percentage on landed cost</option><option value="fixed" ${s.margin_type === 'fixed' ? 'selected' : ''}>Fixed amount (₦)</option></select></label>
+   <label class="f">Margin value<input id="smv" type="number" min="0" step="0.5" value="${s.margin_value == null ? '' : e(s.margin_value)}"></label>
+   <label class="f full">Notes (private)<textarea id="snt" rows="3" maxlength="2000">${e(s.notes)}</textarea></label>
+   <label class="f">Status<select id="sst"><option value="active" ${s.status === 'active' ? 'selected' : ''}>Active</option><option value="paused" ${s.status === 'paused' ? 'selected' : ''}>Paused (hides their products)</option></select></label></div>
+   <div class="acts"><button class="btn ghost" id="sx">Close</button><button class="btn" id="ssv">${id ? 'Save changes' : 'Add supplier'}</button></div>
+   ${id ? `<h3 style="margin-top:16px">Documents <span class="mu2">stored privately, only admins can open them</span></h3>
+   ${d.documents.map((x) => `<div style="display:flex;gap:8px;align-items:center;padding:3px 0"><span class="pill">${e(x.kind)}</span><a href="/api/admin/dropship/suppliers/${id}/documents/${x.id}">${e(x.file_name)}</a><span class="mu2">${dsdate(x.created)} · ${Math.round(x.bytes / 1024)} KB</span><button class="btn ghost sm" data-ddel="${x.id}">Remove</button></div>`).join('') || '<p class="mu2">No documents yet.</p>'}
+   <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap"><select id="dk"><option value="registration">Business registration</option><option value="agreement">Contract / agreement</option><option value="other">Other</option></select><input type="file" id="df" accept=".pdf,.jpg,.jpeg,.png,.docx"><button class="btn sm" id="dup">Upload</button></div>
+   <h3 style="margin-top:16px">Performance</h3>
+   <p>${perf.orders} orders · ${perf.late} late${perf.on_time_pct == null ? '' : ' (' + perf.on_time_pct + '% on time)'} · ${perf.cancellations} cancelled · ${perf.defects} defects · ${perf.rating == null ? 'not rated yet' : '★ ' + perf.rating + ' from ' + perf.ratings + ' rating(s)'}</p>
+   <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><select id="ek"><option value="order">Order placed</option><option value="late">Late delivery</option><option value="cancellation">Cancellation</option><option value="defect">Defect</option><option value="rating">Rating (1-5)</option></select><input id="ev" type="number" min="1" max="500" value="1" style="width:80px" title="How many, or the stars for a rating"><input id="en" placeholder="Note or order number" maxlength="300" style="flex:1;min-width:160px"><button class="btn sm" id="eadd">Record</button></div>
+   ${d.events.slice(0, 8).map((x) => `<div class="mu2">${dsdate(x.created)} · ${e(x.kind)}${x.rating ? ' ' + x.rating + '★' : ''} ${e(x.ref)} ${e(x.note)} · ${e(x.created_by)}</div>`).join('')}` : ''}`, true);
+  const body = () => ({ name: $('#sn').value, country: $('#sc').value, contact_name: $('#sct').value, email: $('#se').value, whatsapp: $('#sw').value, currency: $('#scu').value, address: $('#sa').value, payment_terms: $('#spt').value, payment_days: $('#spd').value,
+    processing_days: $('#sp').value, shipping_methods: $$('.sm').filter((c) => c.checked).map((c) => c.value), margin_type: $('#smt').value, margin_value: $('#smv').value, notes: $('#snt').value, status: $('#sst').value });
+  $('#sx').addEventListener('click', () => { closeModal(); views.dropship(); });
+  $('#ssv').addEventListener('click', guard(async () => { if (id) await DS('/suppliers/' + id, { method: 'PUT', body: body() }); else await DS('/suppliers', { body: body() }); toast('Saved'); closeModal(); views.dropship(); }));
+  if (!id) return;
+  const again = () => supplierForm(id);
+  $('#dup').addEventListener('click', guard(async () => { const f = $('#df').files[0]; if (!f) return toast('Choose a file first', 'bad'); if (f.size > 8e6) return toast('That file is over 8 MB', 'bad'); await DS(`/suppliers/${id}/documents`, { body: { kind: $('#dk').value, name: f.name, data: await readFile(f) } }); toast('Uploaded'); again(); }));
+  $$('[data-ddel]').forEach((b) => b.addEventListener('click', guard(async () => { if (!confirm('Remove this document?')) return; await DS(`/suppliers/${id}/documents/${b.dataset.ddel}`, { method: 'DELETE' }); again(); })));
+  $('#eadd').addEventListener('click', guard(async () => { const k = $('#ek').value; await DS(`/suppliers/${id}/events`, { body: k === 'rating' ? { kind: k, rating: $('#ev').value, note: $('#en').value } : { kind: k, count: $('#ev').value, ref: $('#en').value } }); toast('Recorded'); again(); }));
+}
+
+/* ---- dropship products, import, settings ---- */
+const naira0 = (n) => (n == null ? '—' : '₦' + Math.round(n).toLocaleString('en-NG'));
+const LST = { pending: ['Needs review', 'warn'], approved: ['Live', 'ok'], rejected: ['Rejected', 'bad'] };
+async function dsProducts() {
+  const { products } = await DS('/products?' + new URLSearchParams({ listing: dstate.plist, q: dstate.pq, supplier_id: dstate.psup }));
+  const { suppliers } = await DS('/suppliers');
+  return `<div class="tbar"><input id="dpq" placeholder="Search name or supplier code" value="${e(dstate.pq)}"><select id="dpl"><option value="">All</option>${Object.entries(LST).map(([k, v]) => `<option value="${k}" ${dstate.plist === k ? 'selected' : ''}>${v[0]}</option>`).join('')}</select>
+   <select id="dps"><option value="">All suppliers</option>${suppliers.map((s) => `<option value="${s.id}" ${String(dstate.psup) === String(s.id) ? 'selected' : ''}>${e(s.name)}</option>`).join('')}</select>
+   <button class="btn ghost sm" id="dpimp">⬆ Import catalogue</button><button class="btn sm" id="dpnew">+ Add product</button></div>
+  <div class="panel"><div class="tw"><table class="t"><tr><th>Product</th><th>Supplier</th><th>Price</th><th>Break-even</th><th>Profit / sale</th><th>Status</th></tr>${products.map((p) => `<tr class="click" data-dp="${p.id}"><td><b>${e(p.name)}</b><div class="mu2">${e(p.supplier_sku)}${p.photos_pending ? ' · photos copying…' : p.images.length ? '' : ' · no photo'}${p.has_ship_times ? '' : ' · no shipping times'}</div></td><td>${e(p.supplier_name)}<div class="mu2">${e(p.supplier_currency)} ${Number(p.cost).toLocaleString()}</div></td><td>${naira0(p.price)}</td><td>${naira0(p.break_even)}</td>
+   <td>${p.profit == null ? '<span class="pill bad">needs a rate</span>' : `<span class="${p.below_break_even ? 'bad' : ''}">${naira0(p.profit)}</span> <span class="mu2">${p.margin_pct == null ? '' : p.margin_pct + '%'}</span>`}</td>
+   <td><span class="pill ${LST[p.listing][1]}">${LST[p.listing][0]}</span>${p.supplier_status === 'paused' ? ' <span class="pill bad">supplier paused</span>' : ''}${p.active ? '' : ' <span class="pill">hidden</span>'}</td></tr>`).join('') || '<tr><td colspan="6" class="mu">No dropship products yet. Import a supplier catalogue or add one by hand.</td></tr>'}</table></div>
+   <p class="mu2">Nothing here is visible to customers until you approve it. Customers never see the supplier, supplier code, cost or margin.</p></div>`;
+}
+async function productDS(id) {
+  const [{ suppliers }, cats] = await Promise.all([DS('/suppliers'), api('/api/admin/categories')]);
+  const d = id ? await DS('/products/' + id) : null;
+  const p = d ? d.product : { supplier_id: dstate.psup || (suppliers[0] && suppliers[0].id) || '', supplier_sku: '', supplier_url: '', name: '', store: cfgStores.find((s) => s.slug !== 'pharmacy').slug, category_id: '', brand: '', description: '', images: [], cost: '', ship_cost: 0, supplier_stock: '', processing_days: '', ship_times: {}, weight_kg: '', length_cm: '', width_cm: '', height_cm: '', hs_code: '', origin_country: '', ships_from: '', duty_pct: '', tax_pct: '', margin_type: '', margin_value: '', price_mode: 'auto', price: '', active: 1, listing: 'new' };
+  if (!suppliers.length) return toast('Add a supplier first', 'bad');
+  let images = [...p.images];
+  const T = p.ship_times || {}, nt = T.NG || T.ALL || {}, v = (x) => (x == null ? '' : e(x));
+  openModal(`<h2>${id ? e(p.name) : 'Add a dropship product'} ${id ? `<span class="pill ${LST[p.listing][1]}">${LST[p.listing][0]}</span>` : ''}</h2>${p.listing_note ? `<p class="mu2">Reviewer note: ${e(p.listing_note)}</p>` : ''}
+  ${d && d.restriction && d.restriction.hits.length ? `<div class="note" style="margin:8px 0;border-color:var(--bad)"><b>${d.restriction.action === 'block' ? 'Restricted item: it cannot be listed.' : 'Restricted item: needs a compliance check before it can be approved.'}</b><br>${d.restriction.hits.map((h) => e(h.label) + ' (' + e(h.why) + ')').join('; ')}${d.restriction.checked ? `<br>Checked by ${e(p.compliance_by)}: ${e(p.compliance_note)}` : ''}</div>` : ''}
+  <div class="fgrid"><label class="f">Supplier<select id="xs">${suppliers.map((s) => `<option value="${s.id}" data-cur="${s.currency}" ${Number(s.id) === Number(p.supplier_id) ? 'selected' : ''}>${e(s.name)} (${s.currency})</option>`).join('')}</select></label>
+   <label class="f">Supplier SKU / code<input id="xk" maxlength="60" value="${v(p.supplier_sku)}"></label>
+   <label class="f full">Product name<input id="xn" maxlength="140" value="${v(p.name)}"></label>
+   <label class="f">Department<select id="xst">${cfgStores.filter((s) => s.slug !== 'pharmacy').map((s) => `<option value="${e(s.slug)}" ${s.slug === p.store ? 'selected' : ''}>${e(s.name)}</option>`).join('')}</select></label>
+   <label class="f">Category<select id="xc"></select></label><label class="f">Brand<input id="xb" maxlength="60" value="${v(p.brand)}"></label><label class="f">Supplier's product link<input id="xu" value="${v(p.supplier_url)}" placeholder="https://"></label>
+   <label class="f full">Description<textarea id="xd" rows="3" maxlength="4000">${v(p.description)}</textarea></label></div>
+  <div id="ximgs" style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0"></div><input type="file" id="xf" accept="image/png,image/jpeg,image/webp,image/gif"> <span class="mu2">${d && d.product.photos_pending ? 'Supplier photos are still being copied…' : ''}</span>
+  <h3 style="margin-top:14px">Cost and delivery</h3><div class="fgrid">
+   <label class="f">Supplier cost per unit <span id="xcur"></span><input id="xcost" type="number" min="0" step="0.01" value="${v(p.cost)}"></label><label class="f">Shipping per unit (their currency)<input id="xship" type="number" min="0" step="0.01" value="${v(p.ship_cost)}"></label>
+   <label class="f">Supplier stock (blank = unknown)<input id="xstk" type="number" min="0" value="${v(p.supplier_stock)}"></label><label class="f">Processing days (blank = supplier's average)<input id="xpd" type="number" min="0" max="120" value="${v(p.processing_days)}"></label>
+   <label class="f">Shipping to Nigeria: min days<input id="xtmin" type="number" min="0" value="${v(nt.min)}"></label><label class="f">max days<input id="xtmax" type="number" min="0" value="${v(nt.max)}"></label>
+   <label class="f">Ships from (blank = supplier's country)<select id="xsf"><option value="">Supplier's country</option>${dsOpts(dmeta.countries, p.ships_from)}</select></label><label class="f">Country of origin<select id="xor"><option value="">—</option>${dsOpts(dmeta.countries, p.origin_country)}</select></label>
+   <label class="f">HS code<input id="xhs" maxlength="20" value="${v(p.hs_code)}" placeholder="8518.30"></label><label class="f">Weight (kg)<input id="xw" type="number" min="0" step="0.001" value="${v(p.weight_kg)}"></label>
+   <label class="f">Length × width × height (cm)<span style="display:flex;gap:4px"><input id="xl" type="number" min="0" step="0.1" value="${v(p.length_cm)}"><input id="xwd" type="number" min="0" step="0.1" value="${v(p.width_cm)}"><input id="xh" type="number" min="0" step="0.1" value="${v(p.height_cm)}"></span></label></div>
+  <h3 style="margin-top:14px">Price</h3><div class="fgrid">
+   <label class="f">Duty % (blank = shop default${d ? ' ' + d.defaults.duty_pct + '%' : ''})<input id="xduty" type="number" min="0" step="0.1" value="${v(p.duty_pct)}"></label><label class="f">Tax / VAT % (blank = default${d ? ' ' + d.defaults.tax_pct + '%' : ''})<input id="xtax" type="number" min="0" step="0.1" value="${v(p.tax_pct)}"></label>
+   <label class="f">Margin for this product<select id="xmt"><option value="">Use category / supplier / shop rule</option><option value="percent" ${p.margin_type === 'percent' ? 'selected' : ''}>Percentage on landed cost</option><option value="fixed" ${p.margin_type === 'fixed' ? 'selected' : ''}>Fixed ₦ amount</option></select></label><label class="f">Margin value<input id="xmv" type="number" min="0" step="0.5" value="${v(p.margin_value)}"></label>
+   <label class="f">Selling price<select id="xpm"><option value="auto" ${p.price_mode !== 'manual' ? 'selected' : ''}>Calculated automatically</option><option value="manual" ${p.price_mode === 'manual' ? 'selected' : ''}>I will set it</option></select></label><label class="f">My price (₦)<input id="xprice" type="number" min="1" value="${p.price_mode === 'manual' ? v(p.price) : ''}"></label></div>
+  <div class="panel" id="xcalc" style="margin-top:8px"></div>
+  <label class="chk" style="margin:8px 0"><input type="checkbox" id="xact" ${p.active ? 'checked' : ''}> Visible when approved</label>
+  <div class="acts"><button class="btn ghost" id="xclose">Close</button>${id ? `<button class="btn ghost" id="xrej">Reject…</button>` : ''}<button class="btn" id="xsave">${id ? 'Save changes' : 'Add product'}</button>${id && p.listing !== 'approved' ? '<button class="btn" id="xok">Approve &amp; publish</button>' : ''}</div>
+  <div id="xchecks" class="mu2" style="margin-top:6px">${d && p.listing !== 'approved' ? d.checks.map((c) => '• ' + e(c)).join('<br>') : ''}</div>`, true);
+  const drawCats = () => { const st = $('#xst').value; $('#xc').innerHTML = '<option value="">—</option>' + cats.categories.filter((c) => c.store === st).map((c) => `<option value="${c.id}" ${Number(c.id) === Number(p.category_id) ? 'selected' : ''}>${e(c.name)}</option>`).join(''); };
+  const drawImgs = () => { $('#ximgs').innerHTML = images.map((u, i) => `<span style="position:relative"><img src="${e(u)}" style="width:56px;height:56px;object-fit:cover;border-radius:6px"><button class="btn ghost sm" data-xi="${i}" style="position:absolute;top:-6px;right:-6px;padding:0 5px">×</button></span>`).join(''); $$('[data-xi]').forEach((b) => b.addEventListener('click', () => { images.splice(Number(b.dataset.xi), 1); drawImgs(); })); };
+  const body = () => {
+    const times = {}; if ($('#xtmin').value !== '' && $('#xtmax').value !== '') times.NG = { min: Number($('#xtmin').value), max: Number($('#xtmax').value) };
+    const keep = { ...T }; delete keep.NG; return { supplier_id: $('#xs').value, supplier_sku: $('#xk').value, name: $('#xn').value, store: $('#xst').value, category_id: $('#xc').value, brand: $('#xb').value, supplier_url: $('#xu').value, description: $('#xd').value, images,
+      cost: $('#xcost').value, ship_cost: $('#xship').value, supplier_stock: $('#xstk').value, processing_days: $('#xpd').value, ship_times: { ...keep, ...times }, ships_from: $('#xsf').value, origin_country: $('#xor').value, hs_code: $('#xhs').value,
+      weight_kg: $('#xw').value, length_cm: $('#xl').value, width_cm: $('#xwd').value, height_cm: $('#xh').value, duty_pct: $('#xduty').value, tax_pct: $('#xtax').value, margin_type: $('#xmt').value, margin_value: $('#xmv').value,
+      price_mode: $('#xpm').value, price: $('#xprice').value, active: $('#xact').checked }; };
+  let tm = null;
+  const calc = () => { clearTimeout(tm); tm = setTimeout(async () => {
+    $('#xcur').textContent = '(' + $('#xs').selectedOptions[0].dataset.cur + ')'; const b = body();
+    if (!(Number(b.cost) > 0)) { $('#xcalc').innerHTML = '<span class="mu2">Enter the supplier cost to see the price.</span>'; return; }
+    try { const { pricing: c } = await DS('/price-preview', { body: { supplier_id: b.supplier_id, cost: b.cost, ship_cost: b.ship_cost, duty_pct: b.duty_pct, tax_pct: b.tax_pct, margin_type: b.margin_type, margin_value: b.margin_value, category_id: b.category_id, price_mode: b.price_mode, price: b.price } });
+      $('#xcalc').innerHTML = `<table class="t"><tr><td>Goods</td><td>${naira0(c.goods)}</td><td>Shipping</td><td>${naira0(c.shipping)}</td></tr><tr><td>Duty (est.)</td><td>${naira0(c.duty)}</td><td>Tax (est.)</td><td>${naira0(c.tax)}</td></tr>
+       <tr><td><b>Landed cost</b></td><td><b>${naira0(c.landed)}</b></td><td>Payment fee</td><td>${naira0(c.fee)}</td></tr><tr><td>Margin rule</td><td>${c.margin_rule.type === 'fixed' ? naira0(c.margin_rule.value) : c.margin_rule.value + '%'} <span class="mu2">(${c.margin_source})</span></td><td>Calculated price</td><td><b>${naira0(c.calculated_price)}</b></td></tr>
+       <tr><td>Break-even price</td><td>${naira0(c.break_even)}</td><td>Price charged</td><td><b>${naira0(c.price)}</b></td></tr></table><p style="margin:6px 0 0"><b class="${c.below_break_even ? 'bad' : ''}">Profit per sale: ${naira0(c.profit)}</b> (${c.margin_pct}% of price, ${c.markup_pct}% on landed cost) <span class="mu2">· rate ${c.rate} ₦ per ${c.currency}</span>${c.below_break_even ? '<br><b class="bad">This price loses money.</b>' : ''}</p>
+       <p class="mu2" style="margin:4px 0 0">Duty and tax are estimates. Check them with your clearing agent.</p>`; } catch (err) { $('#xcalc').innerHTML = `<span class="bad">${e(err.message)}</span>`; } }, 250); };
+  drawCats(); drawImgs(); calc();
+  $('#xst').addEventListener('change', drawCats);
+  $$('#xs,#xcost,#xship,#xduty,#xtax,#xmt,#xmv,#xpm,#xprice,#xc').forEach((el) => { el.addEventListener('input', calc); el.addEventListener('change', calc); });
+  $('#xf').addEventListener('change', guard(async () => { const f = $('#xf').files[0]; if (!f) return; if (f.size > 2e6) return toast('Photo is over 2 MB', 'bad'); images.push((await api('/api/admin/upload', { body: { data: await readFile(f) } })).url); drawImgs(); }));
+  $('#xclose').addEventListener('click', () => { closeModal(); views.dropship(); });
+  const save = async () => { if (id) await DS('/products/' + id, { method: 'PUT', body: body() }); else id = (await DS('/products', { body: body() })).id; };
+  $('#xsave').addEventListener('click', guard(async () => { await save(); toast('Saved'); closeModal(); views.dropship(); }));
+  const ok = $('#xok'); if (ok) ok.addEventListener('click', guard(async () => { await save(); const f = await DS('/products/' + id); let note = ''; if (f.restriction.action === 'review' && !f.restriction.checked) { note = prompt('This is a restricted item (' + f.restriction.hits.map((h) => h.label).join(', ') + '). Check the permits and licences first. Then write what you checked:') || ''; if (note.trim().length < 5) return toast('Write what you checked to approve it', 'bad'); } await DS(`/products/${id}/review`, { body: { decision: 'approved', note } }); toast('Approved. It is now live.'); closeModal(); views.dropship(); }));
+  const rej = $('#xrej'); if (rej) rej.addEventListener('click', guard(async () => { const note = prompt('Why is it being rejected? (the next person will see this)'); if (!note) return; await DS(`/products/${id}/review`, { body: { decision: 'rejected', note } }); toast('Rejected'); closeModal(); views.dropship(); }));
+}
+async function dsSettings() {
+  const { settings: s, rates, category_margins: cm, categories } = await DS('/settings');
+  const row = (k, label, step = '0.1') => `<label class="f">${label}<input data-set="${k}" type="number" step="${step}" min="0" value="${e(s[k])}"></label>`;
+  const cmap = Object.fromEntries(cm.map((m) => [m.category_id, m]));
+  return `<div class="panel"><h3>Pricing defaults</h3><div class="fgrid"><label class="f">Default margin<select data-set="margin_type"><option value="percent" ${s.margin_type === 'percent' ? 'selected' : ''}>Percentage on landed cost</option><option value="fixed" ${s.margin_type === 'fixed' ? 'selected' : ''}>Fixed ₦ amount</option></select></label>${row('margin_value', 'Margin value')}
+   ${row('duty_pct', 'Default import duty %')}${row('tax_pct', 'Default tax / VAT %')}${row('fee_pct', 'Payment fee %')}${row('fee_flat', 'Flat payment fee ₦', '1')}${row('fee_flat_from', 'Flat fee applies from ₦', '1')}${row('fee_cap', 'Payment fee cap ₦', '1')}${row('round_to', 'Round prices up to ₦', '1')}${row('eta_buffer_days', 'Delivery safety buffer (days)', '1')}</div>
+   <p class="mu2">The duty and tax figures are placeholders until you confirm them with your clearing agent. A product, its category or its supplier can have its own margin. Order of priority: product, category, supplier, then this default.</p><button class="btn sm" id="dssave">Save defaults</button></div>
+  <div class="panel"><h3>Exchange rates <span class="mu2">Naira for 1 unit of the currency. Prices never move by themselves when you change a rate.</span></h3>
+   ${rates.missing.length ? `<p class="bad">Needs a rate: ${rates.missing.map(e).join(', ')}</p>` : ''}
+   <div class="tw"><table class="t"><tr><th>Currency</th><th>₦ per 1</th><th>Updated</th><th></th></tr>${rates.rates.map((r) => `<tr><td>${e(r.currency)} <span class="mu2">${e(r.name)}</span></td><td><input type="number" min="0" step="0.0001" value="${r.ngn_per_unit}" data-rate="${r.currency}" style="width:130px"></td><td class="mu2">${dsdate(r.updated)} ${e(r.updated_by)}</td><td><button class="btn ghost sm" data-rsave="${r.currency}">Save</button></td></tr>`).join('')}</table></div>
+   <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><select id="rnewc"><option value="">Add a currency…</option>${[...rates.missing.map((c) => ({ code: c, name: 'used by a supplier' })), ...dmeta.currencies.filter((c) => c.code !== 'NGN' && !rates.missing.includes(c.code))].map((c) => `<option value="${c.code}">${c.code} · ${e(c.name)}</option>`).join('')}</select><input id="rnewv" type="number" min="0" step="0.0001" placeholder="₦ per 1" style="width:130px"><button class="btn sm" id="rnew">Save rate</button></div></div>
+  <div class="panel"><h3>Margin by category</h3><div class="tw"><table class="t"><tr><th>Category</th><th>Rule</th><th>Value</th><th></th></tr>${categories.map((c) => { const m = cmap[c.id] || {}; return `<tr><td>${e(c.name)} <span class="mu2">${e(c.store)}</span></td><td><select data-cmt="${c.id}"><option value="">Not set</option><option value="percent" ${m.margin_type === 'percent' ? 'selected' : ''}>%</option><option value="fixed" ${m.margin_type === 'fixed' ? 'selected' : ''}>₦</option></select></td><td><input type="number" min="0" step="0.5" data-cmv="${c.id}" value="${m.margin_value == null ? '' : m.margin_value}" style="width:90px"></td><td><button class="btn ghost sm" data-cmsave="${c.id}">Save</button></td></tr>`; }).join('')}</table></div></div>`;
+}
+function dsSettingsWire() {
+  on('#dssave', 'click', guard(async () => { const b = {}; $$('[data-set]').forEach((el) => { b[el.dataset.set] = el.value; }); await DS('/settings', { method: 'PUT', body: b }); toast('Saved'); }));
+  onAll('[data-rsave]', 'click', guard(async (el) => { await DS('/rates/' + el.dataset.rsave, { method: 'PUT', body: { ngn_per_unit: $(`[data-rate="${el.dataset.rsave}"]`).value } }); toast('Rate saved'); views.dropship(); }));
+  on('#rnew', 'click', guard(async () => { if (!$('#rnewc').value) return toast('Choose a currency', 'bad'); await DS('/rates/' + $('#rnewc').value, { method: 'PUT', body: { ngn_per_unit: $('#rnewv').value } }); toast('Rate saved'); views.dropship(); }));
+  onAll('[data-cmsave]', 'click', guard(async (el) => { const id = el.dataset.cmsave; await DS('/category-margins/' + id, { method: 'PUT', body: { margin_type: $(`[data-cmt="${id}"]`).value, margin_value: $(`[data-cmv="${id}"]`).value } }); toast('Saved'); }));
+}
+/* ---- Countries & currencies ---- */
+const DR = (p, o) => DS('/regions' + p, o);
+let tradeData = null;
+async function dsTrade() {
+  const d = tradeData = await DR('');
+  const g = d.gateways, ago = (t) => (t ? new Date(t * 1000).toLocaleString() : '—');
+  const zname = Object.fromEntries(d.zones.map((z) => [z.id, z.name]));
+  return `<div class="panel"><h3>How customers pay</h3>
+   <p>Paystack takes Naira and these currencies: <b>${g.paystack_currencies.map(e).join(', ')}</b> (only where the country is marked as a Paystack country).</p>
+   <p>Stripe (international cards): <b class="${g.stripe_enabled ? 'ok' : 'bad'}">${g.stripe_enabled ? 'ON' : 'OFF'}</b> ${g.stripe_enabled ? '' : `<span class="mu2">Needs STRIPE_ENABLED=1 ${g.stripe_key_set ? '' : 'and STRIPE_SECRET_KEY '}in the server settings.</span>`} ${g.stripe_enabled && !g.stripe_webhook_set ? '<span class="bad">STRIPE_WEBHOOK_SECRET is not set: customers are confirmed only when they return to the site.</span>' : ''}</p>
+   <p>Automatic exchange rates: <b class="${d.feed.enabled ? 'ok' : ''}">${d.feed.enabled ? 'ON' : 'OFF'}</b> ${d.feed.enabled ? `<button class="btn ghost sm" id="fxnow">Update rates now</button> <span class="mu2">Rates older than ${d.feed.max_age_hours} hours stop being used.</span>` : '<span class="mu2">Set FX_FEED_ENABLED=1 to turn it on. Rates you type by hand are never changed by the feed unless you unlock them.</span>'}</p>
+   <label class="f" style="max-width:260px">Usual weight of one item (kg)<input id="dkg" type="number" step="0.1" min="0.1" value="${d.default_item_kg}"></label><button class="btn sm" id="dkgsave">Save</button><span class="mu2"> Used for items with no weight of their own, to work out the delivery fee.</span></div>
+  <div class="panel"><h3>Currencies</h3><p class="mu2">Prices stay in Naira. A currency can be switched on once it has a rate. The markup is added to what the customer is charged, to cover bank and gateway currency costs. The rate is fixed when the order is placed.</p>
+   <div class="tw"><table class="t"><tr><th>Currency</th><th>On</th><th>₦ per 1</th><th>Source</th><th>Updated</th><th>Markup %</th><th></th></tr>${d.currencies.filter((c) => c.code !== 'NGN').map((c) => `<tr><td><b>${e(c.code)}</b> ${c.enabled && !c.usable ? '<span class="bad">no usable rate</span>' : ''}</td>
+    <td><input type="checkbox" data-ce="${c.code}" ${c.enabled ? 'checked' : ''} aria-label="${e(c.code)} on"></td>
+    <td><input type="number" step="0.0001" min="0" style="width:120px" data-cr="${c.code}" value="${c.ngn_per_unit == null ? '' : c.ngn_per_unit}"></td>
+    <td>${c.source ? e(c.source) + (c.locked ? ' (locked)' : ' (auto)') : '—'}${c.source && d.feed.enabled ? ` <label class="mu2"><input type="checkbox" data-cl="${c.code}" ${c.locked ? 'checked' : ''}> lock</label>` : ''}</td><td class="mu2">${ago(c.updated)}</td>
+    <td><input type="number" step="0.1" min="0" max="20" style="width:70px" data-cm="${c.code}" value="${c.markup_pct}"></td><td><button class="btn sm" data-csave="${c.code}">Save</button></td></tr>`).join('')}</table></div>
+   <div style="display:flex;gap:6px;margin-top:8px"><select id="cnewc"><option value="">Add a currency…</option>${dmeta.currencies.filter((c) => !d.currencies.some((x) => x.code === c.code)).map((c) => `<option value="${c.code}">${e(c.code)} · ${e(c.name)}</option>`).join('')}</select><button class="btn ghost sm" id="cnew">Add</button></div></div>
+  <div class="panel"><h3>Shipping zones</h3><p class="mu2">Delivery fee in Naira for a parcel up to each weight. Above the last band, the fee per extra kg is added. A zone is only used while it is switched on.</p>
+   ${d.zones.map((z) => `<div class="panel" style="margin:8px 0"><div class="fgrid"><label class="f">Zone<input data-zf="name" data-z="${z.id}" value="${e(z.name)}"></label><label class="f">Fee per extra kg (₦)<input type="number" min="0" data-zf="extra" data-z="${z.id}" value="${z.extra_per_kg}"></label>
+    <label class="f">Days from dispatch (from)<input type="number" min="0" data-zf="lo" data-z="${z.id}" value="${z.eta_min}"></label><label class="f">to<input type="number" min="0" data-zf="hi" data-z="${z.id}" value="${z.eta_max}"></label></div>
+    <label class="f">Weight bands, one per line as <code>up to kg : fee in ₦</code><textarea rows="${Math.max(3, z.rates.length)}" data-zf="rates" data-z="${z.id}">${z.rates.map((r) => `${r.up_to_kg}: ${r.fee}`).join('\n')}</textarea></label>
+    <label class="chk"><input type="checkbox" data-zf="active" data-z="${z.id}" ${z.active ? 'checked' : ''}> Switched on</label> <button class="btn sm" data-zsave="${z.id}">Save zone</button> <span class="mu2">${d.countries.filter((c) => c.zone_id === z.id).length} countries</span></div>`).join('')}
+   <button class="btn ghost sm" id="znew">+ New zone</button></div>
+  <div class="panel"><h3>Countries</h3><p class="mu2">A country can be switched on once it has a zone that is on. Tax is off until you choose how you charge it there: <b>added</b> on top of the price, or <b>included</b> in it. The percentages are usual standard rates, for reference. Please confirm with your accountant.</p>
+   <div class="tw"><table class="t"><tr><th>Country</th><th>On</th><th>Zone</th><th>Tax</th><th>Phone</th><th>Postcode</th><th></th></tr>${d.countries.map((c) => `<tr><td><b>${e(c.name)}</b> <span class="mu2">${c.code}</span></td><td>${c.enabled ? '<span class="ok">On</span>' : 'Off'}</td><td>${c.code === 'NG' ? 'State fees' : e(zname[c.zone_id] || '—')}</td><td>${c.tax_mode === 'none' ? 'None' : e(c.tax_label) + ' ' + c.tax_pct + '% ' + c.tax_mode}</td><td class="mu2">+${e(c.dial_code)} · ${c.phone_min}–${c.phone_max} digits</td><td class="mu2">${c.postcode_required ? 'Required' : 'Optional'}</td><td><button class="btn ghost sm" data-ctry="${c.code}">Edit</button></td></tr>`).join('')}</table></div>
+   <div style="display:flex;gap:6px;margin-top:8px"><select id="ctrynew"><option value="">Add another country…</option>${dmeta.countries.filter((c) => !d.countries.some((x) => x.code === c.code)).map((c) => `<option value="${c.code}">${e(c.name)}</option>`).join('')}</select><button class="btn ghost sm" id="ctryadd">Add</button></div></div>
+  <div class="panel"><h3>Products that cannot go to a country</h3><p class="mu2"><b>Banned</b>: never sold there. <b>Needs approval</b>: not sold online; the customer is asked to contact you.</p>
+   <div class="tw"><table class="t"><tr><th>Country</th><th>What</th><th>Rule</th><th>Note</th><th></th></tr>${d.restrictions.map((r) => `<tr><td>${e(r.country)}</td><td>${e(r.product_name ? 'Product: ' + r.product_name : r.category_name ? 'Category: ' + r.category_name : 'Department: ' + (r.store_name || r.store))}</td><td>${r.kind === 'banned' ? 'Banned' : 'Needs approval'}</td><td class="mu2">${e(r.note)}</td><td><button class="btn ghost sm" data-rdel="${r.id}">Remove</button></td></tr>`).join('') || '<tr><td colspan="5" class="mu2">None yet.</td></tr>'}</table></div>
+   <div class="fgrid" style="margin-top:8px"><label class="f">Country<select id="rc">${d.countries.map((c) => `<option value="${c.code}">${e(c.name)}</option>`).join('')}</select></label>
+    <label class="f">Applies to<select id="rt"><option value="store">A whole department</option><option value="category">A category</option><option value="product">One product (by number)</option></select></label>
+    <label class="f">Which<select id="rw">${d.stores.map((x) => `<option value="${e(x.slug)}">${e(x.name)}</option>`).join('')}</select></label>
+    <label class="f">Rule<select id="rk"><option value="banned">Banned</option><option value="restricted">Needs approval</option></select></label></div>
+   <label class="f">Note (optional)<input id="rn" maxlength="200"></label><button class="btn sm" id="radd">Add rule</button></div>`;
+}
+function dsTradeWire() {
+  const d = tradeData, reload = () => views.dropship();
+  on('#fxnow', 'click', guard(async () => { const r = await DR('/fx/refresh', { method: 'POST', body: {} }); toast(`Updated ${r.updated.length} rate(s)` + (r.rejected.length ? `, ignored ${r.rejected.join(', ')} (jumped more than 25%)` : '')); reload(); }));
+  on('#dkgsave', 'click', guard(async () => { await DR('/settings', { method: 'PUT', body: { default_item_kg: $('#dkg').value } }); toast('Saved'); }));
+  onAll('[data-csave]', 'click', guard(async (el) => {
+    const c = el.dataset.csave, rate = $(`[data-cr="${c}"]`).value, lock = $(`[data-cl="${c}"]`);
+    const cur = d.currencies.find((x) => x.code === c);
+    if (rate && Number(rate) !== cur.ngn_per_unit) await DS('/rates/' + c, { method: 'PUT', body: { ngn_per_unit: rate } });
+    await DR('/currencies/' + c, { method: 'PUT', body: { enabled: $(`[data-ce="${c}"]`).checked, markup_pct: $(`[data-cm="${c}"]`).value, ...(lock ? { locked: lock.checked } : {}) } });
+    toast('Saved'); reload();
+  }));
+  on('#cnew', 'click', guard(async () => { if (!$('#cnewc').value) return toast('Choose a currency', 'bad'); await DR('/currencies', { method: 'POST', body: { code: $('#cnewc').value } }); reload(); }));
+  const zoneBody = (id) => { const f = (k) => $(`[data-zf="${k}"][data-z="${id}"]`); return { name: f('name').value, extra_per_kg: f('extra').value, eta_min: f('lo').value, eta_max: f('hi').value, active: f('active').checked, rates: f('rates').value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const [k, v] = l.split(':'); return { up_to_kg: (k || '').trim(), fee: (v || '').trim() }; }) }; };
+  onAll('[data-zsave]', 'click', guard(async (el) => { await DR('/zones/' + el.dataset.zsave, { method: 'PUT', body: zoneBody(el.dataset.zsave) }); toast('Zone saved'); reload(); }));
+  on('#znew', 'click', guard(async () => { const name = prompt('Name of the new zone'); if (!name) return; await DR('/zones', { method: 'POST', body: { name, extra_per_kg: 0, eta_min: 7, eta_max: 14, active: false, rates: [{ up_to_kg: 1, fee: 20000 }] } }); reload(); }));
+  on('#ctryadd', 'click', guard(async () => { if (!$('#ctrynew').value) return toast('Choose a country', 'bad'); await DR('/countries', { method: 'POST', body: { code: $('#ctrynew').value } }); reload(); }));
+  onAll('[data-ctry]', 'click', (el) => countryForm(el.dataset.ctry));
+  const fill = () => { const t = $('#rt').value; $('#rw').innerHTML = t === 'store' ? d.stores.map((x) => `<option value="${e(x.slug)}">${e(x.name)}</option>`).join('') : t === 'category' ? d.categories.map((x) => `<option value="${x.id}">${e(x.name)} (${e(x.store)})</option>`).join('') : '<option value="">Type the product number below</option>'; };
+  on('#rt', 'change', fill);
+  on('#radd', 'click', guard(async () => {
+    const t = $('#rt').value; let w = $('#rw').value;
+    if (t === 'product') { w = prompt('Product number (the id shown in the product list)'); if (!w) return; }
+    await DR('/restrictions', { method: 'POST', body: { country: $('#rc').value, kind: $('#rk').value, note: $('#rn').value, [t === 'store' ? 'store' : t === 'category' ? 'category_id' : 'product_id']: w } }); toast('Rule added'); reload();
+  }));
+  onAll('[data-rdel]', 'click', guard(async (el) => { await DR('/restrictions/' + el.dataset.rdel, { method: 'DELETE' }); reload(); }));
+}
+function countryForm(code) {
+  const d = tradeData, c = d.countries.find((x) => x.code === code);
+  openModal(`<h2>${e(c.name)}</h2><div class="fgrid">
+   <label class="chk"><input type="checkbox" id="kon" ${c.enabled ? 'checked' : ''} ${c.code === 'NG' ? 'disabled' : ''}> Customers can order to this country</label>
+   ${c.code === 'NG' ? '<p class="mu2">Nigeria uses the state fees under Settings.</p>' : `<label class="f">Shipping zone<select id="kz"><option value="">None</option>${d.zones.map((z) => `<option value="${z.id}" ${z.id === c.zone_id ? 'selected' : ''}>${e(z.name)}${z.active ? '' : ' (off)'}</option>`).join('')}</select></label>`}
+   <label class="f">Usual currency<select id="kc">${dmeta.currencies.map((x) => `<option value="${x.code}" ${x.code === c.currency ? 'selected' : ''}>${e(x.code)}</option>`).join('')}</select></label>
+   <label class="f">Tax<select id="kt"><option value="none" ${c.tax_mode === 'none' ? 'selected' : ''}>None</option><option value="added" ${c.tax_mode === 'added' ? 'selected' : ''}>Added on top of the price</option><option value="included" ${c.tax_mode === 'included' ? 'selected' : ''}>Already included in the price</option></select></label>
+   <label class="f">Tax rate %<input id="kp" type="number" step="0.01" min="0" max="40" value="${c.tax_pct}"></label><label class="f">Tax name<input id="kl" maxlength="20" value="${e(c.tax_label)}"></label>
+   <label class="f">Dial code<input id="kd" maxlength="5" value="${e(c.dial_code)}"></label><label class="f">Phone digits, shortest<input id="kmin" type="number" value="${c.phone_min}"></label><label class="f">longest<input id="kmax" type="number" value="${c.phone_max}"></label>
+   <label class="chk"><input type="checkbox" id="kpr" ${c.postcode_required ? 'checked' : ''}> Postcode required</label><label class="f">Postcode pattern (regular expression, optional)<input id="kre" maxlength="120" value="${e(c.postcode_regex)}"></label>
+   <label class="f">Name for the region box<input id="krl" maxlength="30" value="${e(c.region_label)}"></label><label class="chk"><input type="checkbox" id="kps" ${c.paystack_ok ? 'checked' : ''}> Paystack may be offered here</label></div>
+   <div class="acts"><button class="btn ghost" id="kclose">Close</button><button class="btn" id="ksave">Save</button></div>`, true);
+  const bind = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
+  bind('#kclose', closeModal);
+  bind('#ksave', guard(async () => {
+    await DR('/countries/' + code, { method: 'PUT', body: { enabled: $('#kon').checked, zone_id: $('#kz') ? $('#kz').value : undefined, currency: $('#kc').value, tax_mode: $('#kt').value, tax_pct: $('#kp').value, tax_label: $('#kl').value, dial_code: $('#kd').value, phone_min: $('#kmin').value, phone_max: $('#kmax').value, postcode_required: $('#kpr').checked, postcode_regex: $('#kre').value, region_label: $('#krl').value, paystack_ok: $('#kps').checked } });
+    closeModal(); toast('Saved'); views.dropship();
+  }));
+}
+const FLABEL = { sku: 'Supplier SKU', name: 'Product name', cost: 'Cost per unit', ship_cost: 'Shipping cost', stock: 'Stock', processing_days: 'Processing days', weight: 'Weight', length: 'Length', width: 'Width', height: 'Height', hs_code: 'HS code', origin: 'Country of origin', description: 'Description', brand: 'Brand', category: 'Category', images: 'Photo links', url: 'Supplier link' };
+const VERDICT = { new: ['New', 'ok'], duplicate: ['Already imported', ''], possible_duplicate: ['Same name exists', 'warn'], in_file_duplicate: ['Repeated in file', ''], error: ['Problem', 'bad'] };
+async function importWizard() {
+  const { suppliers } = await DS('/suppliers'); if (!suppliers.length) return toast('Add a supplier first', 'bad');
+  const st = { text: '', data: '', filename: '', mapping: null, prev: null };
+  openModal(`<h2>Import a supplier catalogue</h2><div class="fgrid"><label class="f">Supplier<select id="isup">${suppliers.map((s) => `<option value="${s.id}">${e(s.name)} (${s.currency})</option>`).join('')}</select></label>
+   <label class="f">Department<select id="ist"><option value="">Choose the department…</option>${cfgStores.filter((s) => s.slug !== 'pharmacy').map((s) => `<option value="${e(s.slug)}">${e(s.name)}</option>`).join('')}</select></label></div>
+   <p class="mu2" style="margin:8px 0 4px">Upload a CSV or Excel (.xlsx) file, or paste rows copied from a spreadsheet. The first row must be the column names. Up to 2,000 products at a time.</p>
+   <input type="file" id="ifile" accept=".csv,.tsv,.txt,.xlsx"><textarea id="itext" rows="5" placeholder="…or paste here" style="width:100%;margin-top:6px"></textarea>
+   <div class="acts"><button class="btn ghost" id="iclose">Close</button><button class="btn" id="iprev">Preview</button></div><div id="iout"></div>`, true);
+  const payload = () => ({ supplier_id: $('#isup').value, store: $('#ist').value, text: st.data ? undefined : $('#itext').value, data: st.data || undefined, filename: st.filename, mapping: st.mapping || undefined,
+    weight_unit: st.prev ? ($('#iwu') ? $('#iwu').value : st.prev.weight_unit) : undefined });
+  $('#iclose').addEventListener('click', () => { closeModal(); views.dropship(); });
+  $('#ifile').addEventListener('change', guard(async () => { const f = $('#ifile').files[0]; st.mapping = null; if (!f) { st.data = ''; return; } if (f.size > 4e6) { $('#ifile').value = ''; return toast('That file is over 4 MB', 'bad'); } st.data = await readFile(f); st.filename = f.name; $('#itext').value = ''; }));
+  $('#itext').addEventListener('input', () => { st.data = ''; st.mapping = null; });
+  const draw = () => {
+    const p = st.prev, o = $('#iout');
+    const maprow = `<h3 style="margin-top:12px">Columns</h3><div class="fgrid">${Object.keys(FLABEL).map((f) => `<label class="f">${FLABEL[f]}${['sku', 'name', 'cost'].includes(f) ? ' *' : ''}<select data-map="${f}"><option value="">— not in my file —</option>${p.headers.map((h, i) => `<option value="${i}" ${Number(p.mapping[f]) === i && p.mapping[f] !== undefined ? 'selected' : ''}>${e(h)}</option>`).join('')}</select></label>`).join('')}
+      <label class="f">Weights are in<select id="iwu"><option value="kg" ${p.weight_unit === 'kg' ? 'selected' : ''}>kilograms</option><option value="g" ${p.weight_unit === 'g' ? 'selected' : ''}>grams</option></select></label></div>`;
+    if (!p.summary) { o.innerHTML = maprow + `<p class="bad">${e(p.note || '')}</p><button class="btn" id="irepr">Preview again</button>`; }
+    else { const s = p.summary;
+      o.innerHTML = maprow + `<h3 style="margin-top:12px">Preview <span class="mu2">nothing is saved yet</span></h3><p>${s.total} rows: <b>${s.new || 0} new</b> · ${s.duplicate || 0} already imported · ${s.possible_duplicate || 0} same name · ${s.in_file_duplicate || 0} repeated · <b class="${s.error ? 'bad' : ''}">${s.error || 0} with problems</b></p>
+      ${p.no_rate ? `<p class="bad">There is no exchange rate for ${e(p.no_rate)}. Add one in Settings first, then import.</p>` : ''}
+      <div class="tw" style="max-height:240px;overflow:auto"><table class="t"><tr><th>Row</th><th>SKU</th><th>Name</th><th>Cost</th><th>Result</th><th></th></tr>${p.rows.map((r) => `<tr><td>${r.row}</td><td>${e(r.supplier_sku)}</td><td>${e(r.name)}</td><td>${r.cost == null ? '' : r.cost}</td><td><span class="pill ${VERDICT[r.status][1]}">${VERDICT[r.status][0]}</span> ${r.errors.length ? `<span class="mu2">${e(r.errors.join('; '))}</span>` : ''}</td><td>${r.status === 'possible_duplicate' ? `<label class="chk"><input type="checkbox" data-pos="${r.row}"> import anyway</label>` : ''}</td></tr>`).join('')}</table></div>${p.shown < s.total ? `<p class="mu2">Showing the first ${p.shown} rows. All rows are checked when you import.</p>` : ''}
+      <div class="fgrid" style="margin-top:8px"><label class="f">Shipping to Nigeria: min days (for all new products)<input id="ismin" type="number" min="0" placeholder="e.g. 7"></label><label class="f">max days<input id="ismax" type="number" min="0" placeholder="e.g. 14"></label>
+       <label class="f">If a supplier code already exists<select id="idup"><option value="skip">Leave it alone</option><option value="update">Update cost, stock and sizes (the live price is NOT changed)</option></select></label></div>
+      <div class="acts"><button class="btn" id="icommit" ${p.no_rate || !(s.new || s.possible_duplicate || s.duplicate) ? 'disabled' : ''}>Import ${s.new || 0} new products</button></div><p class="mu2">New products start as “Needs review”. Photos are copied into your own storage in the background.</p>`; }
+    $$('[data-map]').forEach((sel) => sel.addEventListener('change', () => { st.mapping = {}; $$('[data-map]').forEach((x) => { if (x.value !== '') st.mapping[x.dataset.map] = Number(x.value); }); run(); }));
+    const bind = (sel, ev, fn) => { const el = $(sel); if (el) el.addEventListener(ev, fn); }; // the wizard is in the modal, outside #mn, so the page-level on() cannot reach it
+    bind('#irepr', 'click', () => run()); bind('#iwu', 'change', () => run());
+    bind('#icommit', 'click', guard(async () => { const pos = $$('[data-pos]').filter((c) => c.checked).map((c) => Number(c.dataset.pos));
+      const b = { ...payload(), mapping: st.prev.mapping, import_possible: pos, on_duplicate: $('#idup').value }; if ($('#ismin').value !== '' && $('#ismax').value !== '') { b.ship_min = $('#ismin').value; b.ship_max = $('#ismax').value; }
+      const r = await DS('/import/commit', { body: b }); toast(`Imported ${r.created} new, updated ${r.updated}, skipped ${r.skipped}`);
+      $('#iout').innerHTML = `<h3>Done</h3><p><b>${r.created}</b> products created (waiting for your review), ${r.updated} updated, ${r.skipped} skipped, ${r.errors} with problems. ${r.images_queued ? r.images_queued + ' products are having their photos copied now.' : ''}${r.needs_reprice ? `<br><b>${r.needs_reprice}</b> products have a new cost. Open them to check their price.` : ''}${r.created && r.no_ship_times ? '<br>These have no shipping times yet. Add them before approving.' : ''}</p>${r.problems.length ? `<p class="mu2">${r.problems.slice(0, 10).map((x) => `Row ${x.row}: ${e(x.message)}`).join('<br>')}</p>` : ''}<div class="acts"><button class="btn" id="idone">Review the new products</button></div>`;
+      bind('#idone', 'click', () => { dstate.tab = 'products'; dstate.plist = 'pending'; closeModal(); views.dropship(); }); }));
+  };
+  const run = guard(async () => { st.prev = await DS('/import/preview', { body: payload() }); st.mapping = st.prev.mapping; draw(); });
+  $('#iprev').addEventListener('click', () => { if (!st.data && !$('#itext').value.trim()) return toast('Choose a file or paste your rows first', 'bad'); if (!$('#ist').value) return toast('Choose the department first', 'bad'); st.mapping = null; run(); });
 }
 
 /* ---------------- boot ---------------- */

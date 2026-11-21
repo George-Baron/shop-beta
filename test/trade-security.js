@@ -39,8 +39,8 @@ const SECRETS = { EASYPOST_API_KEY: 'EZTESTKEY' + tag + 'zzzz', EASYPOST_WEBHOOK
   const mkStaff = async (key, role) => { const roles = (await call('GET', '/api/admin/staff', undefined, admin)).j.roles, ro = roles.find((r) => r.name === role); assert.ok(ro, role); const r = await call('POST', '/api/admin/staff', { name: key + ' Emp', email: key + '@example.com', username: key + '.user', role_id: ro.id }, admin); assert.strictEqual(r.s, 200, r.t); return login(key + '@example.com', r.j.temp_password); };
   const sales = await mkStaff('sales', 'Sales Representative'), analyst = await mkStaff('analyst', 'Trade Analyst'), mgr = await mkStaff('mgr', 'Trade & Logistics Manager');
   const cust = (await call('POST', '/api/auth/register', { name: 'Buyer One', email: 'buyer1@example.com', password: 'Zebra-Violin-Table-2026!' })).c;
-  const routes = []; for (const [file, mount] of [['trade-admin', '/api/admin/trade'], ['trade-public', '/api/trade']]) for (const l of require('../routes/' + file).stack) if (l.route) for (const m of Object.keys(l.route.methods)) routes.push({ file, method: m.toUpperCase(), path: mount + l.route.path.replace(/:[A-Za-z]+/g, '1') });
-  const adminRoutes = routes.filter((r) => r.file === 'trade-admin'), pubRoutes = routes.filter((r) => r.file === 'trade-public');
+  const routes = []; for (const [file, mount] of [['gtrade-admin', '/api/admin/trade'], ['trade-public', '/api/trade']]) for (const l of require('../routes/' + file).stack) if (l.route) for (const m of Object.keys(l.route.methods)) routes.push({ file, method: m.toUpperCase(), path: mount + l.route.path.replace(/:[A-Za-z]+/g, '1') });
+  const adminRoutes = routes.filter((r) => r.file === 'gtrade-admin'), pubRoutes = routes.filter((r) => r.file === 'trade-public');
   const hit = (r, cookie) => call(r.method, r.path, r.method === 'GET' || r.method === 'DELETE' ? undefined : {}, cookie);
   const MONEY = /^\/api\/admin\/trade\/(payments|suppliers\/1\/bank|reports\/(payment_reconciliation|fx_differences))/;
 

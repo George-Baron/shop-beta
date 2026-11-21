@@ -1,240 +1,356 @@
 'use strict';
-// Global Trade module, phases 1-2: database foundation, permissions, countries and currencies, exchange rates, product trade settings, public API.
-// Run with: npm run test:trade   (needs TEST_DATABASE_URL like the main test)
+// Countries, shipping zones, currencies, tax, restrictions, Stripe and Paystack in other currencies, the automatic rate feed.
+// Run with: npm run test:trade   (needs TEST_DATABASE_URL like the main test). Paystack, Stripe and the rate feed are fake servers started here.
 const { spawn } = require('child_process');
-const http = require('http');
 const assert = require('assert');
 const path = require('path');
+const fs = require('fs');
+const http = require('http');
+const crypto = require('crypto');
 const { Client: Pg } = require('pg');
-const X = require('../lib/xlsx');
+const CUR = require('../lib/currency');
 
 const ADMIN_URL = process.env.TEST_DATABASE_URL || 'postgres://postgres@127.0.0.1:5432/postgres';
-const tag = Date.now().toString(36), DB = 'vm_trade_' + tag;
+const tag = Date.now().toString(36), DB = 'sb_trade_' + tag;
 const urlOf = (db) => ADMIN_URL.replace(/\/[^/?]*(\?.*)?$/, '/' + db + '$1');
-const PORT = 7000 + Math.floor(Math.random() * 1500), FXPORT = PORT + 2000;
+const PORT = 7000 + Math.floor(Math.random() * 1000), FAKE = PORT + 2000, WH = 'whsec_trade_test';
 let passed = 0, failed = 0;
 const test = async (n, f) => { try { await f(); passed++; console.log('  ok   ' + n); } catch (e) { failed++; console.log('  FAIL ' + n + '\n       ' + (e.stack || e.message).split('\n').slice(0, 6).join('\n       ')); } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (f, ms = 15000) => { const end = Date.now() + ms; for (;;) { const v = await f(); if (v) return v; if (Date.now() > end) throw new Error('timed out waiting'); await sleep(200); } };
 const pg = async (sql, params, db) => { const c = new Pg({ connectionString: db ? urlOf(db) : ADMIN_URL }); await c.connect(); try { return (await c.query(sql, params)).rows; } finally { await c.end(); } };
 const q = (sql, params) => pg(sql, params, DB);
-let srv, log = '';
-const call = async (method, url, body, cookie, raw) => {
-  const r = await fetch(`http://127.0.0.1:${PORT}${url}`, { method, redirect: 'manual', headers: { ...(raw ? {} : { 'Content-Type': 'application/json' }), ...(cookie ? { Cookie: cookie } : {}) }, body: body === undefined ? undefined : raw ? body : JSON.stringify(body) });
-  const sc = r.headers.getSetCookie ? r.headers.getSetCookie() : []; const buf = Buffer.from(await r.arrayBuffer()); const t = buf.toString('utf8'); let j = null; try { j = JSON.parse(t); } catch { /* not json */ }
-  return { s: r.status, j, t, buf, h: r.headers, c: (sc[0] || '').split(';')[0] };
+let srv, log = '', SEQ = 0;
+const call = async (method, url, body, cookie, headers = {}) => {
+  const raw = body === undefined ? undefined : (typeof body === 'string' ? body : JSON.stringify(body));
+  const r = await fetch(`http://127.0.0.1:${PORT}${url}`, { method, redirect: 'manual', headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}), ...headers }, body: raw });
+  const sc = r.headers.getSetCookie ? r.headers.getSetCookie() : []; const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch { /* */ }
+  if (process.env.DEBUG_V && r.status >= 400) console.log('   [' + r.status + '] ' + method + ' ' + url + ' ' + t.slice(0, 300));
+  return { s: r.status, j, t, c: (sc[0] || '').split(';')[0] };
 };
-const login = async (email, password) => { const r = await call('POST', '/api/auth/login', { email, password }); assert.strictEqual(r.s, 200, 'login ' + email + ' ' + r.t); return r.c; };
 
-// A fake exchange-rate provider (same shape as open.er-api.com) so the test never touches the internet.
-const fx = { up: true, calls: 0, rates: { USD: 0.00065, GBP: 0.00051, EUR: 0.0006, CAD: 0.00089, AUD: 0.00099 } };
-const fxServer = http.createServer((req, res) => {
-  fx.calls++;
-  if (!fx.up) { res.writeHead(500); return res.end('down'); }
-  res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ result: 'success', base_code: 'NGN', time_last_update_unix: Math.floor(Date.now() / 1000) - 600, rates: { NGN: 1, ...fx.rates } }));
+/* ---- fake Paystack, Stripe and exchange-rate feed ---- */
+const fx = { pay: {}, payOverride: null, stripe: {}, n: 0, feed: {}, feedHits: 0 };
+const fake = http.createServer((req, res) => {
+  const c = []; req.on('data', (d) => c.push(d)); req.on('end', () => {
+    const body = Buffer.concat(c).toString(); const send = (s, o) => res.writeHead(s, { 'Content-Type': 'application/json' }).end(JSON.stringify(o));
+    if (req.url === '/transaction/initialize') { const j = JSON.parse(body); fx.pay[j.reference] = { amount: j.amount, currency: j.currency }; return send(200, { status: true, data: { authorization_url: 'http://pay.test/' + j.reference } }); }
+    let m = /^\/transaction\/verify\/(.+)$/.exec(req.url);
+    if (m) { const ref = decodeURIComponent(m[1]), p = fx.pay[ref] || {}; return send(200, { status: true, data: { status: 'success', reference: ref, amount: p.amount, currency: p.currency, ...(fx.payOverride || {}) } }); }
+    if (req.url === '/v1/checkout/sessions' && req.method === 'POST') {
+      const f = new URLSearchParams(body), id = 'cs_test_' + (++fx.n);
+      fx.stripe[id] = { id, client_reference_id: f.get('client_reference_id'), currency: f.get('line_items[0][price_data][currency]'), amount_total: Number(f.get('line_items[0][price_data][unit_amount]')), payment_status: 'unpaid', payment_intent: 'pi_' + id };
+      return send(200, { id, url: 'https://checkout.stripe.test/' + id });
+    }
+    m = /^\/v1\/checkout\/sessions\/(.+)$/.exec(req.url);
+    if (m && req.method === 'GET') { const s = fx.stripe[decodeURIComponent(m[1])]; return s ? send(200, s) : send(404, { error: { message: 'No such session' } }); }
+    if (req.url === '/feed') { fx.feedHits++; return send(200, { result: 'success', rates: fx.feed }); }
+    send(404, {});
+  });
 });
 
+const sig = (raw, secret = WH, t = Math.floor(Date.now() / 1000)) => `t=${t},v1=${crypto.createHmac('sha256', secret).update(`${t}.`).update(raw).digest('hex')}`;
+
 (async () => {
-  await new Promise((r) => fxServer.listen(FXPORT, '127.0.0.1', r));
+  await new Promise((r) => fake.listen(FAKE, r));
   await pg(`CREATE DATABASE ${DB}`);
-  srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(PORT), BASE_URL: 'http://127.0.0.1:' + PORT, DATABASE_URL: urlOf(DB), DATA_DIR: require('os').tmpdir() + '/vm-trade-' + tag, ADMIN_EMAIL: 'owner@example.com', ADMIN_PASSWORD: 'Str0ng-Owner-Pass!', RATE_LIMIT_MULTIPLIER: '50', FX_API_URL: `http://127.0.0.1:${FXPORT}/latest/{base}`, FX_REFRESH: '0' } });
+  srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(PORT), BASE_URL: 'http://127.0.0.1:' + PORT, DATABASE_URL: urlOf(DB), DATA_DIR: require('os').tmpdir() + '/sb-trade-' + tag, ADMIN_EMAIL: 'owner@example.com', ADMIN_PASSWORD: 'Str0ng-Owner-Pass!', RATE_LIMIT_MULTIPLIER: '50',
+    PAYSTACK_SECRET_KEY: 'sk_test_trade', PAYSTACK_API_URL: 'http://127.0.0.1:' + FAKE, STRIPE_ENABLED: '1', STRIPE_SECRET_KEY: 'sk_test_stripe', STRIPE_API_URL: 'http://127.0.0.1:' + FAKE, STRIPE_WEBHOOK_SECRET: WH, FX_FEED_ENABLED: '1', FX_FEED_URL: 'http://127.0.0.1:' + FAKE + '/feed' } });
   srv.stdout.on('data', (d) => { log += d; }); srv.stderr.on('data', (d) => { log += d; });
   for (let i = 0; i < 200; i++) { try { await fetch(`http://127.0.0.1:${PORT}/health`); break; } catch { await sleep(100); } }
-  const admin = await login('owner@example.com', 'Str0ng-Owner-Pass!');
-  const A = (m, u, b) => call(m, '/api/admin/trade' + u, b, admin);
+  const admin = (await call('POST', '/api/auth/login', { email: 'owner@example.com', password: 'Str0ng-Owner-Pass!' })).c;
+  const A = (m, u, b) => call(m, u, b, admin), RG = (m, u, b) => A(m, '/api/admin/dropship/regions' + u, b);
+  const prod = (await q("SELECT id, slug, name, price, store, category_id FROM products WHERE active=1 AND stock>=30 AND fulfilment='own' AND vendor_id IS NULL AND id NOT IN (SELECT product_id FROM variants) ORDER BY id LIMIT 1"))[0];
+  const ov = async () => (await RG('GET', '')).j;
+  const zoneId = async (name) => (await ov()).zones.find((z) => z.name === name).id;
+  const price = (b) => call('POST', '/api/cart/price', { items: [{ productId: prod.id, qty: 1 }], ...b });
+  const order = (o = {}) => ({
+    items: [{ productId: prod.id, qty: o.qty || 1 }], contact: { name: 'Olivia Hart', email: `olivia${++SEQ}@example.com`, phone: o.phone || '+44 7911 123456' },
+    address: { country: 'GB', state: 'London', city: 'London', address: '10 Downing Street', postcode: 'SW1A 2AA', ...(o.address || {}) },
+    currency: o.currency || 'USD', payment: o.payment || 'stripe', delivery: 'standard', idempotencyKey: crypto.randomUUID().replace(/-/g, ''),
+  });
+  const orderRow = async (ref) => (await q('SELECT * FROM orders WHERE ref=$1', [ref]))[0];
+  const GBP_RATE = 1900, USD_RATE = 1500, MARKUP = 2;
+  let gbOrder;
 
-  console.log('\nDatabase foundation');
-  await test('every trade table exists, has row level security ON and has no policies (the public key reads nothing)', async () => {
-    const want = ['trade_countries', 'trade_currencies', 'international_suppliers', 'supplier_products', 'import_purchase_orders', 'import_purchase_order_items', 'import_shipments', 'import_shipment_items', 'export_orders', 'export_order_items', 'shipping_providers', 'shipping_services',
-      'shipping_rate_quotes', 'shipping_bookings', 'shipping_labels', 'shipment_tracking_events', 'customs_declarations', 'customs_documents', 'trade_documents', 'customs_duty_rules', 'shipping_zones', 'shipping_rate_rules', 'international_payments', 'trade_exchange_rates',
-      'landed_cost_allocations', 'product_trade_settings', 'trade_notifications', 'trade_audit_logs'];
-    const rows = await q("SELECT c.relname, c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r'");
-    const have = Object.fromEntries(rows.map((r) => [r.relname, r.relrowsecurity]));
-    for (const t of want) assert.ok(t in have, 'missing table ' + t);
-    const trade = rows.filter((r) => /^(trade_|shipping_|customs_|import_|export_|product_trade|international_|supplier_|shipment_|landed_)/.test(r.relname));
-    assert.ok(trade.length >= want.length);
-    for (const r of trade) assert.strictEqual(r.relrowsecurity, true, 'RLS off on ' + r.relname);
-    assert.strictEqual((await q("SELECT COUNT(*)::int n FROM pg_policies WHERE schemaname='public' AND (tablename LIKE 'trade\\_%' OR tablename LIKE 'shipping\\_%' OR tablename LIKE 'export\\_%' OR tablename LIKE 'import\\_%')"))[0].n, 0);
+  console.log('\nNothing ships abroad until a person switches it on');
+  await test('a fresh shop delivers only to Nigeria, in Naira, and says so', async () => {
+    const cfg = (await call('GET', '/api/config')).j;
+    assert.deepStrictEqual(cfg.countries.map((c) => c.code), ['NG']); assert.deepStrictEqual(cfg.currencies.map((c) => c.code), ['NGN']);
+    const r = (await price({ country: 'GB', currency: 'USD' })).j;
+    assert.ok(r.blocked.length >= 1); assert.match(r.blocked[0], /do not deliver|not available/);
+    assert.strictEqual((await call('POST', '/api/checkout', order())).s, 400);
   });
-  await test('database rules: a booking cannot be "booked" without the carrier reference; a payment cannot be "succeeded" unverified; duplicate tracking events are refused', async () => {
-    await q("INSERT INTO shipping_providers (code,name,created,updated) VALUES ('t1','T1',1,1)");
-    const pid = (await q("SELECT id FROM shipping_providers WHERE code='t1'"))[0].id;
-    await q("INSERT INTO international_suppliers (name,country_code,created,updated) VALUES ('S','NG',1,1)");
-    const sid = (await q('SELECT id FROM international_suppliers LIMIT 1'))[0].id;
-    await q("INSERT INTO import_shipments (import_ref,supplier_id,supplier_country,destination_country,currency,created,updated) VALUES ('IMP-1',$1,'NG','NG','USD',1,1)", [sid]);
-    const imp = (await q("SELECT id FROM import_shipments WHERE import_ref='IMP-1'"))[0].id;
-    await assert.rejects(q("INSERT INTO shipping_bookings (import_shipment_id,provider_id,idempotency_key,status,provider_ref,created,updated) VALUES ($1,$2,'k1','booked','',1,1)", [imp, pid]), /check/i);
-    await q("INSERT INTO shipping_bookings (import_shipment_id,provider_id,idempotency_key,status,provider_ref,created,updated) VALUES ($1,$2,'k2','booked','CARRIER-REF',1,1)", [imp, pid]);
-    await assert.rejects(q("INSERT INTO shipping_bookings (import_shipment_id,provider_id,idempotency_key,status,provider_ref,created,updated) VALUES ($1,$2,'k2','requested','',1,1)", [imp, pid]), /unique|duplicate/i);
-    await q("INSERT INTO shipment_tracking_events (import_shipment_id,stage,occurred_at,source,event_hash,created) VALUES ($1,'in_transit',1,'api','h1',1)", [imp]);
-    await assert.rejects(q("INSERT INTO shipment_tracking_events (import_shipment_id,stage,occurred_at,source,event_hash,created) VALUES ($1,'in_transit',1,'webhook','h1',1)", [imp]), /unique|duplicate/i);
-    const landed = (await q("UPDATE import_shipments SET purchase_value=1000, freight=100, customs_duties=50.5, insurance=10 WHERE id=$1 RETURNING landed_cost", [imp]))[0].landed_cost;
-    assert.strictEqual(Number(landed), 1160.5, 'landed cost adds every charge');
-    await q('DELETE FROM shipment_tracking_events'); await q('DELETE FROM shipping_bookings'); await q('DELETE FROM import_shipments'); await q('DELETE FROM international_suppliers'); await q('DELETE FROM shipping_providers');
-  });
-  await test('reference data is loaded: Nigeria is home, NGN is the base currency, 6 currencies on, every other country OFF until the owner enables it', async () => {
-    const cur = await q('SELECT code, active, is_base FROM trade_currencies WHERE active=1 ORDER BY code'); assert.deepStrictEqual(cur.map((c) => c.code), ['AUD', 'CAD', 'EUR', 'GBP', 'NGN', 'USD']); assert.strictEqual(cur.find((c) => c.code === 'NGN').is_base, 1);
-    const ng = (await q("SELECT * FROM trade_countries WHERE code='NG'"))[0]; assert.ok(ng.export_from === 1 && ng.import_to === 1);
-    assert.strictEqual((await q('SELECT COUNT(*)::int n FROM trade_countries WHERE export_to=1 OR import_from=1'))[0].n, 0);
-    assert.strictEqual((await q('SELECT COUNT(*)::int n FROM customs_duty_rules'))[0].n, 0, 'no duty rates are invented'); assert.strictEqual((await q('SELECT COUNT(*)::int n FROM trade_exchange_rates'))[0].n, 0, 'no exchange rates are invented');
+  await test('only an administrator can reach the countries and currencies screens', async () => {
+    assert.strictEqual((await call('GET', '/api/admin/dropship/regions')).s, 401);
+    assert.strictEqual((await call('PUT', '/api/admin/dropship/regions/countries/GB', { enabled: true })).s, 401);
   });
 
-  console.log('\nPermissions');
-  const ST = (m, u, b) => call(m, '/api/admin/staff' + u, b, admin);
-  const emp = {};
-  const mk = async (key, roleName) => { const roles = (await ST('GET', '')).j.roles; const role = roles.find((r) => r.name === roleName); assert.ok(role, 'role ' + roleName); const r = await ST('POST', '', { name: key + ' Emp', email: key + '@example.com', username: key + '.user', role_id: role.id }); assert.strictEqual(r.s, 200, r.t); emp[key] = await login(key + '@example.com', r.j.temp_password); };
-  await test('Global Trade roles exist; staff without the trade permission are refused; analysts can read but not change; managers can do both', async () => {
-    await mk('sales', 'Sales Representative'); await mk('analyst', 'Trade Analyst'); await mk('mgr', 'Trade & Logistics Manager');
-    assert.strictEqual((await call('GET', '/api/admin/trade/settings', undefined, emp.sales)).s, 403);
-    assert.strictEqual((await call('GET', '/api/admin/trade/settings', undefined, emp.analyst)).s, 200);
-    assert.strictEqual((await call('PUT', '/api/admin/trade/settings', { handling_fee_ngn: 5 }, emp.analyst)).s, 403);
-    assert.strictEqual((await call('PUT', '/api/admin/trade/settings', { handling_fee_ngn: 5 }, emp.mgr)).s, 200);
-    assert.strictEqual((await call('GET', '/api/admin/trade/settings')).s, 401, 'signed-out people are refused');
-    const cust = await call('POST', '/api/auth/register', { name: 'Buyer One', email: 'buyer1@example.com', password: 'Zebra-Violin-Table-2026!' }); assert.ok(cust.s === 200 || cust.s === 201, cust.t);
-    assert.strictEqual((await call('GET', '/api/admin/trade/dashboard', undefined, cust.c)).s, 401, 'a customer is not back-office staff');
-    assert.strictEqual((await call('PUT', '/api/admin/trade/settings', { handling_fee_ngn: 0 }, admin)).s, 200);
+  console.log('\nAdmin: currencies, zones, countries');
+  await test('a currency cannot be switched on without a rate, and the markup is limited', async () => {
+    assert.strictEqual((await RG('PUT', '/currencies/USD', { enabled: true })).s, 400);
+    assert.strictEqual((await A('PUT', '/api/admin/dropship/rates/USD', { ngn_per_unit: USD_RATE })).s, 200);
+    assert.strictEqual((await RG('PUT', '/currencies/USD', { enabled: true, markup_pct: 50 })).s, 400);
+    assert.strictEqual((await RG('PUT', '/currencies/USD', { enabled: true, markup_pct: MARKUP })).s, 200);
+    assert.strictEqual((await RG('PUT', '/currencies/NGN', { enabled: false })).s, 400, 'Naira is always on');
   });
-  await test('a customer cannot read other people\'s trade data and the trade audit log is staff-only', async () => {
-    assert.strictEqual((await call('GET', '/api/admin/trade/audit', undefined, emp.sales)).s, 403);
-    const a = await A('GET', '/audit'); assert.strictEqual(a.s, 200); assert.ok(a.j.rows.some((r) => r.action === 'settings.update'), 'settings changes are audited');
+  await test('a zone with no bands cannot be switched on; bands must be sensible', async () => {
+    const id = await zoneId('Europe');
+    assert.strictEqual((await RG('PUT', '/zones/' + id, { name: 'Europe', active: true, rates: [] })).s, 400);
+    assert.strictEqual((await RG('PUT', '/zones/' + id, { name: 'Europe', active: true, rates: [{ up_to_kg: 1, fee: 10 }, { up_to_kg: 1, fee: 20 }] })).s, 400, 'same weight twice');
+    assert.strictEqual((await RG('PUT', '/zones/' + id, { name: 'Europe', active: true, rates: [{ up_to_kg: -1, fee: 10 }] })).s, 400);
+    assert.strictEqual((await RG('PUT', '/zones/' + id, { name: 'Europe', active: true, extra_per_kg: 12000, eta_min: 7, eta_max: 14 })).s, 200, 'the starter bands are kept');
   });
-
-  console.log('\nSettings, countries, currencies');
-  await test('settings: validated and audited', async () => {
-    assert.strictEqual((await A('PUT', '/settings', { fx_markup_pct: 50 })).s, 400); assert.strictEqual((await A('PUT', '/settings', { default_incoterm: 'XYZ' })).s, 400); assert.strictEqual((await A('PUT', '/settings', { handling_fee_ngn: 'abc' })).s, 400); assert.strictEqual((await A('PUT', '/settings', { origin_country: 'ZZ' })).s, 400);
-    const ok = await A('PUT', '/settings', { fx_markup_pct: 2, shipping_margin_pct: 10, default_duty_arrangement: 'DDP' }); assert.strictEqual(ok.s, 200); assert.strictEqual(ok.j.settings.fx_markup_pct, '2');
-    assert.strictEqual((await A('PUT', '/settings', { fx_markup_pct: 0, default_duty_arrangement: 'DAP' })).s, 200);
+  await test('a country needs a zone that is on and has fees before it can be enabled', async () => {
+    const asia = await zoneId('Middle East & Asia');
+    assert.strictEqual((await RG('PUT', '/countries/JP', { enabled: true, zone_id: asia })).s, 400, 'zone is still off');
+    assert.strictEqual((await RG('PUT', '/countries/JP', { enabled: true })).s, 400, 'no zone');
+    assert.strictEqual((await RG('PUT', '/countries/GB', { enabled: true, zone_id: await zoneId('Europe') })).s, 200);
+    assert.strictEqual((await RG('PUT', '/countries/NG', { enabled: false })).s, 400, 'Nigeria stays on');
+    assert.strictEqual((await RG('PUT', '/countries/GB', { phone_min: 12, phone_max: 8 })).s, 400);
+    assert.strictEqual((await RG('PUT', '/countries/GB', { postcode_regex: '([' })).s, 400);
+    assert.strictEqual((await RG('PUT', '/countries/GB', { tax_pct: 90 })).s, 400);
   });
-  await test('countries: enable shipping to some, bulk switch, country-specific rules, bad input refused', async () => {
-    assert.strictEqual((await A('POST', '/countries/bulk', { codes: ['US', 'GB', 'DE', 'FR', 'CA'], flag: 'export_to', on: true })).j.changed, 5);
-    const us = await A('PUT', '/countries/US', { tax_id_required: false, vat_label: 'Sales tax', postal_regex: '^\\d{5}(-\\d{4})?$' }); assert.strictEqual(us.s, 200); assert.strictEqual(us.j.country.vat_label, 'Sales tax');
-    assert.strictEqual((await A('PUT', '/countries/GB', { postal_regex: '([' })).s, 400); assert.strictEqual((await A('PUT', '/countries/GB', { postal_regex: '(a+)+$' })).s, 400, 'catastrophic patterns refused');
-    assert.strictEqual((await A('PUT', '/countries/ZZ', { active: true })).s, 404); assert.strictEqual((await A('POST', '/countries/bulk', { codes: ['US'], flag: 'hack', on: true })).s, 400);
-    assert.strictEqual((await A('GET', '/countries?enabled=1')).j.countries.filter((c) => c.export_to).length, 5);
-  });
-  await test('currencies: switch on, the base currency cannot be switched off', async () => {
-    assert.strictEqual((await A('PUT', '/currencies/NGN', { active: false })).s, 400);
-    const r = await A('PUT', '/currencies/GHS', { active: true }); assert.strictEqual(r.s, 200); assert.ok(r.j.currencies.find((c) => c.code === 'GHS').active);
-    assert.strictEqual((await A('PUT', '/currencies/GHS', { active: false })).s, 200);
+  await test('any country in the world can be added, and an unknown code is refused', async () => {
+    assert.strictEqual((await RG('POST', '/countries', { code: 'ZZ' })).s, 400);
+    assert.strictEqual((await RG('POST', '/countries', { code: 'IS' })).s, 200);
+    assert.strictEqual((await RG('POST', '/countries', { code: 'IS' })).s, 409);
+    assert.ok((await ov()).countries.some((c) => c.code === 'IS' && !c.enabled));
   });
 
-  console.log('\nExchange rates');
-  await test('with no stored rate, conversion refuses (503) instead of guessing; NGN to NGN works', async () => {
-    assert.strictEqual((await call('GET', '/api/trade/convert?amount=1000&from=NGN&to=USD')).s, 503);
-    const same = await call('GET', '/api/trade/convert?amount=1500&from=NGN&to=NGN'); assert.strictEqual(same.s, 200); assert.strictEqual(same.j.amount, 1500);
-    assert.strictEqual((await call('GET', '/api/trade/convert?amount=abc&from=NGN&to=USD')).s, 400); assert.strictEqual((await call('GET', '/api/trade/convert?amount=5&from=NGN&to=ZZZ')).s, 400);
+  console.log('\nPricing for another country');
+  await test('delivery fee comes from the zone by weight, and the amount in dollars is the Naira total at the marked-up rate, rounded up', async () => {
+    const r = (await price({ country: 'GB', currency: 'USD' })).j;
+    assert.deepStrictEqual(r.blocked, []); assert.strictEqual(r.delivery.fee, 25000); assert.strictEqual(r.delivery.options.standard.eta, '7–14 days after dispatch');
+    assert.strictEqual(r.total, prod.price + 25000);
+    const want = CUR.chargeFor(r.total, CUR.chargeRate(USD_RATE, MARKUP), 'USD');
+    assert.strictEqual(r.charge.amount, want); assert.strictEqual(r.charge.currency, 'USD');
+    assert.ok(r.charge.amount >= Math.ceil((r.total / USD_RATE) * 100), 'never less than the plain conversion');
+    assert.deepStrictEqual(r.payments, ['stripe'], 'a UK customer pays by international card');
   });
-  await test('refresh stores real provider rates for active currencies and converts correctly (cross rates go through NGN)', async () => {
-    const r = await A('POST', '/rates/refresh'); assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.stored, 5);
-    const c = await call('GET', '/api/trade/convert?amount=1000000&from=NGN&to=USD'); assert.strictEqual(c.s, 200); assert.strictEqual(c.j.amount, 650);
-    const back = await call('GET', '/api/trade/convert?amount=650&from=USD&to=NGN'); assert.strictEqual(back.j.amount, 1000000);
-    const cross = await call('GET', '/api/trade/convert?amount=100&from=USD&to=GBP'); assert.strictEqual(cross.j.amount, 78.46, 'USD to GBP = 0.00051/0.00065'); assert.match(cross.j.rate_source, /127\.0\.0\.1/);
+  await test('a heavier parcel costs more: more items, and a different usual item weight', async () => {
+    assert.strictEqual((await price({ country: 'GB', currency: 'USD' })).j.delivery.fee, 25000);
+    const three = (await call('POST', '/api/cart/price', { items: [{ productId: prod.id, qty: 3 }], country: 'GB', currency: 'USD' })).j;
+    assert.strictEqual(three.weight_kg, 1.5); assert.strictEqual(three.delivery.fee, 42000);
+    assert.strictEqual((await RG('PUT', '/settings', { default_item_kg: 12 })).s, 200);
+    assert.strictEqual((await price({ country: 'GB', currency: 'USD' })).j.delivery.fee, 130000 + 24000, 'above the last band: 12 kg = 130,000 + 2 extra kg x 12,000');
+    assert.strictEqual((await RG('PUT', '/settings', { default_item_kg: 0 })).s, 400);
+    await RG('PUT', '/settings', { default_item_kg: 0.5 });
   });
-  await test('markup is applied to display prices only when the owner sets one', async () => {
-    await A('PUT', '/settings', { fx_markup_pct: 10 }); assert.strictEqual((await call('GET', '/api/trade/convert?amount=1000000&from=NGN&to=USD')).j.amount, 715);
-    await A('PUT', '/settings', { fx_markup_pct: 0 }); assert.strictEqual((await call('GET', '/api/trade/convert?amount=1000000&from=NGN&to=USD')).j.amount, 650);
+  await test('tax added goes on top of goods and delivery; tax included is shown but does not change the total', async () => {
+    const before = (await price({ country: 'GB', currency: 'USD' })).j.total;
+    assert.strictEqual((await RG('PUT', '/countries/GB', { tax_mode: 'added', tax_pct: 20, tax_label: 'VAT' })).s, 200);
+    const a = (await price({ country: 'GB', currency: 'USD' })).j;
+    assert.strictEqual(a.tax, Math.round(before * 0.2)); assert.strictEqual(a.total, before + a.tax); assert.strictEqual(a.tax_label, 'VAT');
+    assert.strictEqual(a.charge.amount, CUR.chargeFor(a.total, CUR.chargeRate(USD_RATE, MARKUP), 'USD'), 'the charge includes the tax');
+    assert.strictEqual((await RG('PUT', '/countries/GB', { tax_mode: 'included' })).s, 200);
+    const i = (await price({ country: 'GB', currency: 'USD' })).j;
+    assert.strictEqual(i.total, before); assert.strictEqual(i.tax, Math.round(before - before / 1.2)); assert.match(i.tax_label, /included/);
+    await RG('PUT', '/countries/GB', { tax_mode: 'none' });
   });
-  await test('rate history is kept: a later refresh adds rows and never rewrites old ones', async () => {
-    const before = await q("SELECT id, rate FROM trade_exchange_rates WHERE quote='USD'"); fx.rates.USD = 0.0007; await sleep(1100);
-    assert.strictEqual((await A('POST', '/rates/refresh')).s, 200);
-    const after = await q("SELECT id, rate FROM trade_exchange_rates WHERE quote='USD' ORDER BY id"); assert.strictEqual(after.length, before.length + 1); assert.strictEqual(Number(after[0].rate), 0.00065, 'the old rate is untouched'); assert.strictEqual(Number(after[1].rate), 0.0007);
-    assert.strictEqual((await call('GET', '/api/trade/convert?amount=1000000&from=NGN&to=USD')).j.amount, 700);
-  });
-  await test('a provider outage keeps the last good rates and reports an error; garbage answers are refused', async () => {
-    fx.up = false; const r = await A('POST', '/rates/refresh'); assert.strictEqual(r.s, 502); assert.strictEqual((await call('GET', '/api/trade/convert?amount=1000000&from=NGN&to=USD')).j.amount, 700); fx.up = true;
-  });
-  await test('rates that are too old are marked stale, then refused for checkout (503)', async () => {
-    await q("UPDATE trade_exchange_rates SET fetched_at = fetched_at - 40*3600"); const t = (await A('GET', '/rates')).j.rates.find((x) => x.code === 'USD'); assert.ok(t.stale && !t.blocked);
-    assert.strictEqual((await call('GET', '/api/trade/convert?amount=10&from=NGN&to=USD')).s, 200, 'stale but still usable for display');
-    await q("UPDATE trade_exchange_rates SET fetched_at = fetched_at - 40*3600"); assert.strictEqual((await call('GET', '/api/trade/convert?amount=10&from=NGN&to=USD')).s, 503);
-    assert.strictEqual((await A('POST', '/rates/refresh')).s, 200); assert.strictEqual((await call('GET', '/api/trade/convert?amount=10&from=NGN&to=USD')).s, 200);
-  });
-  await test('manual rates are labelled and validated', async () => {
-    assert.strictEqual((await A('POST', '/rates/manual', { quote: 'USD', rate: -1 })).s, 400); assert.strictEqual((await A('POST', '/rates/manual', { quote: 'NGN', rate: 1 })).s, 400);
-    await sleep(1100); const r = await A('POST', '/rates/manual', { quote: 'USD', rate: 0.001, note: 'bank rate' }); assert.strictEqual(r.s, 200);
-    const t = r.j.rates.find((x) => x.code === 'USD'); assert.ok(t.manual && /manual/.test(t.source)); assert.strictEqual((await call('GET', '/api/trade/convert?amount=1000000&from=NGN&to=USD')).j.amount, 1000);
-  });
-
-  console.log('\nProduct trade settings');
-  const prod = (await q("SELECT id, name FROM products WHERE is_pharmacy=0 AND active=1 ORDER BY id LIMIT 3"));
-  const pharm = (await q('SELECT id FROM products WHERE is_pharmacy=1 LIMIT 1'))[0];
-  const complete = { export_enabled: true, intl_eligible: true, origin_country: 'NG', hs_code: '6109.10', customs_description: 'Cotton T-shirt, knitted', weight_kg: 0.25, length_cm: 30, width_cm: 25, height_cm: 3, shipping_category: 'clothing' };
-  await test('export cannot be switched on until the customs data is complete, and the message says what is missing', async () => {
-    const r = await A('PUT', '/products/' + prod[0].id, { export_enabled: true, intl_eligible: true }); assert.strictEqual(r.s, 400); assert.match(r.j.error, /country of origin/); assert.match(r.j.error, /HS code/); assert.match(r.j.error, /weight/);
-    assert.strictEqual((await A('PUT', '/products/' + prod[0].id, { ...complete, hs_code: 'abc' })).s, 400); assert.strictEqual((await A('PUT', '/products/' + prod[0].id, { ...complete, weight_kg: 'heavy' })).s, 400); assert.strictEqual((await A('PUT', '/products/' + prod[0].id, { ...complete, origin_country: 'ZZ' })).s, 400);
-    assert.strictEqual((await A('PUT', '/products/' + prod[0].id, { ...complete, weight_kg: -1 })).s, 400);
-  });
-  await test('a complete product saves; the record and its missing-list come back; changes are audited', async () => {
-    const r = await A('PUT', '/products/' + prod[0].id, complete); assert.strictEqual(r.s, 200, r.t); assert.ok(r.j.trade.export_enabled); assert.deepStrictEqual(r.j.missing, []);
-    assert.strictEqual((await A('GET', '/products/' + prod[0].id)).j.trade.hs_code, '6109.10'); assert.ok((await A('GET', '/audit?entity=product_trade_settings')).j.rows.length >= 1);
-    assert.strictEqual((await A('GET', '/products/999999')).s, 404);
-  });
-  await test('medicines can never be switched on for export', async () => {
-    if (!pharm) return; const r = await A('PUT', '/products/' + pharm.id, complete); assert.strictEqual(r.s, 400); assert.match(r.j.error, /pharmacy|medicine/i);
-  });
-  await test('dangerous goods need a class; customers never see a product that is not signed off', async () => {
-    assert.strictEqual((await A('PUT', '/products/' + prod[1].id, { ...complete, dangerous_goods: true })).s, 400);
-    assert.strictEqual((await A('PUT', '/products/' + prod[1].id, { ...complete, dangerous_goods: true, dangerous_class: 'UN3481', intl_eligible: false })).s, 200);
-    const list = await call('GET', '/api/trade/products?country=US&currency=USD'); assert.strictEqual(list.s, 200);
-    assert.deepStrictEqual(list.j.products.map((p) => p.id), [Number(prod[0].id)], 'only the signed-off product is listed');
-  });
-  await test('public list: prices are converted with the stored rate, unsupported countries and currencies are refused, banned countries are excluded', async () => {
-    const us = await call('GET', '/api/trade/products?country=US&currency=USD'); const p = us.j.products[0]; const ngn = Number((await q('SELECT price FROM products WHERE id=$1', [p.id]))[0].price);
-    assert.strictEqual(p.price_ngn, ngn); assert.strictEqual(p.price, Math.round(ngn * 0.001 * 100) / 100); assert.strictEqual(us.j.currency.code, 'USD');
-    assert.strictEqual((await call('GET', '/api/trade/products?country=NG&currency=USD')).s, 404, 'Nigeria itself is not an export destination'); assert.strictEqual((await call('GET', '/api/trade/products?country=JP&currency=USD')).s, 404, 'a country that is not switched on');
-    assert.strictEqual((await call('GET', '/api/trade/products?country=US&currency=ZZZ')).s, 400);
-    const put = await A('PUT', '/products/' + prod[0].id, { restrictions: [{ country: 'GB', direction: 'export', reason: 'Not permitted in test' }] }); assert.strictEqual(put.s, 200); assert.strictEqual(put.j.restrictions.length, 1);
-    assert.strictEqual((await call('GET', '/api/trade/products?country=GB&currency=GBP')).j.products.length, 0, 'banned for GB'); assert.strictEqual((await call('GET', '/api/trade/products?country=US&currency=USD')).j.products.length, 1, 'still fine for the US');
-    assert.deepStrictEqual((await call('GET', `/api/trade/can-ship?product=${prod[0].id}&country=GB`)).j, { ok: false, reason: 'This product cannot be shipped to that country.' }); assert.strictEqual((await call('GET', `/api/trade/can-ship?product=${prod[0].id}&country=US`)).j.ok, true);
-    assert.strictEqual((await call('GET', '/api/trade/countries')).j.countries.length, 5); assert.ok(!JSON.stringify((await call('GET', '/api/trade/products?country=US&currency=NGN')).j).includes('Not permitted in test'), 'internal notes are not public');
-  });
-  await test('rates missing for a currency make the product list fail with 503 instead of showing made-up prices', async () => {
-    await A('PUT', '/currencies/GHS', { active: true }); assert.strictEqual((await call('GET', '/api/trade/products?country=US&currency=GHS')).s, 503); await A('PUT', '/currencies/GHS', { active: false });
+  await test('a currency that is off or has no rate cannot be used', async () => {
+    const r = (await price({ country: 'GB', currency: 'EUR' })).j;
+    assert.ok(r.blocked.some((m) => /currency/i.test(m)));
+    assert.strictEqual((await call('POST', '/api/checkout', order({ currency: 'EUR' }))).s, 422);
   });
 
-  console.log('\nBulk import and export');
-  await test('template downloads as a real .xlsx; export contains the saved product; export as CSV works', async () => {
-    const t = await call('GET', '/api/admin/trade/products/template.xlsx', undefined, admin); assert.strictEqual(t.s, 200); assert.strictEqual(t.buf[0], 0x50);
-    const e = await call('GET', '/api/admin/trade/products/export?format=csv', undefined, admin); assert.strictEqual(e.s, 200); assert.match(e.t, /6109\.10/); assert.match(e.t, /GB/);
+  console.log('\nCheckout details for another country');
+  await test('phone and postcode must match the country; the region is needed', async () => {
+    assert.strictEqual((await call('POST', '/api/checkout', order({ phone: '12345' }))).s, 400);
+    assert.strictEqual((await call('POST', '/api/checkout', order({ phone: '+234 803 123 4567' }))).s, 400, 'a Nigerian number is not a UK number');
+    assert.strictEqual((await call('POST', '/api/checkout', order({ address: { postcode: '90210' } }))).s, 400);
+    assert.strictEqual((await call('POST', '/api/checkout', order({ address: { postcode: '' } }))).s, 400);
+    assert.strictEqual((await call('POST', '/api/checkout', order({ address: { state: '' } }))).s, 400);
   });
-  const b64 = (rows) => X.writeXlsx([{ name: 'Products', rows }]).toString('base64');
-  const hdr = ['SKU', 'Product slug', 'Available for export (Yes/No)', 'International shipping approved (Yes/No)', 'Country of origin (2-letter code)', 'HS code', 'Customs description', 'Weight (kg)', 'Length (cm)', 'Width (cm)', 'Height (cm)', 'Never export to (country codes, separated by ;)'];
-  await test('preview checks every row and reports problems by row number; nothing is saved by a preview', async () => {
-    const s0 = (await q('SELECT slug FROM products WHERE id=$1', [prod[2].id]))[0].slug;
-    const rows = [hdr, ['', s0, 'Yes', 'Yes', 'NG', '8517.12', 'Mobile phone', '0.2', '15', '8', '1', 'US;DE'], ['', 'no-such-product', 'Yes', 'Yes', 'NG', '8517.12', 'Phone', '1', '1', '1', '1', ''], ['', s0, 'Maybe', '', '', '', '', '', '', '', '', ''], ['', '', 'Yes', '', '', '', '', '', '', '', '', '']];
-    const p = await call('POST', '/api/admin/trade/products/import/preview', { filename: 'x.xlsx', data: b64(rows) }, admin); assert.strictEqual(p.s, 200, p.t);
-    assert.strictEqual(p.j.total, 4); assert.strictEqual(p.j.ok, 1); assert.deepStrictEqual(p.j.errors.map((e) => e.row).sort(), [3, 4, 5]); assert.match(p.j.errors.find((e) => e.row === 3).message, /No product found/);
-    assert.strictEqual((await q('SELECT COUNT(*)::int n FROM product_trade_settings WHERE product_id=$1', [prod[2].id]))[0].n, 0, 'a preview saves nothing');
-  });
-  await test('commit saves the good rows, reports the bad ones, applies bans, and keeps unspecified fields', async () => {
-    const s0 = (await q('SELECT slug FROM products WHERE id=$1', [prod[2].id]))[0].slug, s1 = (await q('SELECT slug FROM products WHERE id=$1', [prod[0].id]))[0].slug;
-    const rows = [hdr, ['', s0, 'Yes', 'Yes', 'NG', '8517.12', 'Mobile phone', '0.2', '15', '8', '1', 'US;DE'], ['', s1, '', '', '', '', '', '', '', '', '', ''], ['', s1, 'Yes', '', '', 'bad hs', '', '', '', '', '', '']];
-    const r = await call('POST', '/api/admin/trade/products/import/commit', { filename: 'x.xlsx', data: b64(rows) }, admin); assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.saved, 2, 'the new product and the no-change row'); assert.ok(r.j.errors.some((e) => e.row === 4 && /twice/.test(e.message)), 'the duplicate row is reported');
-    const t = (await A('GET', '/products/' + prod[2].id)).j; assert.ok(t.trade.export_enabled); assert.deepStrictEqual(t.restrictions.map((x) => x.country).sort(), ['DE', 'US']);
-    assert.strictEqual((await call('GET', '/api/trade/products?country=US&currency=USD')).j.products.some((p) => p.id === Number(prod[2].id)), false, 'banned for the US via the bulk file');
-    assert.strictEqual((await call('GET', '/api/trade/products?country=FR&currency=EUR')).j.products.some((p) => p.id === Number(prod[2].id)), true);
-    const other = (await A('GET', '/products/' + prod[0].id)).j; assert.strictEqual(other.trade.hs_code, '6109.10', 'rows that left cells empty keep their saved data');
-  });
-  await test('bad uploads are refused cleanly', async () => {
-    assert.strictEqual((await call('POST', '/api/admin/trade/products/import/preview', { data: 'not base64!!' }, admin)).s, 400);
-    assert.strictEqual((await call('POST', '/api/admin/trade/products/import/preview', { filename: 'x.csv', data: Buffer.from('foo,bar\n1,2\n').toString('base64') }, admin)).s, 400);
-    assert.strictEqual((await call('POST', '/api/admin/trade/products/import/commit', { filename: 'x.xlsx', data: b64([hdr, ['', 'x', 'Yes']]) }, emp.analyst)).s, 403, 'analysts cannot import');
+  await test('pay on delivery, store pickup and express are Nigeria-only', async () => {
+    assert.strictEqual((await call('POST', '/api/checkout', order({ payment: 'pod' }))).s, 400);
+    const r = await call('POST', '/api/checkout', { ...order(), delivery: 'express' });
+    assert.strictEqual(r.s, 200); assert.strictEqual((await orderRow(r.j.ref)).delivery, 'standard', 'forced to the international option');
   });
 
-  console.log('\nDashboard');
-  await test('the dashboard answers with real zeros when there are no international orders, and flags missing or stale rates', async () => {
-    const d = await A('GET', '/dashboard'); assert.strictEqual(d.s, 200, d.t); assert.strictEqual(d.j.kpi.export_orders, 0); assert.strictEqual(d.j.kpi.international_sales_ngn, 0); assert.deepStrictEqual(d.j.sales_by_country, []);
-    assert.strictEqual((await A('GET', '/dashboard?from=nonsense')).s, 400);
+  console.log('\nStripe: card payment in dollars');
+  await test('the order records country, currency, locked rate and the exact amount sent to Stripe', async () => {
+    const r = await call('POST', '/api/checkout', order()); assert.strictEqual(r.s, 200, r.t);
+    assert.strictEqual(r.j.next, 'stripe'); assert.match(r.j.url, /^https:\/\/checkout\.stripe\.test\/cs_test_/);
+    gbOrder = await orderRow(r.j.ref);
+    assert.strictEqual(gbOrder.country, 'GB'); assert.strictEqual(gbOrder.currency, 'USD'); assert.strictEqual(gbOrder.gateway, 'stripe'); assert.strictEqual(gbOrder.phone, '+447911123456'); assert.strictEqual(gbOrder.postcode, 'SW1A 2AA');
+    assert.strictEqual(Number(gbOrder.total), prod.price + 25000);
+    assert.strictEqual(Number(gbOrder.charge_amount), CUR.chargeFor(gbOrder.total, CUR.chargeRate(USD_RATE, MARKUP), 'USD'));
+    assert.ok(Math.abs(Number(gbOrder.fx_rate) - USD_RATE / 1.02) < 1e-4);
+    const s = fx.stripe[gbOrder.pay_session]; assert.ok(s, 'a Stripe session was created');
+    assert.strictEqual(s.amount_total, Number(gbOrder.charge_amount)); assert.strictEqual(s.currency, 'usd'); assert.strictEqual(s.client_reference_id, gbOrder.ref);
+  });
+  await test('sending the same checkout again returns the same order and the same payment page', async () => {
+    const o = order(); const a = await call('POST', '/api/checkout', o), b = await call('POST', '/api/checkout', o);
+    assert.strictEqual(a.j.ref, b.j.ref); assert.strictEqual(a.j.url, b.j.url); assert.strictEqual(b.j.replayed, true);
+    assert.strictEqual(Number((await q('SELECT COUNT(*) n FROM orders WHERE ref=$1', [a.j.ref]))[0].n), 1);
+  });
+  await test('changing the exchange rate later never changes an order that was already placed', async () => {
+    await A('PUT', '/api/admin/dropship/rates/USD', { ngn_per_unit: 2000 });
+    const now = await orderRow(gbOrder.ref);
+    assert.strictEqual(String(now.charge_amount), String(gbOrder.charge_amount)); assert.strictEqual(String(now.fx_rate), String(gbOrder.fx_rate));
+    const fresh = (await price({ country: 'GB', currency: 'USD' })).j;
+    assert.ok(fresh.charge.amount < Number(gbOrder.charge_amount), 'new orders use the new rate');
+    await A('PUT', '/api/admin/dropship/rates/USD', { ngn_per_unit: USD_RATE });
+  });
+  await test('a webhook with a wrong signature, a wrong secret or no signature is refused', async () => {
+    const raw = JSON.stringify({ id: 'evt_bad', type: 'checkout.session.completed', data: { object: { client_reference_id: gbOrder.ref } } });
+    assert.strictEqual((await call('POST', '/api/stripe/webhook', raw, undefined, { 'Stripe-Signature': sig(raw, 'whsec_wrong') })).s, 401);
+    assert.strictEqual((await call('POST', '/api/stripe/webhook', raw)).s, 401);
+    assert.strictEqual((await call('POST', '/api/stripe/webhook', raw, undefined, { 'Stripe-Signature': sig(raw, WH, Math.floor(Date.now() / 1000) - 3600) })).s, 401, 'an hour-old message is a replay');
+  });
+  await test('a signed webhook alone does not mark the order paid: Stripe is asked, and the amount and currency must match', async () => {
+    const hook = (id) => { const raw = JSON.stringify({ id, type: 'checkout.session.completed', data: { object: { client_reference_id: gbOrder.ref } } }); return call('POST', '/api/stripe/webhook', raw, undefined, { 'Stripe-Signature': sig(raw) }); };
+    assert.strictEqual((await hook('evt_unpaid')).s, 200);                                      // Stripe says the session is not paid
+    await sleep(1500); assert.strictEqual((await orderRow(gbOrder.ref)).payment_status, 'unpaid');
+    Object.assign(fx.stripe[gbOrder.pay_session], { payment_status: 'paid', amount_total: Number(gbOrder.charge_amount) - 1 });
+    assert.strictEqual((await hook('evt_short')).s, 200);
+    await until(async () => (await q("SELECT 1 FROM order_events WHERE order_id=$1 AND note LIKE 'Payment check failed%'", [gbOrder.id])).length);
+    assert.strictEqual((await orderRow(gbOrder.ref)).payment_status, 'unpaid', 'a short payment is never accepted');
+    Object.assign(fx.stripe[gbOrder.pay_session], { amount_total: Number(gbOrder.charge_amount), currency: 'eur' });
+    assert.strictEqual((await hook('evt_cur')).s, 200); await sleep(1200);
+    assert.strictEqual((await orderRow(gbOrder.ref)).payment_status, 'unpaid', 'the wrong currency is never accepted');
+    Object.assign(fx.stripe[gbOrder.pay_session], { currency: 'usd' });
+    assert.strictEqual((await hook('evt_ok')).s, 200);
+    await until(async () => (await orderRow(gbOrder.ref)).payment_status === 'paid');
+    const o = await orderRow(gbOrder.ref); assert.strictEqual(o.status, 'paid'); assert.strictEqual(o.paystack_ref, 'pi_' + gbOrder.pay_session);
+  });
+  await test('the same webhook arriving again does nothing more', async () => {
+    const raw = JSON.stringify({ id: 'evt_ok', type: 'checkout.session.completed', data: { object: { client_reference_id: gbOrder.ref } } });
+    assert.strictEqual((await call('POST', '/api/stripe/webhook', raw, undefined, { 'Stripe-Signature': sig(raw) })).s, 200);
+    await sleep(800);
+    assert.strictEqual(Number((await q("SELECT COUNT(*) n FROM order_events WHERE order_id=$1 AND status='paid'", [gbOrder.id]))[0].n), 1);
+  });
+  await test('coming back from Stripe also confirms the payment, by asking Stripe', async () => {
+    const r = await call('POST', '/api/checkout', order()); const o = await orderRow(r.j.ref);
+    Object.assign(fx.stripe[o.pay_session], { payment_status: 'paid' });
+    const v = await call('GET', '/api/paystack/verify?reference=' + o.ref);
+    assert.strictEqual(v.j.payment_status, 'paid'); assert.strictEqual((await orderRow(o.ref)).payment_status, 'paid');
   });
 
-  console.log('\nExisting shop');
-  await test('the normal shop still works (catalogue, config, health) and the brand is VELTO-MART', async () => {
-    assert.strictEqual((await call('GET', '/health')).s, 200); const p = await call('GET', '/api/products'); assert.strictEqual(p.s, 200); assert.ok((p.j.products || []).length > 0);
-    const page = await call('GET', '/'); assert.ok(!/shop-?beta/i.test(page.t), 'no old brand name in the page');
+  console.log('\nPaystack in Ghana cedis');
+  await test('Paystack is offered for Ghana in cedis, and for a UK customer only Stripe', async () => {
+    assert.strictEqual((await A('PUT', '/api/admin/dropship/rates/GHS', { ngn_per_unit: 100 })).s, 200);
+    assert.strictEqual((await RG('PUT', '/currencies/GHS', { enabled: true, markup_pct: 2 })).s, 200);
+    assert.strictEqual((await RG('PUT', '/zones/' + await zoneId('West Africa'), { name: 'West Africa', active: true })).s, 200);
+    assert.strictEqual((await RG('PUT', '/countries/GH', { enabled: true, zone_id: await zoneId('West Africa') })).s, 200);
+    const gh = (await price({ country: 'GH', currency: 'GHS' })).j;
+    assert.deepStrictEqual(gh.payments, ['paystack'], 'Stripe is not used for cedis'); assert.strictEqual(gh.delivery.fee, 12000);
+    assert.deepStrictEqual((await price({ country: 'GB', currency: 'USD' })).j.payments, ['stripe']);
+    assert.deepStrictEqual((await price({ country: 'GH', currency: 'NGN' })).j.payments, ['paystack'], 'Naira can be paid by Paystack from anywhere');
+  });
+  await test('the cedi amount is sent to Paystack, and only a matching currency and amount marks the order paid', async () => {
+    const r = await call('POST', '/api/checkout', order({ currency: 'GHS', payment: 'paystack', phone: '024 123 4567', address: { country: 'GH', state: 'Greater Accra', city: 'Accra', postcode: '' } }));
+    assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.next, 'paystack');
+    const o = await orderRow(r.j.ref); assert.strictEqual(o.currency, 'GHS'); assert.strictEqual(o.phone, '+233241234567');
+    assert.deepStrictEqual(fx.pay[o.ref], { amount: Number(o.charge_amount), currency: 'GHS' });
+    fx.payOverride = { currency: 'NGN' };
+    assert.strictEqual((await call('GET', '/api/paystack/verify?reference=' + o.ref)).j.payment_status, 'unpaid', 'wrong currency');
+    fx.payOverride = { amount: Number(o.total) * 100 };
+    assert.strictEqual((await call('GET', '/api/paystack/verify?reference=' + o.ref)).j.payment_status, 'unpaid', 'the Naira amount is not the cedi amount');
+    fx.payOverride = null;
+    assert.strictEqual((await call('GET', '/api/paystack/verify?reference=' + o.ref)).j.payment_status, 'paid');
+  });
+  await test('Stripe cannot be used to pay in a currency it does not take, and pay on delivery is refused abroad', async () => {
+    assert.strictEqual((await call('POST', '/api/checkout', order({ currency: 'GHS', payment: 'stripe', phone: '024 123 4567', address: { country: 'GH', state: 'Accra', postcode: '' } }))).s, 400);
+    assert.strictEqual((await call('POST', '/api/checkout', order({ currency: 'GHS', payment: 'pod', phone: '024 123 4567', address: { country: 'GH', state: 'Accra', postcode: '' } }))).s, 400);
   });
 
-  srv.kill(); fxServer.close();
+  console.log('\nProducts that cannot go to a country');
+  await test('a banned product, category or department blocks the order with a clear message; a restricted one asks the customer to contact us', async () => {
+    const add = (b) => RG('POST', '/restrictions', { country: 'GB', ...b });
+    assert.strictEqual((await add({ product_id: prod.id, store: prod.store })).s, 400, 'one target only');
+    assert.strictEqual((await add({ kind: 'banned' })).s, 400, 'a target is needed');
+    assert.strictEqual((await add({ product_id: prod.id, kind: 'banned', note: 'Import ban' })).s, 200);
+    let r = (await price({ country: 'GB', currency: 'USD' })).j; assert.match(r.blocked[0], /cannot be delivered/);
+    const c = await call('POST', '/api/checkout', order()); assert.strictEqual(c.s, 422); assert.match(c.j.error, /cannot be delivered/);
+    assert.deepStrictEqual((await price({ country: 'GH', currency: 'GHS' })).j.blocked, [], 'other countries are not affected');
+    assert.deepStrictEqual((await price({})).j.blocked, [], 'neither is Nigeria');
+    const rules = (await ov()).restrictions; for (const x of rules) await RG('DELETE', '/restrictions/' + x.id);
+    assert.strictEqual((await add({ category_id: prod.category_id, kind: 'restricted' })).s, 200);
+    r = (await price({ country: 'GB', currency: 'USD' })).j; assert.match(r.blocked[0], /special approval/);
+    for (const x of (await ov()).restrictions) await RG('DELETE', '/restrictions/' + x.id);
+    assert.strictEqual((await add({ store: prod.store, kind: 'banned' })).s, 200);
+    assert.ok((await price({ country: 'GB', currency: 'USD' })).j.blocked.length);
+    for (const x of (await ov()).restrictions) await RG('DELETE', '/restrictions/' + x.id);
+    assert.deepStrictEqual((await price({ country: 'GB', currency: 'USD' })).j.blocked, []);
+  });
+
+  console.log('\nAutomatic exchange rates');
+  await test('the feed never changes a rate set by hand, until it is unlocked', async () => {
+    fx.feed = { USD: 1 / 1600, GBP: 1 / 1900 };
+    let r = await RG('POST', '/fx/refresh', {}); assert.strictEqual(r.s, 200, r.t);
+    assert.ok(r.j.kept_locked.includes('USD')); assert.ok(r.j.updated.includes('GBP'), 'a currency with no rate yet gets one from the feed');
+    assert.strictEqual(Number((await q("SELECT ngn_per_unit FROM fx_rates WHERE currency='USD'"))[0].ngn_per_unit), USD_RATE);
+    assert.strictEqual((await RG('PUT', '/currencies/USD', { locked: false })).s, 200);
+    r = await RG('POST', '/fx/refresh', {}); assert.ok(r.j.updated.includes('USD'));
+    assert.ok(Math.abs(Number((await q("SELECT ngn_per_unit FROM fx_rates WHERE currency='USD'"))[0].ngn_per_unit) - 1600) < 0.01);
+    assert.strictEqual((await q("SELECT source FROM fx_rates WHERE currency='USD'"))[0].source, 'feed');
+  });
+  await test('a sudden jump of more than 25% is treated as a bad reading and ignored', async () => {
+    fx.feed = { USD: 1 / 3000, GBP: 1 / 1900 };
+    const r = await RG('POST', '/fx/refresh', {}); assert.ok(r.j.rejected.includes('USD'));
+    assert.ok(Math.abs(Number((await q("SELECT ngn_per_unit FROM fx_rates WHERE currency='USD'"))[0].ngn_per_unit) - 1600) < 0.01);
+  });
+  await test('a feed rate that has gone stale stops being used, and a hand-set rate does not expire', async () => {
+    assert.strictEqual((await RG('PUT', '/currencies/GBP', { enabled: true, markup_pct: 2 })).s, 200);
+    assert.strictEqual((await RG('PUT', '/countries/GB', { currency: 'GBP' })).s, 200);
+    assert.ok((await call('GET', '/api/config')).j.currencies.some((c) => c.code === 'GBP'));
+    await q("UPDATE fx_rates SET updated = updated - 4*86400 WHERE currency='GBP'");
+    await RG('PUT', '/currencies/GBP', { markup_pct: 2 });                        // any admin change clears the page cache, as it would in real use
+    assert.ok(!(await call('GET', '/api/config')).j.currencies.some((c) => c.code === 'GBP'), 'older than 72 hours');
+    assert.ok((await price({ country: 'GB', currency: 'GBP' })).j.blocked.some((m) => /currency/i.test(m)));
+    await q("UPDATE fx_rates SET updated = updated - 40*86400, locked = TRUE, source = 'manual' WHERE currency='USD'");
+    assert.ok((await call('GET', '/api/config')).j.currencies.some((c) => c.code === 'USD'));
+  });
+
+  console.log('\nNigeria is unchanged');
+  await test('a Nigerian order is still in Naira with the amount in kobo, and Paystack is sent exactly that', async () => {
+    const r = await call('POST', '/api/checkout', { items: [{ productId: prod.id, qty: 1 }], contact: { name: 'Ada Obi', email: 'ada.ng@example.com', phone: '08011112222' }, address: { state: 'Lagos', city: 'Ikeja', address: '5 Allen Avenue' }, delivery: 'standard', payment: 'paystack' });
+    assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.next, 'paystack');
+    const o = await orderRow(r.j.ref);
+    assert.strictEqual(o.country, 'NG'); assert.strictEqual(o.currency, 'NGN'); assert.strictEqual(Number(o.charge_amount), Number(o.total) * 100); assert.strictEqual(Number(o.fx_rate), 1); assert.strictEqual(Number(o.tax), 0);
+    assert.deepStrictEqual(fx.pay[o.ref], { amount: Number(o.total) * 100, currency: 'NGN' });
+    assert.strictEqual((await call('GET', '/api/paystack/verify?reference=' + o.ref)).j.payment_status, 'paid');
+  });
+
+  console.log('\nWhat customers can and cannot see');
+  await test('the public page shows countries and display rates, but no shipping fees, markups, tax settings notes or supplier costs', async () => {
+    const t = (await call('GET', '/api/config')).t, cfg = JSON.parse(t);
+    for (const word of ['markup', 'base_rate', 'extra_per_kg', 'shipping_rates', 'default_item_kg', 'notes', 'stripe_secret', 'sk_test']) assert.ok(!t.includes(word), word + ' must not be public');
+    assert.ok(cfg.currencies.every((c) => Object.keys(c).sort().join() === 'code,decimals,rate'));
+    assert.ok(cfg.countries.every((c) => !('zone_id' in c) && !('enabled' in c) && !('notes' in c)));
+  });
+  await test('the order a customer looks up shows what they were charged and nothing about our rate, markup or gateway keys', async () => {
+    const r = await call('POST', '/api/orders/lookup', { ref: gbOrder.ref, email: gbOrder.email, token: gbOrder.access_token });
+    assert.strictEqual(r.s, 200); const o = r.j.order;
+    assert.strictEqual(o.currency, 'USD'); assert.strictEqual(o.charge_amount, Number(gbOrder.charge_amount)); assert.strictEqual(o.country, 'GB');
+    for (const k of ['fx_rate', 'pay_session', 'paystack_ref', 'access_token', 'pay_url']) assert.ok(!(k in o), k + ' must not be in the customer view');
+  });
+  await test('a customer cannot reach the admin endpoints for rates or zones', async () => {
+    const reg = await call('POST', '/api/auth/register', { name: 'Pat Buyer', email: 'pat.buyer@example.com', phone: '08031230000', password: 'mango-river-sky-55' });
+    const cust = reg.c || (await call('POST', '/api/auth/login', { email: 'pat.buyer@example.com', password: 'mango-river-sky-55' })).c;
+    for (const [m, u] of [['GET', '/api/admin/dropship/regions'], ['POST', '/api/admin/dropship/regions/fx/refresh'], ['PUT', '/api/admin/dropship/regions/currencies/USD']]) assert.strictEqual((await call(m, u, m === 'GET' ? undefined : {}, cust)).s, 401, u);
+  });
+
+  console.log('\nSafety of the data');
+  await test('every admin change in this area is written to the activity log', async () => {
+    const n = Number((await q("SELECT COUNT(*) n FROM audit_log WHERE path LIKE '/api/admin/dropship/regions%' AND method <> 'GET'"))[0].n);
+    assert.ok(n >= 10, 'logged ' + n);
+  });
+  await test('running the migration again changes nothing and keeps the admin\'s edits', async () => {
+    const sql = fs.readFileSync(path.join(__dirname, '..', 'migrations', '025_countries_currencies.sql'), 'utf8');
+    const before = (await q('SELECT (SELECT COUNT(*) FROM countries) c, (SELECT COUNT(*) FROM shipping_rates) r, (SELECT COUNT(*) FROM currencies) u, (SELECT enabled FROM countries WHERE code=\'GB\') gb, (SELECT fee FROM shipping_rates r JOIN shipping_zones z ON z.id=r.zone_id WHERE z.name=\'Europe\' AND up_to_kg=0.5) fee'))[0];
+    await RG('PUT', '/zones/' + await zoneId('Europe'), { name: 'Europe', active: true, rates: [{ up_to_kg: 0.5, fee: 99999 }] });
+    await q(sql); await q(sql);
+    const after = (await q('SELECT (SELECT COUNT(*) FROM countries) c, (SELECT COUNT(*) FROM currencies) u, (SELECT enabled FROM countries WHERE code=\'GB\') gb, (SELECT fee FROM shipping_rates r JOIN shipping_zones z ON z.id=r.zone_id WHERE z.name=\'Europe\' AND up_to_kg=0.5) fee'))[0];
+    assert.strictEqual(after.c, before.c); assert.strictEqual(after.u, before.u); assert.strictEqual(after.gb, before.gb); assert.strictEqual(after.fee, 99999, 'edited fees survive');
+    assert.strictEqual(Number((await q("SELECT COUNT(*) n FROM shipping_rates r JOIN shipping_zones z ON z.id=r.zone_id WHERE z.name='Europe'"))[0].n), 1, 'the starter bands are not added back');
+  });
+
   console.log(`\n${passed} passed, ${failed} failed`);
-  if (failed) console.log(log.split('\n').slice(-20).join('\n'));
-  await sleep(300); await pg(`DROP DATABASE IF EXISTS ${DB} WITH (FORCE)`).catch(() => {});
+  fake.close(); try { srv.kill(); } catch { /* */ }
+  await sleep(300);
+  try { await pg(`DROP DATABASE IF EXISTS ${DB} WITH (FORCE)`); } catch { /* */ }
   process.exit(failed ? 1 : 0);
-})().catch(async (e) => { console.error(e); try { srv.kill(); fxServer.close(); } catch { /* */ } await pg(`DROP DATABASE IF EXISTS ${DB} WITH (FORCE)`).catch(() => {}); process.exit(1); });
+})().catch(async (e) => { console.error(e, '\n--- server log ---\n' + log.slice(-2500)); try { srv.kill(); } catch { /* */ } try { await pg(`DROP DATABASE IF EXISTS ${DB} WITH (FORCE)`); } catch { /* */ } process.exit(1); });
