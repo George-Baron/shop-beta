@@ -51,7 +51,8 @@
     "test:trade-export": "node --disable-warning=ExperimentalWarning test/trade-export.js",
     "test:trade-import": "node --disable-warning=ExperimentalWarning test/trade-import.js",
     "test:trade-carriers": "node --disable-warning=ExperimentalWarning test/trade-carriers.js",
-    "test:trade-customs": "node --disable-warning=ExperimentalWarning test/trade-customs.js"
+    "test:trade-customs": "node --disable-warning=ExperimentalWarning test/trade-customs.js",
+    "test:trade-payments": "node test/trade-payments.js"
   },
   "dependencies": {
     "compression": "^1.8.2",

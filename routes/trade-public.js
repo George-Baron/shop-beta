@@ -60,6 +60,7 @@ router.post('/checkout', A.limiter('trade-checkout', 20, 3600000), ah(async (req
   catch (err) { await S.cancelOrder(order, 'Payment could not be started'); throw err; }
 }));
 // The customer's own international order and its shipment timeline (secret link token, or the signed-in owner).
+router.post('/track', A.limiter('trade-track', 15, 600000), ah(async (req, res) => res.json(await require('../lib/trade/tracking').lookup(req.body || {}))));
 router.get('/orders/:ref', A.limiter('trade-order', 60, 60000), ah(async (req, res) => res.json(await EX.customerOrder(req.params.ref, String(req.query.t || ''), req.user))));
 
 module.exports = router;

@@ -325,6 +325,7 @@ router.post('/paystack/webhook', ah(async (req, res) => {
     const ref = str(ev.data.reference, 40).toUpperCase();
     await queue.enqueue('paystack.settle', { ref }, { key: 'paystack:' + ref });
   }
+  if (/^refund\./.test(String(ev.event || ''))) { try { await require('../lib/trade/payments').onRefundEvent(ev); } catch (e) { console.error('[paystack refund webhook]', e.message); } }
   res.json({ ok: true });
 }));
 // Demo mode only (no PAYSTACK_SECRET_KEY set): lets you test the whole order flow without real money.

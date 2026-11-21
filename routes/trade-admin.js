@@ -10,6 +10,8 @@ const SC = require('../lib/trade/shipping-config');
 const EX = require('../lib/trade/export');
 const SUP = require('../lib/trade/suppliers');
 const IM = require('../lib/trade/imports');
+const PAY = require('../lib/trade/payments');
+const TR = require('../lib/trade/tracking');
 const ST = require('../lib/staff');
 const S = require('../lib/shop');
 const { fail } = S;
@@ -95,6 +97,13 @@ router.get('/payments/suppliers', ah(async (req, res) => res.json(await SUP.list
 router.get('/payments/payables', ah(async (req, res) => res.json(await SUP.payables())));
 router.post('/payments/suppliers/:id', ah(async (req, res) => res.json(await SUP.recordPayment(Number(req.params.id), req.body || {}, req.user, ip(req)))));
 router.delete('/payments/suppliers/payment/:id', ah(async (req, res) => res.json(await SUP.deletePayment(req.params.id, req.user, ip(req)))));
+
+router.get('/payments/providers', ah(async (req, res) => res.json(PAY.providers())));
+router.get('/payments/reconciliation', ah(async (req, res) => res.json(await PAY.reconciliation(req.query))));
+router.get('/payments', ah(async (req, res) => res.json(await PAY.list(req.query))));
+router.post('/payments/:id/refund', ah(async (req, res) => res.json(await PAY.refund(Number(req.params.id), req.body || {}, req.user, ip(req)))));
+router.post('/payments/:id/refresh', ah(async (req, res) => res.json(await PAY.refresh(Number(req.params.id), req.user, ip(req)))));
+router.get('/tracking', ah(async (req, res) => res.json(await TR.overview(req.query))));
 
 router.get('/purchase-orders', ah(async (req, res) => res.json(await IM.listPOs(req.query))));
 router.post('/purchase-orders', ah(async (req, res) => res.json(await IM.savePO(0, req.body || {}, req.user, ip(req)))));

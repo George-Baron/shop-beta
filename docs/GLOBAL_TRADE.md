@@ -12,7 +12,7 @@ Admin screen: **Admin > Global Trade**. Permission module: `trade` (roles "Trade
 | 4 | Import procurement and international supplier management | Built |
 | 5 | Freight quotations and carrier API integrations (needs your own carrier accounts and keys) | Built (EasyPost) |
 | 6 | Customs, duties, documentation and landed cost | Built |
-| 7 | International payments and shipment tracking | Not started |
+| 7 | International payments and shipment tracking | Built |
 | 8 | Notifications, reporting and AI assistant | Not started |
 | 9 | Testing, security audit and production deployment | Not started |
 
@@ -84,3 +84,27 @@ Public API (used by the storefront in phase 3): `GET /api/trade/countries`, `/cu
 - **Shipment status**: *stock received* is set only by receiving; *completed* is a manual close afterwards.
 - **Not in this phase**: automatic duty rates (you enter and verify them), electronic filing, a visual valuation report screen, retail stock-movement history (retail stock is a plain counter in this store).
 - Tests: `npm run test:trade-customs` (add `UI_CHECK=1` to also drive the screens in a browser).
+
+## Phase 7: international payments, refunds and tracking
+
+**What customers pay.** Customers are charged in naira through Paystack at the exchange rate fixed when they ordered. Their bank may show a different amount in their own currency. Flutterwave and Stripe are listed as "not integrated"; nothing pretends otherwise.
+
+**Payments (Finance permission).** Admin > Global Trade > Payments lists every international payment and refund, the provider status, and a reconciliation view (charged, provider fees, refunded, net, orders marked paid with no Paystack record, refunds still waiting, and how the order total compares with today's rate). Provider fees are saved from Paystack's own verify response.
+
+**Refunds (full or partial).**
+- Needs a refund key, a reason and an amount (max 2 decimals). The same key never refunds twice; two clicks make one refund.
+- The refund is sent to Paystack and shown as done only when Paystack says "processed" (immediately, by signed `refund.*` webhook, or when staff press "Check with Paystack").
+- Pending refunds count against the refundable amount, so money cannot be refunded twice.
+- If Paystack does not answer, the refund stays pending. It is never retried blindly.
+- A partial refund keeps the order paid; refunding the full amount marks the payment and order refunded (stock rules of the existing refund flow apply).
+- Refunds started in the Paystack dashboard are recorded from the signed webhook, once.
+- Demo payments and payments with no verified Paystack record cannot be refunded here.
+
+**Tracking.** Customers use `/international/track` with an order number or tracking number plus the email used at checkout. Wrong details, unknown numbers and unpaid orders all get the same answer, and the reply carries no address, phone, email or amounts. Staff see Global tracking: parcels on the way, with a flag for problems (delayed, exception, customs hold) and parcels with no update for 3 days. Updates come from carriers (Phase 5 webhooks and refresh) or are entered by staff.
+
+**Not verified / not built.**
+- The Paystack refund endpoints and `refund.*` webhook were built from Paystack's documentation and tested against a fake server only. Try one small real refund in a Paystack test account before going live.
+- Parcels on import shipments are not polled from carriers.
+- Card data never touches the server: Paystack hosts the payment page.
+
+Tests: `npm run test:trade-payments`.

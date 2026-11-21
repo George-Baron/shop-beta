@@ -1574,7 +1574,7 @@ function go(url, replace) { if (replace) history.replaceState({}, '', url); else
 /* ---------- International orders (Global Trade phase 3) ---------- */
 async function intlView(main, seg, u, cfg) {
   const money = (n, c) => { try { return new Intl.NumberFormat('en', { style: 'currency', currency: c.code, minimumFractionDigits: c.decimals, maximumFractionDigits: c.decimals }).format(n); } catch { return c.symbol + Number(n).toFixed(c.decimals); } };
-  const wrap = (h) => { main.innerHTML = `<div class="wrap page" style="max-width:820px"><nav class="crumbs"><a href="/" data-link>Home</a> › International orders</nav>${h}</div>`; };
+  const wrap = (h) => { main.innerHTML = `<div class="wrap page" style="max-width:820px"><nav class="crumbs"><a href="/" data-link>Home</a> › International orders · <a href="/international/track" data-link>Track a parcel</a></nav>${h}</div>`; };
   if (seg[1] === 'order' && seg[2]) {
     const ref = seg[2], t = u.searchParams.get('t') || '';
     let o; try { o = await api('/api/trade/orders/' + encodeURIComponent(ref) + '?t=' + encodeURIComponent(t)); } catch (er) { wrap(`<div class="card"><h1>Order not found</h1><p class="mu">${e(er.message)} Use the link in your order email.</p></div>`); return 'International order'; }
@@ -1593,6 +1593,19 @@ async function intlView(main, seg, u, cfg) {
     const df = $('#dfail'); if (df) df.addEventListener('click', async () => { try { await api('/api/pay/demo/' + o.ref, { body: { outcome: 'fail' } }); toast('Payment failed. The order was cancelled.', 'bad'); again(); } catch (er) { toast(er.message, 'bad'); } });
     const rc = $('#recheck'); if (rc) rc.addEventListener('click', async () => { await api('/api/paystack/verify?reference=' + encodeURIComponent(o.ref)).catch(() => {}); again(); });
     return 'Order ' + o.ref;
+  }
+  if (seg[1] === 'track') {
+    wrap(`<div class="card"><h1 style="margin-top:0">Track your parcel</h1><p class="mu">Enter your order or tracking number and the email you used at checkout.</p>
+      <form id="trf"><label class="f"><span class="mu2">Order or tracking number</span><input id="trq" required maxlength="60" autocomplete="off"></label><label class="f"><span class="mu2">Email</span><input id="tre" type="email" required maxlength="120" autocomplete="email"></label><button class="btn" id="trg">Track</button></form><div id="trr" style="margin-top:14px"></div></div>`);
+    $('#trf').addEventListener('submit', async (ev) => { ev.preventDefault(); const out = $('#trr'); out.innerHTML = '<span class="mu">Looking…</span>';
+      try {
+        const r = await api('/api/trade/track', { body: { query: $('#trq').value, email: $('#tre').value } });
+        out.innerHTML = `<h3 style="margin:0">Order ${e(r.order_ref)} · ${e(String(r.status).replace(/_/g, ' '))}</h3><p class="mu">To ${e(r.destination.city)}, ${e(r.destination.country)}${r.carrier ? ' · ' + e(r.carrier) : ''}${r.tracking_number ? ' · ' + e(r.tracking_number) : ''}${r.eta ? '<br>Estimated delivery: ' + e(r.eta) + ' (a carrier estimate, not a promise)' : ''}</p>${r.problem ? '<div class="note"><b>' + e(r.problem === 'customs_hold' ? 'Held at customs' : r.problem === 'delayed' ? 'Delayed' : 'There is a problem with delivery') + '.</b> Our team is on it. See the latest update below.</div>' : ''}
+          <div style="margin:10px 0">${r.stages.map((x) => `<div style="opacity:${x.reached ? 1 : .45}">${x.reached ? '●' : '○'} ${e(x.label)}</div>`).join('')}</div>
+          ${r.timeline.length ? r.timeline.slice().reverse().map((x) => `<div style="margin-bottom:6px"><b>${e(x.label)}</b> <span class="mu">· ${new Date(x.at * 1000).toLocaleString()}${x.location ? ' · ' + e(x.location) : ''}</span>${x.description ? '<br><span class="mu">' + e(x.description) + '</span>' : ''}</div>`).join('') : ''}<p class="mu" style="font-size:13px">${e(r.note)}</p>`;
+      } catch (er) { out.innerHTML = '<div class="note">' + e(er.message) + '</div>'; }
+    });
+    return 'Track your parcel';
   }
   const [cs, cu] = await Promise.all([api('/api/trade/countries'), api('/api/trade/currencies')]);
   if (!cart.items.length) { wrap('<div class="card" style="text-align:center"><h1>International orders</h1><p class="mu">Your cart is empty. Add products, then come back here to see shipping to your country.</p><a class="btn" href="/shop" data-link>Browse the shop</a></div>'); return 'International orders'; }
@@ -2983,7 +2996,7 @@ views.partners = async () => {
 const tradeState = { tab: 'overview', cq: '', pf: '', pq: '', pp: 1, of: '', oq: '' };
 views.trade = async () => {
   const edit = can('trade', true), T = tradeState;
-  const tabs = [['overview', 'Overview'], ['countries', 'Countries'], ['rates', 'Currencies & rates'], ['products', 'Products'], ['suppliers', 'International suppliers'], ['purchase', 'Purchase orders'], ['imports', 'Import shipments'], ['shipping', 'Shipping & duties'], ['carriers', 'Carriers'], ['customs', 'Customs & docs'], ['orders', 'International orders'], ['settings', 'Settings'], ['audit', 'Activity']];
+  const tabs = [['overview', 'Overview'], ['countries', 'Countries'], ['rates', 'Currencies & rates'], ['products', 'Products'], ['suppliers', 'International suppliers'], ['purchase', 'Purchase orders'], ['imports', 'Import shipments'], ['shipping', 'Shipping & duties'], ['carriers', 'Carriers'], ['customs', 'Customs & docs'], ['orders', 'International orders'], ['tracking', 'Global tracking'], ...(can('finance') ? [['payments', 'Payments']] : []), ['settings', 'Settings'], ['audit', 'Activity']];
   const ngn = (n) => naira(Math.round(Number(n || 0)));
   const yn = (b) => (b ? '<span class="pill ok">Yes</span>' : '<span class="pill">No</span>');
   const frame = (body) => mn(hd('GLOBAL TRADE &amp; LOGISTICS', '') + `<div class="tbar">${tabs.map(([k, t]) => `<button class="btn ${T.tab === k ? '' : 'ghost'} sm" data-tab="${k}">${t}</button>`).join('')}</div>` + body);
@@ -3437,6 +3450,32 @@ views.trade = async () => {
     onAll('[data-add]', 'click', (el) => open(el.dataset.add, 0));
     onAll('[data-edit]', 'click', (el) => { const [k, id] = el.dataset.edit.split(':'); open(k, id); });
     onAll('[data-del]', 'click', guard(async (el) => { const [k, id] = el.dataset.del.split(':'); if (!confirm('Delete this?')) return; await api('/api/admin/trade/shipping/' + k + '/' + id, { method: 'DELETE' }); toast('Deleted'); views.trade(); }));
+    return;
+  }
+  if (T.tab === 'tracking') {
+    const d = await api('/api/admin/trade/tracking');
+    const fl = { problem: '<span class="pill bad">Problem</span>', no_recent_update: '<span class="pill warn">No recent update</span>', ok: '<span class="pill ok">On track</span>' };
+    frame(`<div class="panel"><div class="mu2" style="margin-bottom:8px">Parcels on their way. Updates come from carriers or are entered by staff on the order. Nothing here is estimated: a parcel with no recent update is flagged, not assumed to be moving.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px"><span class="pill">${d.counts.in_flight} on the way</span><span class="pill bad">${d.counts.problems} with a problem</span><span class="pill warn">${d.counts.stale} with no update for ${d.stale_days}+ days</span></div>
+      <div class="tw">${d.shipments.length ? `<table class="t"><tr><th>Order</th><th>To</th><th>Carrier / tracking</th><th>Last update</th><th>ETA</th><th></th></tr>${d.shipments.map((x) => `<tr><td>${e(x.ref)}<br><span class="mu2">${e(x.customer)}</span></td><td>${e(x.country)}</td><td>${e(x.carrier || '')}<br><span class="mu2">${e(x.tracking_number || '')}</span></td><td>${x.last_stage ? e(String(x.last_stage).replace(/_/g, ' ')) + '<br><span class="mu2">' + dt(x.last_at) + ' · ' + e(x.last_source) + '</span>' : '<span class="mu2">none yet</span>'}</td><td>${e(x.eta || '')}</td><td>${fl[x.flag]}</td></tr>`).join('')}</table>` : '<div class="mu2">No international parcels are on the way.</div>'}</div></div>`);
+    wireTabs(); return;
+  }
+  if (T.tab === 'payments') {
+    const pv = await api('/api/admin/trade/payments/providers'), d = await api('/api/admin/trade/payments?kind=' + encodeURIComponent(T.pk || '') + '&q=' + encodeURIComponent(T.pq || '')), rc = T.prec ? await api('/api/admin/trade/payments/reconciliation') : null;
+    const sp = (x) => x.status === 'succeeded' || x.status === 'refunded' || x.status === 'partially_refunded' ? 'ok' : x.status === 'failed' ? 'bad' : 'warn';
+    frame(`<div class="panel"><h3 style="margin-top:0">Payment providers</h3>${pv.providers.map((p2) => `<div style="margin:6px 0"><b>${e(p2.name)}</b> <span class="pill ${p2.status === 'ready' ? 'ok' : 'warn'}">${e(p2.status_label)}</span><div class="mu2">${e(p2.note)}</div></div>`).join('')}</div>
+      <div class="panel"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><select id="pk"><option value="">Payments and refunds</option><option value="charge" ${T.pk === 'charge' ? 'selected' : ''}>Payments</option><option value="refund" ${T.pk === 'refund' ? 'selected' : ''}>Refunds</option></select><input id="pq" placeholder="Order or payment reference" value="${e(T.pq || '')}" style="max-width:240px"><button class="btn ghost sm" id="pgo">Search</button><button class="btn ghost sm" id="prec">${T.prec ? 'Hide' : 'Show'} reconciliation</button></div>
+      <div class="tw" style="margin-top:10px">${d.payments.length ? `<table class="t"><tr><th>When</th><th>Order</th><th>Type</th><th>Amount</th><th>Reference</th><th>Status</th><th></th></tr>${d.payments.map((x) => `<tr><td>${dt(x.created)}</td><td>${e(x.order_ref)}</td><td>${e(x.kind)}${x.reason ? '<br><span class="mu2">' + e(x.reason) + '</span>' : ''}</td><td>${naira(x.amount)}${x.fee ? '<br><span class="mu2">fee ' + naira(x.fee) + '</span>' : ''}</td><td class="mu2">${e(x.provider_ref)}</td><td><span class="pill ${sp(x)}">${e(String(x.status).replace(/_/g, ' '))}</span>${x.kind === 'refund' && x.status === 'pending' ? '<br><span class="mu2">Paystack: ' + e(x.provider_status || 'waiting') + '</span>' : ''}</td><td>${edit && x.kind === 'refund' && x.status === 'pending' ? `<button class="btn ghost sm" data-chk="${x.id}">Check with Paystack</button>` : ''}${edit && x.kind === 'charge' && ['succeeded', 'partially_refunded'].includes(x.status) && x.refundable > 0 && x.verified ? `<button class="btn ghost sm" data-rf="${x.id}" data-max="${x.refundable}" data-ref="${e(x.order_ref)}">Refund</button>` : ''}</td></tr>`).join('')}</table>` : '<div class="mu2">No international payments yet.</div>'}</div></div>
+      ${rc ? `<div class="panel"><h3 style="margin-top:0">Reconciliation</h3><div class="mu2" style="margin-bottom:8px">${e(rc.note)}</div><div style="margin-bottom:8px"><b>Charged</b> ${ngn(rc.totals.charged)} · <b>Fees</b> ${ngn(rc.totals.fees)} · <b>Refunded</b> ${ngn(rc.totals.refunded)} · <b>Net</b> ${ngn(rc.totals.net)} · <b>Orders to look at</b> ${rc.totals.flagged}</div><div class="tw"><table class="t"><tr><th>Order</th><th>Currency</th><th>Ordered</th><th>Charged</th><th>Refunded</th><th>Exchange difference</th><th>Check</th></tr>${rc.rows.map((r) => `<tr><td>${e(r.export_ref)}</td><td>${e(r.currency)} ${Number(r.total).toLocaleString()}</td><td>${ngn(r.ordered_ngn)}</td><td>${ngn(r.charged_ngn)}</td><td>${ngn(r.refunded_ngn)}${r.refund_pending_ngn ? '<br><span class="mu2">' + ngn(r.refund_pending_ngn) + ' waiting</span>' : ''}</td><td>${r.fx_difference_ngn == null ? '<span class="mu2">rate unavailable</span>' : ngn(r.fx_difference_ngn)}</td><td><span class="pill ${r.flag === 'ok' ? 'ok' : 'warn'}">${e(r.flag.replace(/_/g, ' '))}</span></td></tr>`).join('') || '<tr><td colspan="7" class="mu2">No paid international orders.</td></tr>'}</table></div></div>` : ''}`);
+    wireTabs(); on('#pgo', 'click', () => { T.pk = $('#pk').value; T.pq = $('#pq').value.trim(); views.trade(); }); on('#pk', 'change', () => { T.pk = $('#pk').value; views.trade(); });
+    on('#prec', 'click', () => { T.prec = !T.prec; views.trade(); });
+    onAll('[data-chk]', 'click', guard(async (el) => { const r = await api('/api/admin/trade/payments/' + el.dataset.chk + '/refresh', { method: 'POST', body: {} }); toast(r.note || 'Refund is now: ' + r.payment.status); views.trade(); }));
+    onAll('[data-rf]', 'click', (el) => {
+      const key = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40).padEnd(16, 'x');
+      openModal(`<h3 style="margin-top:0">Refund order ${e(el.dataset.ref)}</h3><p class="mu2">Refunds go back to the customer through Paystack in naira. It is shown as done only after Paystack confirms. You can refund up to ${naira(el.dataset.max)}.</p>
+        <label class="f"><span class="mu2">Amount (NGN)</span><input id="rfa" type="number" step="0.01" min="0.01" max="${e(el.dataset.max)}" value="${e(el.dataset.max)}"></label><label class="f"><span class="mu2">Reason</span><input id="rfr" maxlength="200"></label><button class="btn" id="rfgo">Send refund to Paystack</button>`);
+      monAll('#rfgo', 'click', async () => { const r = await api('/api/admin/trade/payments/' + el.dataset.rf + '/refund', { method: 'POST', body: { amount_ngn: Number($('#rfa', modal).value), reason: $('#rfr', modal).value, idempotency_key: key } }); closeModal(); toast(r.payment.status === 'succeeded' ? 'Refund confirmed by Paystack' : 'Refund sent. Waiting for Paystack to confirm.'); views.trade(); });
+    });
     return;
   }
   if (T.tab === 'settings') {
