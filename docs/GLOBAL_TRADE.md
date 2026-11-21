@@ -31,7 +31,7 @@ Admin > Global Trade > Settings: exchange-rate refresh and age limits, optional 
 
 ## Environment
 
-`FX_API_URL`, `FX_API_KEY`, `FX_REFRESH` (all optional, see `.env.example`). Run the checks with `npm run test:trade`.
+`FX_API_URL`, `FX_API_KEY`, `FX_REFRESH` (all optional, see `.env.example`). Run the checks with `npm run test:trade-core`.
 
 ## Customers outside Nigeria
 

@@ -4,8 +4,8 @@ Read with `docs/GLOBAL_TRADE.md` (what each part does) and `docs/RESTORE.md` (ba
 
 ## 1. Before you deploy
 
-1. **Take a backup** (Admin > Settings > Backups, or wait for the nightly one). Migrations 023 to 028 only ADD tables and columns. They do not change or delete existing retail, wholesale, pharmacy or rider data.
-2. Deploy the branch. Migrations run automatically at start-up, once each. Check the Render log for `Applied migration 028_trade_payments.sql`.
+1. **Take a backup** (Admin > Settings > Backups, or wait for the nightly one). Migrations 030 to 035 (Global Trade) only ADD tables and columns. They do not change or delete existing retail, wholesale, pharmacy or rider data.
+2. Deploy the branch. Migrations run automatically at start-up, once each. Check the Render log for `Applied migration 035_trade_payments.sql`.
 3. **Private storage bucket.** Create a PRIVATE Supabase Storage bucket named `trade-docs` (or set `SUPABASE_TRADE_BUCKET`). Leave "Public" off. Supplier invoices, customs files and shipping labels live there. Without Supabase, files go to the server's disk and are lost when Render restarts.
 4. Staff roles: give people "Trade & Logistics Manager" (can edit trade, can view money) or "Trade Analyst" (read only). Money changes (supplier payments, refunds) need Finance edit. Owner and Finance roles already have it.
 
@@ -57,7 +57,7 @@ Redeploy the previous commit. The extra tables and columns are ignored by older 
 
 ## 7. Automated checks (run before every deploy)
 
-`npm test` plus `npm run test:trade`, `test:trade-export`, `test:trade-import`, `test:trade-carriers`, `test:trade-customs`, `test:trade-payments`, `test:trade-reports`, `test:trade-security`. The security suite hits every trade route (signed out, customer, wrong role, read-only role), checks webhooks reject bad signatures, row-level security on all trade tables, key leaks in responses, page source and logs, injection strings, and rate limits.
+`npm test` plus `npm run test:trade-core`, `test:trade-export`, `test:trade-import`, `test:trade-carriers`, `test:trade-customs`, `test:trade-payments`, `test:trade-reports`, `test:trade-security`. The security suite hits every trade route (signed out, customer, wrong role, read-only role), checks webhooks reject bad signatures, row-level security on all trade tables, key leaks in responses, page source and logs, injection strings, and rate limits.
 
 ## 8. Final acceptance (spec section 22)
 
@@ -87,3 +87,21 @@ Redeploy the previous commit. The extra tables and columns are ignored by older 
 - SMS and WhatsApp are not connected for international numbers. Email only.
 - No estimated landed-cost calculator before an import is received, and no demand forecasting.
 - Customers pay in naira; the amount in their own currency is for display.
+
+## 10. Living next to the Dropshipping module
+
+Main also has a Dropshipping and "trade" module (supplier orders, supplier portal, trade documents, its own countries, currencies, shipping zones, Stripe). Global Trade was merged beside it, not over it. They are separate and do not share data:
+
+| | Dropshipping module | Global Trade |
+|---|---|---|
+| Admin menu | Dropshipping | Global Trade |
+| API | `/api/admin/dropship/...` | `/api/admin/trade/...`, `/api/trade/...` |
+| Tables | `suppliers`, `countries`, `currencies`, `fx_rates`, `shipping_zones`, `trade_shipments`... | `international_suppliers`, `trade_countries`, `trade_currencies`, `trade_exchange_rates`, `trade_shipping_zones`... |
+| Exchange rates | `FX_FEED_*` | `FX_API_URL`, `FX_API_KEY`, `FX_REFRESH` |
+| International cards | Stripe (if switched on) | Paystack in naira only |
+
+- Migrations: Global Trade's are 030 to 035 and run after main's 023 to 029.
+- Both modules use the same private `trade-docs` storage bucket; file names do not clash.
+- Staff roles: Global Trade uses the `trade` permission, Dropshipping its own. Give each person only what they need.
+- Orders: Global Trade orders have delivery "international" and never go to riders; dropship orders are excluded by their own rule. Refunds and payment status for each follow their own module.
+- Decide which module you will use for which job before launch, so staff do not enter the same supplier or shipment in both places.
