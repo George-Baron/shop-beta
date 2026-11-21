@@ -14,7 +14,7 @@ Admin screen: **Admin > Global Trade**. Permission module: `trade` (roles "Trade
 | 6 | Customs, duties, documentation and landed cost | Built |
 | 7 | International payments and shipment tracking | Built |
 | 8 | Notifications, reporting and AI assistant | Built |
-| 9 | Testing, security audit and production deployment | Not started |
+| 9 | Testing, security audit and deployment | Built (see GLOBAL_TRADE_DEPLOYMENT.md) |
 
 ## Rules the code follows (and the tests check)
 
