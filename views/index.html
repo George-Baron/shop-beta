@@ -603,11 +603,11 @@ function paint() {
 async function shopView(main, u, cfg) {
   const q = Object.fromEntries(u.searchParams.entries());
   const seg = u.pathname.split('/').filter(Boolean); if (seg[0] === 'd' && seg[1]) q.store = seg[1];
-  const params = new URLSearchParams(); for (const k of ['store', 'category', 'q', 'min', 'max', 'size', 'color', 'rating', 'sort', 'page', 'flag', 'instock', 'vendor']) if (q[k]) params.set(k, q[k]);
+  const params = new URLSearchParams(); for (const k of ['store', 'category', 'q', 'min', 'max', 'size', 'color', 'rating', 'sort', 'page', 'flag', 'instock', 'vendor', 'fulfilment']) if (q[k]) params.set(k, q[k]);
   const d = await api('/api/products?' + params.toString());
   const stObj = cfg.stores.find((s) => s.slug === q.store); const cats = cfg.categories.filter((c) => !q.store || c.store === q.store);
   const url = (over) => { const p = new URLSearchParams(params); for (const [k, v] of Object.entries(over)) { if (v === '' || v == null) p.delete(k); else p.set(k, v); } if (!('page' in over)) p.delete('page'); return '/shop?' + p.toString(); };
-  const title = q.q ? `Results for “${q.q}”` : q.flag === 'deals' ? 'Deals' : q.flag === 'new' ? 'New arrivals' : q.flag === 'best' ? 'Best sellers' : (cats.find((c) => c.slug === q.category) || {}).name || (stObj ? stObj.name : 'All products');
+  const title = q.q ? `Results for “${q.q}”` : q.fulfilment === 'dropship' ? 'Shipped by our partner suppliers' : q.flag === 'deals' ? 'Deals' : q.flag === 'new' ? 'New arrivals' : q.flag === 'best' ? 'Best sellers' : (cats.find((c) => c.slug === q.category) || {}).name || (stObj ? stObj.name : 'All products');
   main.innerHTML = `<div class="wrap">
    <nav class="crumbs" aria-label="Breadcrumb"><a href="/" data-link>Home</a> › ${stObj ? `<a href="/d/${e(stObj.slug)}" data-link>${e(stObj.name)}</a> › ` : ''}${e(title)}</nav>
    <div class="shop-top"><div><h1 style="font-size:28px;margin:0">${e(title)}</h1><span class="mu">${d.total} product${d.total === 1 ? '' : 's'}</span></div>
@@ -1636,7 +1636,8 @@ async function route() {
     else if (seg[0] === 'd' && seg.length === 2) title = await home(main, seg[1], cfg);
     else if (seg[0] === 'shop' || (seg[0] === 'd' && seg[2] === 'shop')) title = await shopView(main, u, cfg);
     else if (seg[0] === 'product' && seg[1]) title = await productView(main, seg[1], cfg);
-    else if ((seg[0] === 'import-export' || seg[0] === 'dropshipping') && seg.length === 1) { const t = seg[0] === 'dropshipping' ? 'Dropshipping' : 'Import & Export'; main.innerHTML = `<div class="wrap page" style="max-width:640px;text-align:center"><nav class="crumbs" style="text-align:left"><a href="/" data-link>Home</a> › ${e(t)}</nav><div class="card"><div style="font-size:46px">🚧</div><h1 style="margin:8px 0">${e(t)}</h1><p class="mu">This page is under construction. Please check back soon.</p><a class="btn" href="/" data-link>Back to home</a></div></div>`; title = t; }
+    else if (seg[0] === 'dropshipping' && seg.length === 1) title = await dropshippingPage(main, cfg);
+    else if (seg[0] === 'import-export' && seg.length === 1) { const t = 'Import & Export'; main.innerHTML = `<div class="wrap page" style="max-width:640px;text-align:center"><nav class="crumbs" style="text-align:left"><a href="/" data-link>Home</a> › ${e(t)}</nav><div class="card"><div style="font-size:46px">🚧</div><h1 style="margin:8px 0">${e(t)}</h1><p class="mu">This page is under construction. Please check back soon.</p><a class="btn" href="/" data-link>Back to home</a></div></div>`; title = t; }
     else if (seg[0] === 'stores' && seg.length === 1) title = await storesView(main, u, cfg);
     else if (seg[0] === 'store' && seg[1]) title = await storeView(main, seg[1], u, cfg);
     else if (seg[0] === 'sell' && seg.length === 1) title = await sellView(main, cfg);
@@ -1714,6 +1715,31 @@ async function sellView(main, cfg) {
 }
 
 /* ---------- Supplier portal (step 7): what a supplier sees at /supplier ---------- */
+/* ---------- public Dropshipping page (/dropshipping) ---------- */
+async function dropshippingPage(main, cfg) {
+  const [info, list] = await Promise.all([api('/api/dropshipping'), api('/api/products?fulfilment=dropship&sort=newest&nostores=1')]);
+  const items = (list.products || []).slice(0, 12), flags = info.countries.map((c) => `<span class="chip">🌍 ${e(c.name)} · ${c.count}</span>`).join(' ');
+  const steps = [['🛍️', 'You choose', 'Browse the items below and pay online, the same way as the rest of the store.'], ['📦', 'We order for you', 'Only after your payment is confirmed, we place the order with our partner supplier.'], ['🚚', 'The supplier ships to you', 'It goes straight from the supplier to your address. You get tracking by email and on your order page.'], ['✅', 'You receive it', 'We follow your parcel until it arrives, and we are here if anything goes wrong.']];
+  const faq = [
+    ['Why is delivery longer than for other items?', 'These items ship from our partner suppliers, sometimes from another country. Every product page shows where it ships from and an honest delivery estimate before you pay.'],
+    ['When do you order my item?', 'Only after your payment is confirmed. We never order from a supplier on a promise.'],
+    ['What if the supplier cannot deliver?', 'We tell you straight away. You choose either an alternative at the same price (you are never charged more) or a full refund of that item.'],
+    ['How do I track my parcel?', 'Open your order from your account or use Track an order. The carrier and tracking number appear there as soon as the supplier ships, and we email you too.'],
+    ['Can I pay on delivery?', 'No. Items shipped by a supplier are paid online, because we order them for you straight away.'],
+    ['Are there extra charges?', 'The price you see already includes the duty and tax we work out for the item. Delivery is shown at checkout before you pay.'],
+    ['What about returns?', 'See our Shipping & Returns page for how returns work. Contact us first so we can arrange it with the supplier.'],
+  ];
+  main.innerHTML = `<div class="wrap page" style="max-width:1000px"><nav class="crumbs"><a href="/" data-link>Home</a> › Dropshipping</nav>
+   <div class="card" style="text-align:center;padding:28px 18px"><div style="font-size:42px">🌍</div><h1 style="margin:6px 0">Dropshipping</h1><p class="mu" style="max-width:640px;margin:0 auto 14px">More products than we could ever keep on a shelf, shipped straight from our partner suppliers to your door, with honest delivery times and tracking all the way.</p>
+    ${info.count ? `<div>${flags}</div>` : ''}${items.length ? '<p style="margin-top:14px"><a class="btn" href="#dsitems">See the items</a></p>' : ''}</div>
+   <h2 style="margin:26px 0 10px">How it works</h2><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px">${steps.map(([i, t, d], n) => `<div class="card"><div style="font-size:28px">${i}</div><b>${n + 1}. ${e(t)}</b><p class="mu" style="margin:6px 0 0;font-size:14px">${e(d)}</p></div>`).join('')}</div>
+   <h2 id="dsitems" style="margin:26px 0 10px">Shipped by our partner suppliers</h2>
+   ${!info.orderable ? '<div class="note">Ordering these items is opening soon. Check back shortly.</div>' : items.length ? `<div class="grid">${items.map(productCard).join('')}</div>${list.total > items.length ? `<p style="text-align:center;margin-top:12px"><a class="btn ghost" href="/shop?fulfilment=dropship" data-link>See all ${list.total} items</a></p>` : ''}` : '<div class="card"><p class="mu">New items are being added. Please check back soon.</p></div>'}
+   <h2 style="margin:26px 0 10px">Our promise</h2><div class="card"><ul style="margin:0;padding-left:20px;line-height:1.7"><li><b>Honest delivery times</b> on every product, before you pay.</li><li><b>Tracking</b> by email and on your order page.</li><li><b>Alternative or full refund</b> if a supplier cannot deliver. Never charged more.</li><li><b>We order only after you have paid.</b></li><li>Your details go only to the supplier that ships your parcel, and only what it needs to deliver it.</li></ul></div>
+   <h2 style="margin:26px 0 10px">Questions</h2>${faq.map(([q, a]) => `<details class="card" style="margin-bottom:8px"><summary><b>${e(q)}</b></summary><p class="mu" style="margin:8px 0 0">${e(a)}</p></details>`).join('')}
+   <div class="card" style="margin-top:22px;text-align:center"><b>Are you a supplier?</b><p class="mu" style="margin:6px 0 10px">Tell us what you make or sell and where you ship.</p><a class="btn ghost" href="/page/contact" data-link>Get in touch</a></div></div>`;
+  return 'Dropshipping';
+}
 async function supplierPortal(main) {
   const draw = (inner) => { main.innerHTML = `<div class="wrap page" style="max-width:980px"><h1 style="font-size:26px">🚚 Supplier portal</h1>${inner}</div>`; };
   if (!store.user || store.user.role !== 'supplier') {

@@ -156,6 +156,9 @@ Off by default. Set `SUPPLIER_PORTAL_ENABLED=1` and restart to turn it on. You c
 
 **Safety.** Every supplier action is in the activity log with the person's name. Requests are rate limited. A switched-off or paused flag stops access immediately.
 
+## 13. The public Dropshipping page
+`/dropshipping` is live (it replaced the "under construction" placeholder). It explains how dropshipping works, lists the items a partner supplier ships (only approved, active ones), shows the countries they ship from, our promise and a short FAQ. "See all" opens the shop filtered to those items (`/shop?fulfilment=dropship`). It never shows a supplier, SKU, cost or margin. If `DROPSHIP_ORDERS_ENABLED` is not `1`, the page says ordering opens soon and hides the items, because they could not be ordered yet. The page is open to search engines and in the sitemap. The Import & Export page is still the placeholder.
+
 ## Settings and environment
 * `STRIPE_ENABLED`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CURRENCIES`, `PAYSTACK_CURRENCIES`, `FX_FEED_ENABLED`, `FX_FEED_URL`, `FX_MAX_AGE_HOURS`: see DEPLOY.md. `STRIPE_API_URL` is for tests only (preflight fails if it is set in production).
 * `SUPABASE_SUPPLIER_BUCKET` (default `supplier-docs`): create it as a **private** bucket. `npm run preflight` checks it.

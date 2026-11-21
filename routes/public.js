@@ -79,6 +79,17 @@ router.get('/products', (req, res, next) => (req.query.q ? searchLimit(req, res,
   publicCache(res);
   res.json(data);
 }));
+// The public Dropshipping page: how many items are shipped by partner suppliers and from which countries. Never a supplier, cost or margin.
+router.get('/dropshipping', ah(async (req, res) => {
+  const data = await cache.cached('dropshipping-page', 60000, async () => {
+    const rows = await all(`SELECT COALESCE(dp.ships_from, s.country) AS cc, COUNT(*) AS n FROM products p JOIN dropship_products dp ON dp.product_id = p.id JOIN suppliers s ON s.id = dp.supplier_id
+      WHERE p.fulfilment = 'dropship' AND p.active = 1 AND ${PC.visibleSql('p')} GROUP BY 1 ORDER BY n DESC`);
+    const C = require('../lib/countries');
+    return { orderable: require('../lib/dropship').ordersOpen(), count: rows.reduce((a, r) => a + Number(r.n), 0), countries: rows.map((r) => ({ code: r.cc, name: C.countryName(r.cc), count: Number(r.n) })) };
+  });
+  publicCache(res);
+  res.json(data);
+}));
 async function listProducts(q) {
   const vis = PC.visibleSql('p'), where = ['p.active=1', vis], args = [], facetWhere = ['p.active=1', vis], facetArgs = [];
   const store = str(q.store, 40), category = str(q.category, 60);
@@ -103,6 +114,7 @@ async function listProducts(q) {
   if (q.color) { where.push('EXISTS (SELECT 1 FROM variants v WHERE v.product_id=p.id AND v.color=?)'); args.push(str(q.color, 30)); }
   if (int(q.rating) > 0) { where.push('COALESCE(rv.r,0) >= ?'); args.push(Math.min(5, int(q.rating))); }
   if (q.instock) where.push('p.stock > 0');
+  if (q.fulfilment === 'dropship') where.push("p.fulfilment = 'dropship'");       // the Dropshipping page: items a partner supplier ships directly to the customer
   if (q.flag === 'deals') where.push('p.compare_price > p.price');
   if (q.flag === 'new') where.push('p.new_arrival=1');
   if (q.flag === 'best') where.push('p.bestseller=1');
