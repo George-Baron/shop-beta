@@ -141,13 +141,29 @@ Open **Dropshipping > Money & reports** (owner only: it shows our cost and margi
 
 **Profit reports.** Revenue (items the customer paid for; delivery fees are not included), customer refunds, supplier cost, supplier shipping, extra shipping, duty, payment fees, other costs, supplier refunds, net profit and margin. Group by order, supplier, country, product, day or month, for any period of up to two years (days are Lagos days). Every figure uses the price and exchange rate **fixed when the order was placed**, shown next to each order, so changing a rate later never rewrites old profit. Supplier cost counts once we have ordered. If a payment fee was not entered, it is estimated from the fee settings and marked with *. **Download Excel** gives the same table plus open payables (the download is in the activity log).
 
+## 12. The supplier portal (step 7, optional)
+Off by default. Set `SUPPLIER_PORTAL_ENABLED=1` and restart to turn it on. You can run dropshipping without it: purchase orders still go by PDF, email and WhatsApp, and you type in confirmations and tracking yourself.
+
+**Logins.** In **Dropshipping > Supplier portal**, pick a supplier and create a login (name and email). The person gets an email with a link (72 hours) to choose their own password, then signs in at `/supplier`. With email off, the screen shows the link for you to pass on. A login belongs to one supplier and can be switched off (the person is signed out at once) and on again. Several people can share one supplier.
+
+**What a supplier sees.** Only its own purchase orders once they are sent: where to ship, what to send and what we pay for each item, in its own currency. It never sees what the customer paid, our selling price, margin, profit, other suppliers, the customer's email, our internal order number or anyone else's orders. Another supplier's order looks exactly like one that does not exist (404). A supplier session cannot reach the back office, and a customer or visitor cannot reach the portal.
+
+**What a supplier can do.**
+- **Confirm** an item with its own order number (and optionally the tracking at the same time). The item becomes "Confirmed".
+- **Add tracking**: shipped, in transit or in customs, with carrier, number and an optional https link. A wrong number can be corrected. The customer is emailed as usual. Delivery is confirmed by you, never by the supplier.
+- **Say it cannot supply an item** (out of stock, cannot supply, price changed, other) with a few words. **Nothing changes on the order.** You are emailed and see it in the Supplier portal inbox. **Accept**: the item becomes a problem, the customer is told and chooses an alternative at the same price or a full refund (step 4). **Decline**: the supplier is asked to supply it.
+- **Propose a new price or stock level** for its own products. **Nothing changes until you approve it.** Approving applies the change like a normal product edit: an automatic selling price follows the new cost; a price you set by hand stays. Orders already placed keep their price. Rejecting needs a short reason, and the supplier is emailed either way. A newer proposal replaces one that is still waiting.
+
+**Safety.** Every supplier action is in the activity log with the person's name. Requests are rate limited. A switched-off or paused flag stops access immediately.
+
 ## Settings and environment
 * `STRIPE_ENABLED`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CURRENCIES`, `PAYSTACK_CURRENCIES`, `FX_FEED_ENABLED`, `FX_FEED_URL`, `FX_MAX_AGE_HOURS`: see DEPLOY.md. `STRIPE_API_URL` is for tests only (preflight fails if it is set in production).
 * `SUPABASE_SUPPLIER_BUCKET` (default `supplier-docs`): create it as a **private** bucket. `npm run preflight` checks it.
+* `SUPPLIER_PORTAL_ENABLED` (default off): `1` lets suppliers sign in at `/supplier`.
 * `SUPABASE_TRADE_BUCKET` (default `trade-docs`): create it as a **private** bucket (shipment files).
 * `DROPSHIP_ORDERS_ENABLED`: set to `1` to let customers buy supplier items. It also starts the stuck-order check (every 6 hours). Leave it off until you have a supplier, an approved product, and have tried one test order.
 * Pricing defaults, exchange rates and category margins are stored in their own tables (not the public settings), so cost and margin data cannot reach the storefront.
 * Every change is in the activity log. Rate limits protect uploads and imports. Migrations `010`, `011` and `012` are safe to re-run.
 
 ## Not built yet
-Supplier login portal (step 7). Customer refunds are still sent by hand and then recorded; no payment is moved automatically.
+Nothing from the original seven steps. Customer refunds are still sent by hand and then recorded; no payment is moved automatically.

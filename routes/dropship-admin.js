@@ -69,6 +69,18 @@ router.post('/import/preview', A.limiter('dsimport', 40, 3600000), express.json(
 router.post('/import/commit', A.limiter('dscommit', 20, 3600000), express.json({ limit: '6mb' }), ah(async (req, res) => res.json({ ok: true, ...(await IMP.commit(req.user, req.body || {})) })));
 
 router.use('/supplier-orders', require('./supplier-orders-admin')); // purchase orders, supplier order numbers, tracking, problems and refunds
+/* ---------- the supplier portal: logins, and what is waiting for an admin decision (step 7) ---------- */
+const SP = require('../lib/supplier-portal');
+const whoA = (req) => S.str(req.user.name || req.user.email, 80);
+router.get('/portal/inbox', ah(async (req, res) => res.json(await SP.inbox())));
+router.get('/portal/history', ah(async (req, res) => res.json(await SP.requestHistory(req.query.supplier_id))));
+router.post('/portal/requests/:id/decide', ah(async (req, res) => res.json({ ok: true, ...(await SP.decideRequest(req.user, req.params.id, req.body || {})) })));
+router.post('/portal/lines/:id/decide', ah(async (req, res) => res.json({ ok: true, ...(await SP.decideRejection(req.user, req.params.id, req.body || {})) })));
+router.get('/suppliers/:id/portal', ah(async (req, res) => res.json(await SP.logins(req.params.id))));
+router.post('/suppliers/:id/portal', ah(async (req, res) => res.json({ ok: true, ...(await SP.createLogin(req.params.id, req.body || {}, whoA(req))) })));
+router.post('/suppliers/:id/portal/:uid/invite', ah(async (req, res) => res.json({ ok: true, ...(await SP.resendInvite(req.params.id, req.params.uid, whoA(req))) })));
+router.post('/suppliers/:id/portal/:uid/active', ah(async (req, res) => { await SP.setLoginActive(req.params.id, req.params.uid, !!(req.body && req.body.active)); res.json({ ok: true }); }));
+
 router.use('/money', require('./dropship-money-admin')); // payables, extra costs, refunds, returns to the supplier, profit reports
 router.use('/trade', require('./trade-admin')); // shipments, trade documents, landed cost, compliance reminders and restricted items
 router.use('/regions', require('./regions-admin')); // countries, shipping zones, currencies, tax and restricted products

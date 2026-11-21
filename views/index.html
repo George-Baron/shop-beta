@@ -877,6 +877,7 @@ async function view(main, seg, u, cfg) {
   if (name === 'rider') return riderPage(main);
   if (name === 'pharmacist') return pharmacistPage(main);
   if (name === 'partner') return partnerPortal(main);
+  if (name === 'supplier') return supplierPortal(main);
   if (name === 'wholesale') return wholesalePage(main);
   if (name === 'notifications') return notificationsPage(main);
   return '';
@@ -1640,7 +1641,7 @@ async function route() {
     else if (seg[0] === 'store' && seg[1]) title = await storeView(main, seg[1], u, cfg);
     else if (seg[0] === 'sell' && seg.length === 1) title = await sellView(main, cfg);
     else if (seg[0] === 'page' && seg[1]) title = staticPage(main, seg[1], cfg);
-    else if (['checkout', 'order', 'account', 'login', 'register', 'wishlist', 'track', 'forgot', 'rider', 'pharmacist', 'partner', 'wholesale', 'notifications'].includes(seg[0])) { title = await view(main, seg, u, cfg); refreshBell(); }
+    else if (['checkout', 'order', 'account', 'login', 'register', 'wishlist', 'track', 'forgot', 'rider', 'pharmacist', 'partner', 'supplier', 'wholesale', 'notifications'].includes(seg[0])) { title = await view(main, seg, u, cfg); refreshBell(); }
     else main.innerHTML = `<div class="wrap empty"><div class="em">🧭</div><h2>Page not found</h2><p><a class="btn" href="/" data-link>Back to the store</a></p></div>`;
     document.title = (title ? title + ' · ' : '') + cfg.settings.store_name;
     syncHeader(); $('#main').focus({ preventScroll: true });
@@ -1712,6 +1713,52 @@ async function sellView(main, cfg) {
   return 'Open a partner store';
 }
 
+/* ---------- Supplier portal (step 7): what a supplier sees at /supplier ---------- */
+async function supplierPortal(main) {
+  const draw = (inner) => { main.innerHTML = `<div class="wrap page" style="max-width:980px"><h1 style="font-size:26px">🚚 Supplier portal</h1>${inner}</div>`; };
+  if (!store.user || store.user.role !== 'supplier') {
+    draw('<div class="card"><p class="mu">Sign in with the email and password you chose from our invitation. Your account shows only your own purchase orders.</p><form id="sl">' + field('se', 'Email', { type: 'email', req: 1 }) + field('sp', 'Password', { type: 'password', req: 1 }) + '<p class="err hide" id="serr"></p><button class="btn">Sign in</button> <a href="/forgot" data-link class="mu" style="margin-left:10px">Forgot your password?</a></form></div>');
+    $('#sl').addEventListener('submit', async (ev) => { ev.preventDefault(); try { const r = await api('/api/auth/login', { body: { email: $('#se').value.trim(), password: $('#sp').value } }); if (r.user.role !== 'supplier') { await api('/api/auth/logout', { body: {} }); throw new Error('This account is not a supplier account.'); } location.reload(); } catch (x) { $('#serr').textContent = x.message; $('#serr').classList.remove('hide'); } });
+    return 'Supplier portal';
+  }
+  const P = (p, o) => api('/api/supplier' + p, o);
+  const dt = (t) => (t ? new Date(t * 1000).toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
+  const mEl = $('#modal'), openModal = (html) => { mEl.innerHTML = `<div class="box">${html}</div>`; mEl.classList.add('on'); }, closeModal = () => { mEl.classList.remove('on'); mEl.innerHTML = ''; };
+  let tab = 'orders', showAll = false;
+  const run = (fn) => async (ev) => { try { await fn(ev); } catch (x) { toast(x.message, 'bad'); } };
+  const mny = (x, c) => `${e(c)} ${Number(x).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const RS = { pending: ['Waiting for us', 'mu'], approved: ['Approved', 'ok'], rejected: ['Not accepted', 'err'] };
+  const show = run(async () => {
+    const { supplier: me, reject_reasons } = await P('/me');
+    const tabs = [['orders', 'Purchase orders' + (me.to_confirm ? ` (${me.to_confirm} to confirm)` : '')], ['products', 'My products'], ['requests', 'My requests']];
+    let inner = '';
+    if (tab === 'orders') {
+      const { orders, currency } = await P('/orders' + (showAll ? '?all=1' : ''));
+      inner = `<label class="mu" style="display:block;margin:8px 0"><input type="checkbox" id="sall" ${showAll ? 'checked' : ''}> Show finished orders too</label>` + (orders.map((po) => `<div class="card" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b>${e(po.ref)}</b> <span class="mu">${po.sent_at ? dt(po.sent_at) : ''}</span><br><span class="mu" style="font-size:13px">Ship to: <b>${e(po.ship_to.name)}</b>, ${e(po.ship_to.address)}, ${e(po.ship_to.city)}, ${e(po.ship_to.country)} · ${e(po.ship_to.phone)}</span></div><div style="text-align:right"><b>${mny(po.total, po.currency)}</b></div></div>
+        <p class="mu" style="font-size:12px;margin:6px 0">Ship directly to the customer. Please put no invoice, price list or promotion in the parcel.</p>
+        ${po.lines.map((l) => `<div style="border-top:1px solid var(--line);padding:8px 0;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><b>${e(l.name)}</b> × ${l.qty}<br><span class="mu" style="font-size:12px">${e(l.sku)} · ${mny(l.total, po.currency)}${l.supplier_order_no ? ' · your order ' + e(l.supplier_order_no) : ''}${l.tracking_no ? ' · ' + e(l.carrier) + ' ' + e(l.tracking_no) : ''}</span><br><span class="chip">${e(l.label)}</span>${l.rejected_reason ? ` <span class="mu" style="font-size:12px">${e(l.rejected_reason)}: ${e(l.rejected_note)}</span>` : ''}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start">${l.can_confirm ? `<button class="btn sm" data-cf="${l.id}">Confirm</button>` : ''}${l.can_ship ? `<button class="btn ${l.can_confirm ? 'ghost ' : ''}sm" data-tk="${l.id}" data-car="${e(l.carrier)}" data-no="${e(l.tracking_no)}">${l.tracking_no ? 'Update tracking' : 'Add tracking'}</button>` : ''}${l.can_reject ? `<button class="btn ghost sm" data-rj="${l.id}">We cannot supply this</button>` : ''}</div></div>`).join('')}</div>`).join('') || '<div class="card"><p class="mu">No purchase orders waiting. New ones appear here, and we email you.</p></div>');
+    } else if (tab === 'products') {
+      const { products, currency } = await P('/products');
+      inner = `<div class="card"><p class="mu">Price and stock changes are sent to us as a proposal. They apply once we approve them.</p><div style="overflow:auto"><table class="t" style="width:100%"><tr><th>Code</th><th>Product</th><th>Price</th><th>Shipping</th><th>Stock</th><th></th></tr>${products.map((p) => `<tr><td>${e(p.sku)}</td><td>${e(p.name)}</td><td>${mny(p.cost, currency)}</td><td>${mny(p.ship_cost, currency)}</td><td>${p.stock == null ? '—' : p.stock}</td><td><button class="btn ghost sm" data-pp="${p.id}" data-cost="${p.cost}" data-ship="${p.ship_cost}">Propose price</button> <button class="btn ghost sm" data-ps="${p.id}" data-stock="${p.stock == null ? '' : p.stock}">Propose stock</button>${p.pending ? ' <span class="chip">waiting</span>' : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="mu">No products yet.</td></tr>'}</table></div></div>`;
+    } else {
+      const { requests } = await P('/requests');
+      inner = `<div class="card">${requests.map((r) => `<div style="border-bottom:1px solid var(--line);padding:8px 0"><b>${e(r.name)}</b> <span class="chip ${RS[r.status][1]}">${RS[r.status][0]}</span><br><span class="mu" style="font-size:13px">${r.kind === 'price' ? `Price ${mny(r.old_cost, r.currency)} → <b>${mny(r.new_cost, r.currency)}</b>, shipping ${mny(r.new_ship_cost, r.currency)}` : `Stock ${r.old_stock == null ? '—' : r.old_stock} → <b>${r.new_stock}</b>`} · ${dt(r.created)}${r.decision_note ? ' · ' + e(r.decision_note) : ''}</span></div>`).join('') || '<p class="mu">You have not sent any requests.</p>'}</div>`;
+    }
+    draw(`<p class="mu">${e(me.name)} · ${e(me.user.name)} · <button class="btn ghost sm" id="slo">Sign out</button></p><div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">${tabs.map(([k, t]) => `<button class="btn ${tab === k ? '' : 'ghost'} sm" data-tab="${k}">${t}</button>`).join('')}</div>${inner}`);
+    $('#slo').addEventListener('click', async () => { await api('/api/auth/logout', { body: {} }); location.reload(); });
+    $$('[data-tab]', main).forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; show(); }));
+    const sa = $('#sall'); if (sa) sa.addEventListener('change', () => { showAll = sa.checked; show(); });
+    const form = (title, body, label, fn) => { openModal(`<h2>${title}</h2>${body}<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn ghost" id="mx">Close</button><button class="btn" id="mok">${label}</button></div>`); $('#mx').addEventListener('click', closeModal); $('#mok').addEventListener('click', run(async () => { await fn(); closeModal(); show(); })); };
+    $$('[data-cf]', main).forEach((b) => b.addEventListener('click', () => form('Confirm this item', `<div class="fgrid"><label class="f full">Your order number<input id="f1" maxlength="80"></label><label class="f">Carrier (if already shipped)<input id="f2" maxlength="60"></label><label class="f">Tracking number<input id="f3" maxlength="80"></label></div>`, 'Confirm', async () => { await P(`/lines/${b.dataset.cf}/confirm`, { body: { supplier_order_no: $('#f1').value, carrier: $('#f2').value, tracking_no: $('#f3').value } }); toast('Confirmed'); })));
+    $$('[data-tk]', main).forEach((b) => b.addEventListener('click', () => form('Tracking', `<div class="fgrid"><label class="f">Stage<select id="f0"><option value="shipped">Shipped</option><option value="in_transit">In transit</option><option value="customs">In customs</option></select></label><label class="f">Carrier<input id="f1" maxlength="60" value="${e(b.dataset.car)}"></label><label class="f">Tracking number<input id="f2" maxlength="80" value="${e(b.dataset.no)}"></label><label class="f full">Tracking link (https, optional)<input id="f3" maxlength="300"></label></div><p class="mu" style="font-size:12px">The customer is emailed. We confirm delivery ourselves.</p>`, 'Save', async () => { await P(`/lines/${b.dataset.tk}/tracking`, { body: { status: $('#f0').value, carrier: $('#f1').value, tracking_no: $('#f2').value, tracking_url: $('#f3').value } }); toast('Tracking saved'); })));
+    $$('[data-rj]', main).forEach((b) => b.addEventListener('click', () => form('We cannot supply this item', `<div class="fgrid"><label class="f">Why<select id="f1">${Object.entries(reject_reasons).map(([k, v]) => `<option value="${k}">${e(v)}</option>`).join('')}</select></label><label class="f full">Tell us more<input id="f2" maxlength="300"></label></div><p class="mu" style="font-size:12px">We will decide what to do with the customer's order. Nothing changes until we do.</p>`, 'Send to us', async () => { await P(`/lines/${b.dataset.rj}/reject`, { body: { kind: $('#f1').value, note: $('#f2').value } }); toast('Sent. We will decide shortly.'); })));
+    $$('[data-pp]', main).forEach((b) => b.addEventListener('click', () => form('Propose a new price', `<div class="fgrid"><label class="f">New price per unit<input id="f1" type="number" min="0" step="any" value="${e(b.dataset.cost)}"></label><label class="f">Shipping per unit<input id="f2" type="number" min="0" step="any" value="${e(b.dataset.ship)}"></label><label class="f full">Reason (optional)<input id="f3" maxlength="300"></label></div>`, 'Send proposal', async () => { await P('/requests', { body: { product_id: Number(b.dataset.pp), kind: 'price', cost: $('#f1').value, ship_cost: $('#f2').value, note: $('#f3').value } }); toast('Sent. It applies once we approve it.'); })));
+    $$('[data-ps]', main).forEach((b) => b.addEventListener('click', () => form('Propose a new stock level', `<div class="fgrid"><label class="f">Units in stock (0 = sold out)<input id="f1" type="number" min="0" step="1" value="${e(b.dataset.stock)}"></label><label class="f full">Note (optional)<input id="f3" maxlength="300"></label></div>`, 'Send proposal', async () => { await P('/requests', { body: { product_id: Number(b.dataset.ps), kind: 'stock', stock: $('#f1').value, note: $('#f3').value } }); toast('Sent. It applies once we approve it.'); })));
+  });
+  await show();
+  return 'Supplier portal';
+}
 async function partnerPortal(main) {
   const draw = (inner) => { main.innerHTML = `<div class="wrap page" style="max-width:960px"><h1 style="font-size:26px">🏪 Partner store</h1>${inner}</div>`; };
   if (!store.user || store.user.role !== 'vendor') {
@@ -3440,7 +3487,7 @@ const dstate = { tab: 'suppliers', sstatus: '', sq: '', plist: 'pending', pq: ''
 let dmeta = null;
 const DS = (p, o) => api('/api/admin/dropship' + p, o);
 const dsdate = (t) => (t ? new Date(t * 1000).toLocaleDateString('en-NG') : '');
-const ETAB = [['suppliers', 'Suppliers'], ['products', 'Products'], ['settings', 'Settings & rates'], ['trade', 'Countries & currencies'], ['orders', 'Supplier orders'], ['shipments', 'Imports & exports'], ['money', 'Money & reports']];
+const ETAB = [['suppliers', 'Suppliers'], ['products', 'Products'], ['settings', 'Settings & rates'], ['trade', 'Countries & currencies'], ['orders', 'Supplier orders'], ['shipments', 'Imports & exports'], ['money', 'Money & reports'], ['portal', 'Supplier portal']];
 views.dropship = async () => {
   if (!dmeta) dmeta = await DS('/meta');
   let body = '';
@@ -3456,6 +3503,7 @@ views.dropship = async () => {
   if (dstate.tab === 'orders') body = await soTab();
   if (dstate.tab === 'shipments') body = await trTab();
   if (dstate.tab === 'money') body = await moTab();
+  if (dstate.tab === 'portal') body = await spTab();
   mn(hd('🚚 Dropshipping') + `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">${ETAB.map(([k, t]) => `<button class="btn ${dstate.tab === k ? '' : 'ghost'} sm" data-dt="${k}">${t}</button>`).join('')}</div>` + body);
   onAll('[data-dt]', 'click', (el) => { dstate.tab = el.dataset.dt; return views.dropship(); });
   on('#dsq', 'change', () => { dstate.sq = $('#dsq').value; return views.dropship(); });
@@ -3472,6 +3520,7 @@ views.dropship = async () => {
   if (dstate.tab === 'orders') soWire();
   if (dstate.tab === 'shipments') trWire();
   if (dstate.tab === 'money') moWire();
+  if (dstate.tab === 'portal') spWire();
   onAll('[data-sup]', 'click', (el) => supplierForm(el.dataset.sup));
 };
 /* ---------- Supplier orders (Step 4): order from suppliers, track parcels, handle problems and refunds ---------- */
@@ -3538,6 +3587,37 @@ async function lineView(id) {
   b('#lofr', async () => { if (!$('#lalt').value) return toast('Choose a product', 'bad'); const r = await DS(`/supplier-orders/lines/${l.id}/alternative`, { body: { product_id: Number($('#lalt').value) } }); after(r.loses_money ? 'Offered. Note: you lose money on this one.' : 'Offered. The customer was emailed.'); });
   b('#lrec', async () => { await DS(`/supplier-orders/lines/${l.id}/refund`, { body: { reference: $('#lrf').value, amount: $('#lra').value } }); after('Refund recorded'); });
   const alt = $('#lalt'); if (alt) DS('/products?listing=approved').then(({ products }) => { alt.insertAdjacentHTML('beforeend', products.filter((x) => String(x.id) !== String(l.product_id)).map((x) => `<option value="${x.id}">${e(x.name)} (${e(x.supplier_name || '')})</option>`).join('')); }).catch(() => {});
+}
+/* ---------- Supplier portal (step 7), admin side: logins and decisions ---------- */
+const spstate = { sup: '' };
+const SPD = (p, o) => DS('/portal' + p, o);
+async function spTab() {
+  const [inbox, hist, sl] = await Promise.all([SPD('/inbox'), SPD('/history'), DS('/suppliers')]);
+  const sups = sl.suppliers || [];
+  if (!spstate.sup && sups[0]) spstate.sup = String(sups[0].id);
+  const lg = spstate.sup ? await DS(`/suppliers/${spstate.sup}/portal`) : { logins: [] };
+  const kindTxt = (r) => (r.kind === 'price' ? `Price ${r.currency} ${r.old_cost} → <b>${r.new_cost}</b>, shipping ${r.old_ship_cost} → <b>${r.new_ship_cost}</b>` : `Stock ${r.old_stock == null ? '—' : r.old_stock} → <b>${r.new_stock}</b>`);
+  return `${inbox.enabled ? '' : '<div class="note">The supplier portal is switched off. Set <b>SUPPLIER_PORTAL_ENABLED=1</b> and restart to let suppliers sign in. You can still prepare logins after you switch it on.</div>'}
+   <div class="panel"><h3>Waiting for your decision</h3><h4>Suppliers who cannot supply an item (${inbox.rejections.length})</h4>${inbox.rejections.length ? `<div class="tw"><table class="t"><tr><th>Supplier</th><th>Order</th><th>Item</th><th>Reason</th><th></th></tr>${inbox.rejections.map((r) => `<tr><td>${e(r.supplier)}</td><td>${e(r.order_ref)}<br><span class="mu2">${e(r.po_ref)}</span></td><td>${e(r.name)} × ${r.qty}</td><td>${e(r.reason)}<br><span class="mu2">${e(r.note)}</span></td><td style="white-space:nowrap"><button class="btn sm" data-ra="${r.line_id}">Accept</button> <button class="btn ghost sm" data-rd="${r.line_id}">Decline</button></td></tr>`).join('')}</table></div><p class="mu2">Accept: the customer is told and chooses an alternative or a full refund. Decline: the supplier is asked to supply it.</p>` : '<p class="mu">None.</p>'}
+    <h4>Price and stock proposals (${inbox.requests.length})</h4>${inbox.requests.length ? `<div class="tw"><table class="t"><tr><th>Supplier</th><th>Product</th><th>Proposal</th><th class="r">Our price now</th><th>Note</th><th></th></tr>${inbox.requests.map((r) => `<tr><td>${e(r.supplier)}</td><td>${e(r.name)}<br><span class="mu2">${e(r.sku)}</span></td><td>${kindTxt(r)}</td><td class="r">${r.current_price == null ? '—' : naira0(r.current_price)}<br><span class="mu2">${r.price_mode === 'manual' ? 'price kept by hand' : 'automatic'}</span></td><td>${e(r.note)}</td><td style="white-space:nowrap"><button class="btn sm" data-qa="${r.id}">Approve</button> <button class="btn ghost sm" data-qr="${r.id}">Reject</button></td></tr>`).join('')}</table></div><p class="mu2">Approving changes the product like an edit would: an automatic selling price follows the new cost, a price you set by hand stays. Orders already placed keep their price.</p>` : '<p class="mu">None.</p>'}</div>
+   <div class="panel"><h3>Supplier logins</h3><div class="tbar"><select id="spsel">${sups.map((s) => `<option value="${s.id}" ${String(s.id) === spstate.sup ? 'selected' : ''}>${e(s.name)}</option>`).join('')}</select></div>
+    <div class="tw"><table class="t"><tr><th>Name</th><th>Email</th><th>Status</th><th></th></tr>${lg.logins.map((u) => `<tr><td>${e(u.name)}</td><td>${e(u.email)}</td><td>${u.active ? 'Active' : '<span class="pill bad">Switched off</span>'}</td><td style="white-space:nowrap">${u.active ? `<button class="btn ghost sm" data-li="${u.id}">Send invite again</button> <button class="btn ghost sm" data-lo="${u.id}">Switch off</button>` : `<button class="btn ghost sm" data-lon="${u.id}">Switch on</button>`}</td></tr>`).join('') || '<tr><td colspan="4" class="mu">No logins for this supplier yet.</td></tr>'}</table></div>
+    <div class="fgrid" style="margin-top:8px"><label class="f">Name<input id="spn" maxlength="80"></label><label class="f">Email<input id="spe" maxlength="120" type="email"></label><label class="f">Phone<input id="spp" maxlength="30"></label></div><button class="btn sm" id="spadd" style="margin-top:6px">Create login and send invite</button><div id="spout" class="mu2" style="margin-top:6px"></div>
+    <p class="mu2">The person gets a link to choose their own password. They see only this supplier's purchase orders and products. Portal address: ${e(location.origin)}/supplier</p></div>
+   ${hist.requests.length ? `<div class="panel"><h3>Recent decisions</h3><div class="tw"><table class="t">${hist.requests.slice(0, 20).map((r) => `<tr><td>${e(r.supplier)}</td><td>${e(r.name)}</td><td>${kindTxt(r)}</td><td>${e(r.status)} by ${e(r.decided_by)}${r.decision_note ? ': ' + e(r.decision_note) : ''}</td></tr>`).join('')}</table></div></div>` : ''}`;
+}
+function spWire() {
+  const done = () => views.dropship(), sid = () => spstate.sup;
+  on('#spsel', 'change', () => { spstate.sup = $('#spsel').value; return done(); });
+  onAll('[data-ra]', 'click', guard2((el) => SPD(`/lines/${el.dataset.ra}/decide`, { body: { decision: 'accept' } }).then(() => toast('Accepted. The customer was told.'))));
+  onAll('[data-rd]', 'click', guard2((el) => { const note = prompt('Message to the supplier (optional)') ; if (note === null) return; return SPD(`/lines/${el.dataset.rd}/decide`, { body: { decision: 'decline', note } }).then(() => toast('Declined')); }));
+  onAll('[data-qa]', 'click', guard2((el) => SPD(`/requests/${el.dataset.qa}/decide`, { body: { decision: 'approved' } }).then((r) => toast(r.price_before !== r.price_after ? `Approved. The price is now ${naira0(r.price_after)}` : 'Approved'))));
+  onAll('[data-qr]', 'click', guard2((el) => { const note = prompt('Why are you rejecting it? (the supplier is told)'); if (!note) return; return SPD(`/requests/${el.dataset.qr}/decide`, { body: { decision: 'rejected', note } }).then(() => toast('Rejected')); }));
+  onAll('[data-li]', 'click', guard2((el) => DS(`/suppliers/${sid()}/portal/${el.dataset.li}/invite`, { body: {} }).then((r) => toast(r.emailed ? 'Invite sent' : 'Email is off. Link: ' + r.invite_link))));
+  onAll('[data-lo]', 'click', guard2((el) => { if (!confirm('Switch this login off? They are signed out at once.')) return; return DS(`/suppliers/${sid()}/portal/${el.dataset.lo}/active`, { body: { active: false } }); }));
+  onAll('[data-lon]', 'click', guard2((el) => DS(`/suppliers/${sid()}/portal/${el.dataset.lon}/active`, { body: { active: true } })));
+  on('#spadd', 'click', guard(async () => { const r = await DS(`/suppliers/${sid()}/portal`, { body: { name: $('#spn').value, email: $('#spe').value, phone: $('#spp').value } }); if (r.emailed) { toast('Invite sent'); return done(); } $('#spout').innerHTML = `Email is not set up, so pass this link on yourself (works for 72 hours): <br><input readonly style="width:100%" value="${e(r.invite_link)}">`; }));
+  function guard2(fn) { return async (el) => { try { await fn(el); done(); } catch (x) { toast(x.message, 'bad'); } }; }
 }
 /* ---------- Money (Step 6): what we owe suppliers, refunds, returns to the supplier, profit reports ---------- */
 let mpay = [];
