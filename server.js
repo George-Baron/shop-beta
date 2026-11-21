@@ -110,6 +110,7 @@ app.use('/api/rider', require('./routes/rider'));
 app.use('/api/partner', require('./routes/partner'));
 app.use('/api/supplier', require('./routes/supplier-portal'));
 app.use('/api/wholesale', require('./routes/wholesale'));
+app.use('/api/mobile/v1', require('./routes/mobile'));   // the mobile apps: bearer-token sign-in, customers only (docs/MOBILE_API.md)
 app.use('/api', require('./routes/public'));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
@@ -232,8 +233,8 @@ app.get(/^\/(?!api\/|uploads\/|health).*/, ah(async (req, res) => {
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   if (err instanceof S.HttpError) return res.status(err.status).json({ error: err.message });
-  if (err && err.type === 'entity.parse.failed') return res.status(400).json({ error: 'That request was not understood.' });
-  if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'That upload is too large.' });
+  if (err && err.type === 'entity.parse.failed') return res.status(400).json({ error: 'That request was not understood.', code: 'bad_request', requestId: req.id });
+  if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'That upload is too large.', code: 'too_large', requestId: req.id });
   log.error('unhandled error', { id: req.id, method: req.method, path: String(req.originalUrl || '').split('?')[0], err });
   require('./lib/errors').record(err, { source: 'request', route: `${req.method} ${req.route && req.route.path ? req.baseUrl + req.route.path : String(req.path).replace(/\d+/g, ':n')}`, status: 500 });
   res.status(500).json({ error: 'Something went wrong on our side. Please try again.', requestId: req.id });
