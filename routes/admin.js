@@ -19,7 +19,7 @@ const { fail, str, int, isEmail, parseImages, getSettings, dayStart } = S;
 const router = express.Router();
 
 // Anything the public catalogue shows (products, categories, departments, settings, review approvals) clears the caches: here at once, on other instances within seconds.
-const CATALOGUE_WRITE = /^\/(products|categories|stores|settings|reviews|partners|riders|vendors)(\/|$)/;
+const CATALOGUE_WRITE = /^\/(products|categories|stores|settings|reviews|partners|riders|vendors|dropship)(\/|$)/;
 router.use((req, res, next) => {
   if (req.method === 'GET' || !CATALOGUE_WRITE.test(req.path)) return next();
   cache.clear();                                  // before the change, so nobody re-fills the cache from the old data meanwhile
@@ -57,6 +57,7 @@ router.use(require('../lib/audit').activity('staff'));
 router.post('/announce', ah(async (req, res) => { const b = req.body || {}; res.json({ ok: true, ...(await require('../lib/notify').announce(b.audience, b, req.user.name)) }); }));
 router.use('/staff', A.requireAdmin, require('./staff-admin'));
 router.use('/vendors', require('./vendors-admin'));
+router.use('/dropship', require('./dropship-admin'));   // suppliers, dropship products, supplier orders, countries: after the activity log on purpose, so changes are recorded
 router.use('/wholesale', require('./wholesale-admin'));
 router.use('/catalog', require('./catalog-admin'));
 router.use('/rfq', require('./rfq-admin'));
@@ -172,8 +173,9 @@ router.post('/products', ah(async (req, res) => {
 }));
 router.put('/products/:id', ah(async (req, res) => {
   const id = int(req.params.id);
-  const cur = await get('SELECT is_pharmacy FROM products WHERE id=?', id);
+  const cur = await get('SELECT is_pharmacy, fulfilment FROM products WHERE id=?', id);
   if (!cur) fail(404, 'Product not found.');
+  if (cur.fulfilment === 'dropship') fail(400, 'This is a dropship product. Edit it under Dropshipping > Products, where the price is calculated and reviewed.');
   if (cur.is_pharmacy && !PC.enabled() && req.body && req.body.active) fail(400, 'The pharmacy department is switched off. Medicines cannot be listed until it is enabled.');
   const p = await readProduct({ ...(req.body || {}), id });
   await tx(async () => {

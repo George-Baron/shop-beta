@@ -237,6 +237,18 @@ Use the Paystack **test** key and your `onrender.com` or real domain. Tick each 
 | `BACKUP_ENABLED` | on in production | `0` turns the nightly backup off (not advised) |
 | `BACKUP_MAX_AGE_HOURS` | 30 | Admin warns when the last good backup is older |
 | `SUPABASE_BUCKET`, `SUPABASE_BACKUP_BUCKET` | `product-images`, `backups` | bucket names |
+| `SUPABASE_SUPPLIER_BUCKET` | `supplier-docs` | **private** bucket for supplier registration and agreement files (dropshipping). Create it before using Admin > Dropshipping > documents |
+| `SUPABASE_TRADE_BUCKET` | `trade-docs` | **private** bucket for import/export shipment files (bills of lading, permits). Create it before using Admin > Dropshipping > Imports & exports > Files |
+| `SUPPLIER_PORTAL_ENABLED` | off | `1` lets dropship suppliers sign in at `/supplier` to confirm purchase orders, add tracking and propose price or stock changes (admin approves). Create logins in Admin > Dropshipping > Supplier portal |
+| `DROPSHIP_ORDERS_ENABLED` | off | `1` lets customers order supplier items and starts the stuck-order check (every 6 hours). Turn it on only when someone will place the purchase orders: see docs/DROPSHIPPING.md section 9 |
+| `STRIPE_ENABLED` | off | `1` offers Stripe (international cards) to customers outside Nigeria. Needs `STRIPE_SECRET_KEY`. Leave off if you only use Paystack. |
+| `STRIPE_SECRET_KEY` | none | Your Stripe **secret** key (`sk_live_...` / `sk_test_...`). Never the publishable key. |
+| `STRIPE_WEBHOOK_SECRET` | none | Signing secret (`whsec_...`) of a webhook for `checkout.session.completed` to `https://YOUR-SITE/api/stripe/webhook`. |
+| `STRIPE_CURRENCIES` | USD,GBP,EUR,CAD,AUD,NZD,AED,SAR,INR,JPY,SGD,MYR,BRL,MXN,SEK,CHF,ZAR | Currencies your Stripe account can charge in. Trim it to what your account supports. |
+| `PAYSTACK_CURRENCIES` | NGN,GHS,ZAR,KES,USD | Currencies your Paystack account can charge in (Naira is always allowed). |
+| `FX_FEED_ENABLED` | off | `1` lets an automatic feed keep exchange rates fresh. Rates you type by hand stay locked. |
+| `FX_FEED_URL` | open.er-api.com (NGN base) | Feed address. It must answer `{ "rates": { "USD": 0.00066, ... } }` (units per 1 Naira). |
+| `FX_MAX_AGE_HOURS` | 72 | A feed rate older than this stops being used, so a currency never sells at a stale rate. |
 | `LOG_LEVEL`, `LOG_FORMAT`, `SLOW_REQUEST_MS` | info, json, 1500 | logging |
 | `TZ_OFFSET_HOURS` | 1 | Nigeria time for "today" |
 | `TRUST_PROXY` | on | leave unset behind Render and Cloudflare |
@@ -244,7 +256,7 @@ Use the Paystack **test** key and your `onrender.com` or real domain. Tick each 
 | `CACHE_DISABLED`, `CACHE_MAX_ENTRIES`, `CACHE_POLL_MS` | | in-memory cache tuning |
 | `GEO_PROVIDER` | geoapify | map provider |
 
-**Never set in production:** `ALLOW_DEMO_PAYMENTS`, `ALLOW_LOCAL_UPLOADS`, `RATE_LIMIT_MULTIPLIER`, `JOB_BACKOFF_SECONDS`, `PAYSTACK_API_URL`, `RESEND_API_URL`, `GEO_API_URL`, `GEO_DOWN_PAUSE_MS`, `STORAGE_DRIVER=local` (these exist for tests). `npm run preflight` flags the risky ones.
+**Never set in production:** `ALLOW_DEMO_PAYMENTS`, `ALLOW_LOCAL_UPLOADS`, `RATE_LIMIT_MULTIPLIER`, `JOB_BACKOFF_SECONDS`, `PAYSTACK_API_URL`, `STRIPE_API_URL`, `RESEND_API_URL`, `GEO_API_URL`, `GEO_DOWN_PAUSE_MS`, `ALLOW_PRIVATE_IMAGE_HOSTS`, `STORAGE_DRIVER=local` (these exist for tests). `npm run preflight` flags the risky ones.
 
 ---
 
