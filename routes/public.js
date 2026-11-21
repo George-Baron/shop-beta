@@ -337,6 +337,7 @@ router.get('/orders', A.requireUser, ah(async (req, res) => {
 /* ================= payments ================= */
 router.get('/paystack/verify', A.limiter('verify', 40, 600000), ah(async (req, res) => {
   const ref = str(req.query.reference || req.query.trxref, 20).toUpperCase();
+  if (/^WF-/.test(ref)) return res.json({ ok: true }); // wallet top-ups are checked at /api/wallet/fund/:ref
   const prior = await S_.loadOrder('ref=?', ref);
   if (!(prior && prior.gateway === 'stripe') && !S_.paystackLive()) return res.json({ ok: true });
   const o = await S_.settleWithPaystack(ref);
@@ -392,6 +393,7 @@ router.post('/auth/register', A.limiter('register', 5, 3600000), ah(async (req, 
     if (err && err.code === '23505') fail(400, CANT);
     throw err;
   }
+  await require('../lib/wallet').ensureWallet(Number(r.lastInsertRowid)).catch((e) => console.error('Wallet creation failed (it is created on first use):', e.message));
   await A.startSession(req, res, Number(r.lastInsertRowid), 'customer');
   res.json({ user: A.publicUser(await get('SELECT * FROM users WHERE id=?', Number(r.lastInsertRowid))) });
 }));
