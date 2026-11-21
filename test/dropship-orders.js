@@ -321,6 +321,27 @@ const fake = http.createServer((req, res) => {
     assert.strictEqual(Number((await q('SELECT COUNT(*) n FROM dropship_lines WHERE order_id=$1', [r.row.id]))[0].n), 0);
   });
 
+  console.log('\nPublic Dropshipping page');
+  await test('the public page data shows how many items suppliers ship and from where, never a supplier, cost or margin', async () => {
+    const r = await call('GET', '/api/dropshipping'); assert.strictEqual(r.s, 200, r.t);
+    const n = Number((await q("SELECT COUNT(*) n FROM products p WHERE p.fulfilment='dropship' AND p.active=1 AND p.listing='approved'"))[0].n);
+    assert.strictEqual(r.j.orderable, true); assert.strictEqual(r.j.count, n); assert.ok(n >= 1); assert.ok(r.j.countries.length >= 1 && r.j.countries[0].name && r.j.countries[0].code.length === 2);
+    assert.ok(!/supplier|cost|margin|Acme|sku/i.test(r.t), 'nothing private: ' + r.t);
+  });
+  await test('the dropship filter lists only items a supplier ships, never our own stock, and never unapproved ones', async () => {
+    const all_ = (await call('GET', '/api/products')).j, ds = await call('GET', '/api/products?fulfilment=dropship&nostores=1'); assert.strictEqual(ds.s, 200);
+    assert.ok(ds.j.total >= 1 && ds.j.total < all_.total, 'a subset');
+    const ids = ds.j.products.map((p) => p.id), kinds = await q('SELECT fulfilment, listing FROM products WHERE id = ANY($1)', [ids]);
+    assert.ok(kinds.length === ids.length && kinds.every((k) => k.fulfilment === 'dropship' && k.listing === 'approved'));
+    assert.ok(!ds.j.products.some((p) => p.id === own.id));
+    assert.ok(!JSON.stringify(ds.j).match(/"cost"|supplier_id|supplier_sku|margin/i));
+  });
+  await test('the page is open to search engines, has its own title, and is in the sitemap; the placeholder is gone', async () => {
+    const h = await call('GET', '/dropshipping'); assert.strictEqual(h.s, 200); assert.ok(!/noindex/i.test(h.t), 'indexable'); assert.match(h.t, /<title>[^<]*Dropshipping/i);
+    assert.match((await call('GET', '/sitemap.xml')).t, /\/dropshipping</);
+    assert.match((await call('GET', '/import-export')).t, /noindex/i, 'the other placeholder is untouched');
+  });
+
   console.log(`\n${passed} passed, ${failed} failed`);
   fake.close(); try { srv.kill(); } catch { /* */ }
   await sleep(300);

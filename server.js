@@ -120,7 +120,7 @@ app.get('/robots.txt', (req, res) => {
 app.get('/sitemap.xml', ah(async (req, res) => {
   const urls = [BASE_URL + '/'];
   for (const s of await all(`SELECT slug FROM stores s WHERE active=1 AND ${PC.storeVisibleSql('s')} ORDER BY sort`)) urls.push(`${BASE_URL}/d/${s.slug}`);
-  urls.push(BASE_URL + '/stores');
+  urls.push(BASE_URL + '/stores', BASE_URL + '/dropshipping');
   for (const v of await all("SELECT slug FROM vendors WHERE status='approved' ORDER BY name LIMIT 2000")) urls.push(`${BASE_URL}/store/${v.slug}`);
   for (const p of ['about', 'faq', 'shipping', 'contact', 'privacy', 'terms']) urls.push(`${BASE_URL}/page/${p}`);
   for (const p of await all(`SELECT p.slug FROM products p JOIN stores s ON s.slug=p.store WHERE p.active=1 AND s.active=1 AND ${PC.visibleSql('p')} AND ${PC.storeVisibleSql('s')} ORDER BY p.id DESC LIMIT 5000`)) urls.push(`${BASE_URL}/product/${p.slug}`);
@@ -130,7 +130,7 @@ app.get('/sitemap.xml', ah(async (req, res) => {
 /* ---------- pages (one HTML shell, filled in per URL for search engines and link previews) ---------- */
 const TEMPLATE = fs.readFileSync(path.join(__dirname, 'views', 'index.html'), 'utf8');
 const PAGES = { about: 'About us', faq: 'Frequently asked questions', shipping: 'Shipping & Returns', privacy: 'Privacy policy', terms: 'Terms of service', contact: 'Contact us' };
-const NOINDEX = new Set(['rider', 'pharmacist', 'partner', 'supplier', 'wholesale', 'import-export', 'dropshipping', 'checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
+const NOINDEX = new Set(['rider', 'pharmacist', 'partner', 'supplier', 'wholesale', 'import-export', 'checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
 const clip = (s, n) => { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s; };
 const absUrl = (u) => (!u ? '' : /^https?:\/\//.test(u) ? u : BASE_URL + u);
 
@@ -184,6 +184,10 @@ async function describe(req) {
   if (seg[0] === 'page' && seg[1]) {
     if (!PAGES[seg[1]]) { out.status = 404; out.noindex = true; return out; }
     out.title = `${PAGES[seg[1]]} · ${S0.store_name}`; out.canonical = `${BASE_URL}/page/${seg[1]}`; return out;
+  }
+  if (seg[0] === 'dropshipping' && seg.length === 1) {
+    out.title = `Dropshipping: more products, shipped straight to you · ${S0.store_name}`; out.desc = 'Shop items shipped directly from our partner suppliers, with honest delivery times, tracking and a refund or alternative if a supplier cannot deliver.'; out.canonical = `${BASE_URL}/dropshipping`;
+    out.body = `<h1>Dropshipping</h1><p>${esc(out.desc)}</p>${nav}`; return out;
   }
   if (p === '/') return out;
   out.status = 404; out.noindex = true; out.title = 'Page not found · ' + S0.store_name;
