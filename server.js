@@ -92,6 +92,12 @@ app.get('/health', async (req, res) => {
 // Request bodies are small by default. The photo upload is the one exception, and it reads its larger body only AFTER the admin check (see routes/admin.js).
 const smallJson = express.json({ limit: '100kb', verify: (req, res, buf) => { req.rawBody = buf; } });
 app.use('/api', (req, res, next) => (req.path === '/admin/upload' || (req.method === 'POST' && /^\/admin\/trade\/products\/import\/(preview|commit)$/.test(req.path)) || (req.method === 'POST' && /^\/admin\/trade\/(suppliers|purchase-orders|imports|orders)\/[^/]+\/documents$/.test(req.path)) || req.path === '/partner/upload' || req.path === '/rider/photo' || req.path === '/admin/rider-ops/upload' || req.path === '/partner/photos' || (req.method === 'POST' && /^\/(admin|partner)\/catalog\/(parse|validate|commit)$/.test(req.path)) || /^\/(wholesale|admin)\/rfq\/(parse|[A-Z0-9-]+\/files)$/.test(req.path) || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) ? next() : smallJson(req, res, next)));
+// A NUL character is never valid text and makes the database fail with a server error, so it is refused up front.
+app.use('/api', (req, res, next) => {
+  const bad = (v, d = 0) => (typeof v === 'string' ? v.includes('\u0000') : d < 6 && v && typeof v === 'object' ? Object.entries(v).some(([k, x]) => k.includes('\u0000') || bad(x, d + 1)) : false);
+  if (/%00/i.test(req.url) || bad(req.query) || bad(req.body)) return res.status(400).json({ error: 'That request contains characters we cannot accept.' });
+  next();
+});
 app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin) {
