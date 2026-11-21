@@ -11,6 +11,7 @@ const customer = express.Router();
 customer.use(A.requireUser);
 customer.get('/', ah(async (req, res) => { res.set('Cache-Control', 'no-store'); res.json(await L.overview(req.user)); }));
 customer.get('/history', ah(async (req, res) => { res.set('Cache-Control', 'no-store'); res.json(await L.history(req.user, req.query)); }));
+customer.get('/referrals', ah(async (req, res) => { res.set('Cache-Control', 'no-store'); res.json(await L.myReferrals(req.user)); }));
 customer.post('/redeem', A.limiter('loyalty-redeem', 20, 3600000), ah(async (req, res) => res.json(await L.redeemToWallet(req.user, req.body || {}, req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey)))));
 
 const admin = express.Router();
@@ -25,5 +26,11 @@ admin.get('/customers/:id', ah(async (req, res) => {
   res.json({ customer: u, rewards: await L.overview(u), history: (await L.history(u, req.query)).entries });
 }));
 admin.post('/customers/:id/adjust', ah(async (req, res) => { const r = await L.adminAdjust(S.int(req.params.id), req.body || {}, req.user); res.json({ ok: true, replayed: r.replayed }); }));
+
+admin.get('/referrals', ah(async (req, res) => res.json({ referrals: await L.adminReferrals(S.str(req.query.status, 12)) })));
+admin.post('/referrals/:id/reject', ah(async (req, res) => { await L.rejectReferral(S.int(req.params.id), req.body && req.body.reason); res.json({ ok: true }); }));
+admin.get('/campaigns', ah(async (req, res) => res.json({ campaigns: await L.listCampaigns() })));
+admin.post('/campaigns', ah(async (req, res) => res.json({ campaign: await L.saveCampaign(0, req.body) })));
+admin.put('/campaigns/:id', ah(async (req, res) => res.json({ campaign: await L.saveCampaign(S.int(req.params.id), req.body) })));
 
 module.exports = { customer, admin };

@@ -407,6 +407,7 @@ router.post('/auth/register', A.limiter('register', 5, 3600000), ah(async (req, 
   }
   await require('../lib/wallet').ensureWallet(Number(r.lastInsertRowid)).catch((e) => console.error('Wallet creation failed (it is created on first use):', e.message));
   await require('../lib/loyalty').ensureAccount(Number(r.lastInsertRowid)).catch((e) => console.error('Rewards enrolment failed (done on first use):', e.message));
+  if (b.referralCode) await require('../lib/loyalty').recordReferral(Number(r.lastInsertRowid), b.referralCode).catch((e) => console.error('Referral not recorded:', e.message));
   await A.startSession(req, res, Number(r.lastInsertRowid), 'customer');
   res.json({ user: A.publicUser(await get('SELECT * FROM users WHERE id=?', Number(r.lastInsertRowid))) });
 }));

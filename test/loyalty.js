@@ -133,6 +133,65 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
       const r = await rewards(ann); assert.ok(r.lifetime_points >= 10, JSON.stringify(r)); assert.strictEqual(r.tier.name, 'Silver');
       assert.ok((await call('GET', '/api/loyalty/history', null, ann.cookie)).j.entries.some((e) => e.kind === 'earn'));
     });
+    console.log('Referrals and campaigns');
+    const bigQty = Math.max(1, Math.ceil(6000 / prod.price));
+    const regRef = async (name, code, phone) => { const email = `r${Date.now().toString(36)}${uniq++}@example.com`; const r = await call('POST', '/api/auth/register', { name, email, phone: phone || '0805' + String(3000000 + uniq * 7907).slice(0, 7), password: 'Velt0-Wallet-Qx7', referralCode: code }); assert.strictEqual(r.s, 200, r.t); return { email, cookie: r.c, id: Number((await q('SELECT id FROM users WHERE email=$1', [email]))[0].id) }; };
+    let carol, annCode;
+    await test('a referral is recorded at sign-up, and a bad or own code is ignored without breaking sign-up', async () => {
+      annCode = (await rewards(ann)).referral_code; carol = await regRef('Carol Eze', annCode);
+      await regRef('Dan Bad', 'NOSUCHCODE');
+      const r = (await call('GET', '/api/loyalty/referrals', null, ann.cookie)).j; assert.strictEqual(r.code, annCode); assert.strictEqual(r.totals.registered, 1); assert.ok(/ref=/.test(r.link));
+      assert.strictEqual(r.referrals[0].name, 'C***');
+    });
+    await test('a sign-up reusing an existing phone number is flagged as a duplicate and never rewarded', async () => {
+      const annPhone = (await q('SELECT phone FROM users WHERE id=$1', [ann.id]))[0].phone; const dup = await regRef('Ann Again', annCode, annPhone);
+      const row = (await q('SELECT * FROM loyalty_referrals WHERE referred_id=$1', [dup.id]))[0]; assert.strictEqual(row.status, 'rejected');
+    });
+    await test('no reward before the friend\'s first order is delivered; a too-small order does not qualify', async () => {
+      await sweep(); assert.strictEqual((await rewards(carol)).points, 0);
+      const small = await place(carol, 1); if (small.subtotal - small.discount < 5000) { await deliver(small); await sweep(); assert.strictEqual((await call('GET', '/api/loyalty/referrals', null, ann.cookie)).j.totals.rewarded, 0); }
+    });
+    let annBefore;
+    await test('the first qualifying delivered order rewards the referrer and the friend once', async () => {
+      annBefore = (await rewards(ann)).points; const o = await place(carol, bigQty); await deliver(o); await sweep(); await Promise.all([sweep(), sweep()]);
+      assert.strictEqual((await rewards(ann)).points, annBefore + 500); const c = await rewards(carol); assert.ok(c.points >= 200 + 1);
+      assert.strictEqual((await call('GET', '/api/loyalty/referrals', null, ann.cookie)).j.totals.rewarded, 1);
+      assert.strictEqual(Number((await q("SELECT COUNT(*) n FROM loyalty_ledger WHERE idem_key LIKE 'referral:%'"))[0].n), 2);
+    });
+    await test('a friend\'s later orders do not reward the referrer again', async () => {
+      const b = (await rewards(ann)).points; const o = await place(carol, bigQty); await deliver(o); await sweep(); assert.strictEqual((await rewards(ann)).points, b);
+    });
+    await test('the administrator can reject a waiting referral, with a reason', async () => {
+      const eve = await regRef('Eve K', annCode); const id = (await q('SELECT id FROM loyalty_referrals WHERE referred_id=$1', [eve.id]))[0].id;
+      assert.strictEqual((await call('POST', `/api/admin/loyalty/referrals/${id}/reject`, {}, admin)).s, 400);
+      assert.strictEqual((await call('POST', `/api/admin/loyalty/referrals/${id}/reject`, { reason: 'Looks like a duplicate account' }, admin)).s, 200);
+      assert.strictEqual((await call('POST', `/api/admin/loyalty/referrals/${id}/reject`, { reason: 'again' }, admin)).s, 400);
+    });
+    const nowS = Math.floor(Date.now() / 1000);
+    await test('a double-points campaign adds extra points to a delivered order, and customers can see the offer', async () => {
+      const c = await call('POST', '/api/admin/loyalty/campaigns', { name: 'Double points day', kind: 'multiplier', multiplier_pct: 200, starts: nowS - 60, ends: nowS + 3600 }, admin); assert.strictEqual(c.s, 200, c.t);
+      assert.ok((await rewards(bob)).offers.some((x) => x.name === 'Double points day' && x.multiplier === 2));
+      const fresh = await regRef('Fay O', ''); const o = await place(fresh, bigQty); await deliver(o); await sweep();
+      const want = Math.floor((o.subtotal - o.discount) * 10 / 1000) * 2; assert.strictEqual((await rewards(fresh)).points, want);
+      assert.ok((await call('GET', '/api/loyalty/history', null, fresh.cookie)).j.entries[0].note.includes('Double points day'));
+    });
+    await test('campaigns for another weekday, another tier or an expired period do not apply', async () => {
+      const other = (new Date((nowS + 3600) * 1000).getUTCDay() + 3) % 7;
+      for (const extra of [{ weekdays: String(other) }, { min_tier: 'Platinum' }, { starts: nowS - 7200, ends: nowS - 3600 }]) await call('POST', '/api/admin/loyalty/campaigns', { name: 'Not now', kind: 'multiplier', multiplier_pct: 500, starts: nowS - 60, ends: nowS + 3600, ...extra }, admin);
+      const g = await regRef('Gus N', ''); const o = await place(g, bigQty); await deliver(o); await sweep();
+      assert.strictEqual((await rewards(g)).points, Math.floor((o.subtotal - o.discount) * 10 / 1000) * 2);
+    });
+    await test('a first-purchase bonus is paid once, on the first earning order only', async () => {
+      await call('POST', '/api/admin/loyalty/campaigns', { name: 'First order bonus', kind: 'first_purchase', bonus_points: 300, starts: nowS - 60, ends: nowS + 3600 }, admin);
+      const h = await regRef('Hal P', ''); const o1 = await place(h, bigQty); await deliver(o1); await sweep();
+      const p1 = (await rewards(h)).points, base = Math.floor((o1.subtotal - o1.discount) * 10 / 1000) * 2; assert.strictEqual(p1, base + 300);
+      const o2 = await place(h, bigQty); await deliver(o2); await sweep(); assert.strictEqual((await rewards(h)).points, p1 + 2 * Math.floor(Math.floor((o2.subtotal - o2.discount) * 10 / 1000) * 1.2)); // no second bonus; Hal is Silver now (x1.2), doubled by the campaign
+    });
+    await test('campaign input is validated', async () => {
+      assert.strictEqual((await call('POST', '/api/admin/loyalty/campaigns', { name: 'x', starts: 100, ends: 50 }, admin)).s, 400);
+      assert.strictEqual((await call('POST', '/api/admin/loyalty/campaigns', { name: 'x', starts: 1, ends: 50, weekdays: '9' }, admin)).s, 400);
+      assert.strictEqual((await call('POST', '/api/admin/loyalty/campaigns', { name: 'x', starts: 1, ends: 50 }, ann.cookie)).s, 401);
+    });
     await test('the report shows members, points outstanding and tier mix', async () => {
       const r = (await call('GET', '/api/admin/loyalty/report', null, admin)).j; assert.ok(r.members >= 2, JSON.stringify(r)); assert.ok(r.tier_distribution.length >= 1);
     });

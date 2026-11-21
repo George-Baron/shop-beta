@@ -14,5 +14,16 @@ Every customer is enrolled automatically (existing customers by migration, new o
 GET `/` overview (points, lifetime, tier, next tier and points needed, pending, redemption terms, referral code, tier table) · GET `/history?before=&limit=` · POST `/redeem {points}` (header `Idempotency-Key`).
 Admin (`/api/admin/loyalty`, admin only): GET/PUT `/config`, PUT `/tiers/:name`, GET `/report` (members, points outstanding, redeemed, liability value, tier mix), POST `/sweep`, GET `/customers/:id`, POST `/customers/:id/adjust {points,reason,reference}`.
 
+## Referrals
+Each customer has a code and link (`/?ref=CODE`). Sign-up with `referralCode` records the referral (a bad or own code is silently ignored; sign-up never fails because of a code). A friend can only ever be referred once.
+- **Reward:** when the friend's first **delivered and paid** order has net goods value of at least `referral_min_order` (N5,000), the referrer gets `referral_reward_points` (500) and the friend `referral_welcome_points` (200), once (unique keys `referral:<id>:referrer|welcome`).
+- **Anti-abuse:** sign-up with a phone number already used by another account is marked rejected; an order delivered to the referrer's own phone is rejected; a referrer is capped at `referral_monthly_cap` (20) rewards per 30 days; admin can reject a waiting referral with a reason. Customers see friends only as initial + `***`.
+- API: GET `/api/loyalty/referrals`; admin GET `/api/admin/loyalty/referrals?status=`, POST `/referrals/:id/reject {reason}`.
+
+## Campaigns
+Admin-managed at `/api/admin/loyalty/campaigns` (GET, POST, PUT `/:id`; `active:false` switches one off). Fields: `name`, `kind` (`multiplier` or `first_purchase`), `multiplier_pct` (200 = double), `bonus_points`, `starts`/`ends` (epoch seconds), `weekdays` (e.g. `0,6` weekends, Lagos time), `min_tier`, `category_id` (limits the extra points to that category's lines).
+- The best multiplier applies (campaigns never stack on each other); the extra is on top of the tier rate. A first-purchase bonus is paid on the customer's first earning order. The order's ledger note names the campaign.
+- Customers see the campaigns that apply to them in `offers` on GET `/api/loyalty`.
+
 ## Not built yet
-Points expiry and reminders, checkout discounts from points (phase 4), referral programme, campaigns (double points, birthday, first purchase), product/category eligibility, tier downgrade review, loyalty notifications preferences, and the screens. Run: `npm run test:loyalty`.
+Points expiry and reminders, checkout discounts from points (phase 4), birthday rewards (needs a date-of-birth field), product-level eligibility lists, tier downgrade review, promotional notification preferences, and the screens. Run: `npm run test:loyalty`.
