@@ -245,6 +245,12 @@ router.post('/checkout', A.limiter('checkout', 20, 3600000), ah(async (req, res)
     if (!order.pay_url) { order.pay_url = await S_.startPayment(order); await run('UPDATE orders SET pay_url=? WHERE id=?', order.pay_url, order.id); }
     return res.json({ ref: order.ref, token: order.access_token, next: order.gateway === 'stripe' ? 'stripe' : 'paystack', url: order.pay_url, replayed: true });
   }
+  const pts = req.body && Number(req.body.usePoints) > 0 ? req.body.usePoints : 0;
+  if (pts && !req.user) { await S_.cancelOrder(order, 'Points could not be applied'); fail(401, 'Please sign in to use your points.'); }
+  if (pts) {
+    try { await require('../lib/loyalty').applyToOrder(order, req.user, pts); } catch (err) { await S_.cancelOrder(order, 'Points could not be applied'); throw err; }
+    order = await S_.loadOrder('id=?', order.id); // now carries the reduced total
+  }
   let walletPart = 0;
   if (wantWallet && order.payment_method !== 'pod') {
     let r;

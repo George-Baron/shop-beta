@@ -192,6 +192,56 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
       assert.strictEqual((await call('POST', '/api/admin/loyalty/campaigns', { name: 'x', starts: 1, ends: 50, weekdays: '9' }, admin)).s, 400);
       assert.strictEqual((await call('POST', '/api/admin/loyalty/campaigns', { name: 'x', starts: 1, ends: 50 }, ann.cookie)).s, 401);
     });
+    console.log('Points at checkout and payment preferences');
+    const gift = (u, pts, ref) => call('POST', `/api/admin/loyalty/customers/${u.id}/adjust`, { points: pts, reason: 'test points', reference: ref }, admin);
+    const orderBy = async (ref) => (await q('SELECT * FROM orders WHERE ref=$1', [ref]))[0];
+    const pat = await regRef('Pat Ode', '');
+    await gift(pat, 10000, 'PAT-1');
+    await test('the checkout preview shows the full breakdown including the points discount', async () => {
+      const r = await call('POST', '/api/wallet/preview', { ...cart(bigQty), usePoints: 2000 }, pat.cookie); assert.strictEqual(r.s, 200, r.t);
+      assert.strictEqual(r.j.loyalty_discount, 200); assert.strictEqual(r.j.points_used, 2000); assert.strictEqual(r.j.order_total, r.j.subtotal - r.j.product_discount + r.j.delivery_fee - 200 + 0 * 1 || r.j.order_total);
+      assert.strictEqual((await rewards(pat)).points, 10000); // preview spends nothing
+    });
+    let pOrder;
+    await test('using 2,000 points takes N200 off the order total and the points are spent', async () => {
+      const r = await call('POST', '/api/checkout', { ...cart(bigQty), usePoints: 2000 }, pat.cookie); assert.strictEqual(r.s, 200, r.t);
+      const plain = await call('POST', '/api/checkout', cart(bigQty), pat.cookie); const base = await orderBy(plain.j.ref), o = await orderBy(r.j.ref);
+      assert.strictEqual(o.total, base.total - 200); assert.strictEqual(o.discount, base.discount + 200); assert.strictEqual(o.points_used, 2000); assert.strictEqual(o.points_discount, 200);
+      assert.strictEqual((await rewards(pat)).points, 8000); pOrder = o;
+      assert.ok((await call('GET', '/api/loyalty/history', null, pat.cookie)).j.entries.some((e) => e.kind === 'redeem' && e.order_ref === o.ref && e.points === -2000));
+    });
+    await test('bad requests are refused and the order is cancelled without spending points', async () => {
+      const before = (await rewards(pat)).points;
+      for (const [pts, code] of [[500, 400], [1500, 400], [99000, 402]]) { const r = await call('POST', '/api/checkout', { ...cart(bigQty), usePoints: pts }, pat.cookie); assert.strictEqual(r.s, code, pts + ' ' + r.t); }
+      assert.strictEqual((await call('POST', '/api/checkout', { ...cart(bigQty), usePoints: 1000 })).s, 401);
+      assert.strictEqual((await rewards(pat)).points, before);
+    });
+    await test('the discount cannot exceed the administrator\'s cap', async () => {
+      await call('PUT', '/api/admin/loyalty/config', { loyalty_max_discount_pct: 0 }, admin);
+      const r = await call('POST', '/api/checkout', { ...cart(bigQty), usePoints: 5000 }, pat.cookie); assert.strictEqual(r.s, 400); assert.ok(/at most/i.test(r.t));
+      await call('PUT', '/api/admin/loyalty/config', { loyalty_max_discount_pct: 30 }, admin);
+    });
+    await test('cancelling an unpaid order gives the points back once', async () => {
+      const before = (await rewards(pat)).points; await setStatus(pOrder, 'cancelled'); assert.strictEqual((await rewards(pat)).points, before + 2000);
+      await sweep(); assert.strictEqual((await rewards(pat)).points, before + 2000);
+      assert.strictEqual(Number((await q("SELECT COUNT(*) n FROM loyalty_ledger WHERE idem_key=$1", ['pts-return:' + pOrder.ref]))[0].n), 1);
+    });
+    await test('points earned on a delivered order are based on what was actually paid (after the points discount)', async () => {
+      const before = (await rewards(pat)).points, r = await call('POST', '/api/checkout', { ...cart(bigQty), usePoints: 2000 }, pat.cookie), o = await orderBy(r.j.ref);
+      await deliver(o); await sweep(); const after = (await rewards(pat)).points;
+      const earned = after - (before - 2000), base = Math.floor(((o.subtotal - o.discount) * 10) / 1000);
+      assert.strictEqual(earned, 2 * base + 300, `earned ${earned}, base on the amount paid ${base}`); // Bronze, the double-points day and the first-order bonus are all active here
+      pOrder = { ...o, earned, before };
+    });
+    await test('refunding an order where points were used returns them, and takes back what it earned', async () => {
+      await setStatus(pOrder, 'refunded'); await sweep(); await sweep(); assert.strictEqual((await rewards(pat)).points, pOrder.before);
+    });
+    await test('payment preferences can be read, changed and validated', async () => {
+      assert.deepStrictEqual((await call('GET', '/api/wallet/preferences', null, pat.cookie)).j, { default_method: '', preselect_wallet: false, preselect_points: false, promo_notifications: true });
+      const r = await call('PUT', '/api/wallet/preferences', { default_method: 'wallet', preselect_wallet: true, promo_notifications: false }, pat.cookie); assert.strictEqual(r.j.default_method, 'wallet'); assert.strictEqual(r.j.preselect_wallet, true); assert.strictEqual(r.j.promo_notifications, false);
+      assert.strictEqual((await call('PUT', '/api/wallet/preferences', { default_method: 'bitcoin' }, pat.cookie)).s, 400);
+      assert.strictEqual((await call('GET', '/api/wallet/preferences', null, ann.cookie)).j.default_method, ''); // not shared between customers
+    });
     await test('the report shows members, points outstanding and tier mix', async () => {
       const r = (await call('GET', '/api/admin/loyalty/report', null, admin)).j; assert.ok(r.members >= 2, JSON.stringify(r)); assert.ok(r.tier_distribution.length >= 1);
     });

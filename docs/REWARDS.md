@@ -25,5 +25,16 @@ Admin-managed at `/api/admin/loyalty/campaigns` (GET, POST, PUT `/:id`; `active:
 - The best multiplier applies (campaigns never stack on each other); the extra is on top of the tier rate. A first-purchase bonus is paid on the customer's first earning order. The order's ledger note names the campaign.
 - Customers see the campaigns that apply to them in `offers` on GET `/api/loyalty`.
 
+## Points at checkout (phase 4 part)
+`POST /api/checkout` accepts `usePoints: <points>` from a signed-in customer (explicit choice = confirmation). Order of events: order placed -> points applied -> wallet applied -> gateway asked for what is left.
+- Rules: Naira orders only; at least `loyalty_min_redeem`, in steps of `loyalty_redeem_points`; server checks the balance; discount = points/`loyalty_redeem_points` x `loyalty_redeem_value` (1,000 points = N100 by default); capped at `loyalty_max_discount_pct` (30) of net goods value (0 switches points-at-checkout off). The discount lowers `orders.total` and adds to `orders.discount` (`points_used`, `points_discount` are recorded), so points later earned are based on what was actually paid.
+- A bad request (wrong step, too many points, over the cap, not signed in) cancels the order, returns stock and spends nothing.
+- Points come back once if the order is cancelled unpaid or refunded (ledger row `pts-return:<ref>`).
+- `POST /api/wallet/preview` takes the same cart plus optional `usePoints` and returns the whole breakdown before confirming: subtotal, product_discount, delivery_fee, loyalty_discount, points_used, order_total, wallet_contribution, remaining_payment. Display only.
+- Tier discounts (`loyalty_tiers.discount_pct`) are stored but not applied automatically, because rewards must not be applied without the customer seeing and confirming them.
+
+## Payment preferences
+GET/PUT `/api/wallet/preferences` `{default_method: ''|wallet|paystack|card|pod, preselect_wallet, preselect_points, promo_notifications}`. They only pre-select choices on the checkout screen; amounts are still shown and confirmed each time.
+
 ## Not built yet
-Points expiry and reminders, checkout discounts from points (phase 4), birthday rewards (needs a date-of-birth field), product-level eligibility lists, tier downgrade review, promotional notification preferences, and the screens. Run: `npm run test:loyalty`.
+Points expiry and reminders, birthday rewards (needs a date-of-birth field), product-level eligibility lists, tier downgrade review, tier discounts at checkout, promotional notifications honouring `promo_notifications` (no promotional messages are sent yet), and the screens. Run: `npm run test:loyalty`.

@@ -200,6 +200,15 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
       assert.strictEqual((await bal(buyer)).available_balance, b0 + full.total);
       assert.strictEqual((await call('GET', '/api/wallet/transactions?type=refunds', null, buyer.cookie)).j.transactions[0].order_ref, full.ref);
     });
+    await test('points and wallet together: points reduce the total first, then the wallet pays the reduced amount', async () => {
+      const dana = await register('Dana'); await call('GET', '/api/wallet/fund/' + await fund(dana, 900000), null, dana.cookie);
+      await call('POST', `/api/admin/loyalty/customers/${dana.id}/adjust`, { points: 3000, reason: 'test', reference: 'DANA-1' }, admin);
+      const pv = await call('POST', '/api/wallet/preview', { ...cart(2), usePoints: 2000 }, dana.cookie); assert.strictEqual(pv.s, 200, pv.t); assert.strictEqual(pv.j.loyalty_discount, 200); assert.strictEqual(pv.j.remaining_payment, 0);
+      const b0 = (await bal(dana)).available_balance, r = await call('POST', '/api/checkout', { ...cart(2, { payment: 'wallet' }), usePoints: 2000 }, dana.cookie); assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.next, 'wallet');
+      const o = await orderRow(r.j.ref); assert.strictEqual(o.points_discount, 200); assert.strictEqual(o.payment_status, 'paid'); assert.strictEqual(Number(o.wallet_amount), o.total * 100);
+      assert.strictEqual((await bal(dana)).available_balance, b0 - o.total); assert.strictEqual((await call('GET', '/api/loyalty', null, dana.cookie)).j.points, 1000);
+      assert.strictEqual(pv.j.order_total, o.total);
+    });
     await test('the books still balance after all of that', async () => { const r = (await call('GET', '/api/admin/wallet/reconcile', null, admin)).j; assert.strictEqual(r.ok, true, JSON.stringify(r)); });
   } finally {
     app.kill(); fake.close(); await sleep(300);
