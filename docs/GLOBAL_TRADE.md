@@ -13,7 +13,7 @@ Admin screen: **Admin > Global Trade**. Permission module: `trade` (roles "Trade
 | 5 | Freight quotations and carrier API integrations (needs your own carrier accounts and keys) | Built (EasyPost) |
 | 6 | Customs, duties, documentation and landed cost | Built |
 | 7 | International payments and shipment tracking | Built |
-| 8 | Notifications, reporting and AI assistant | Not started |
+| 8 | Notifications, reporting and AI assistant | Built |
 | 9 | Testing, security audit and production deployment | Not started |
 
 ## Rules the code follows (and the tests check)
@@ -108,3 +108,19 @@ Public API (used by the storefront in phase 3): `GET /api/trade/countries`, `/cu
 - Card data never touches the server: Paystack hosts the payment page.
 
 Tests: `npm run test:trade-payments`.
+
+## Phase 8: notifications, reports and the assistant
+
+**Notifications.** A background check (every 2 minutes, or "Check for new updates now" on the Notifications tab) turns real events into messages, once each:
+- Customers (email): order confirmed and payment received, packed, dispatched (with carrier and tracking number), arrived in their country, at customs, held at customs, delayed, out for delivery, delivered. Customs messages say duties "may" be payable; the system never claims a customs payment is required because it cannot know.
+- Staff: in-app alert (and an email if "Email that receives trade alerts" is set) for delays, shipment problems, customs holds, failed bookings and carrier-update errors.
+- Only facts from the last 2 days are announced, so a restart never re-sends old news. Customer emails can be switched off in Settings.
+- Status: "sent" = handed to the email service; "skipped" = no email service connected (set `RESEND_API_KEY`) or customer emails are off. SMS and WhatsApp are not connected for international numbers.
+
+**Reports** (Trade Reports tab; filter by date and country; download Excel, CSV or PDF): sales by country, export profitability, import costs by supplier, freight by carrier, customs charges, landed cost per product, order performance, delivery performance and average shipping time, customs clearance time, failed and delayed shipments, payment reconciliation and exchange differences (the last two need the Finance permission). Empty cells mean the data is not on file: profit is shown only when goods cost and a booked carrier cost both exist.
+
+**Assistant (advice only).** The Assistant tab lists findings from fixed rules over saved data (works with no API key): delayed or silent shipments, unusually high freight (needs 4+ bookings to compare), incomplete customs declarations, saved product restrictions on open orders, lowest supplier price per product, low stock against the last 30 days of export sales, and country sales movements. Optional chat needs `ANTHROPIC_API_KEY` and the switch in the tab (model `TRADE_ASSISTANT_MODEL`, default claude-haiku-5-5). It has no tools, cannot change any record, never receives customer contact details, and cannot approve customs, restrictions or money.
+
+**Not verified.** Chat was tested against a fake API only. Carrier-based "estimated landed cost" and import-demand prediction are not built; the reorder finding is a plain 30-day average, not a forecast.
+
+Tests: `npm run test:trade-reports`.

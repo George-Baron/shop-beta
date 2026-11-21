@@ -2996,7 +2996,7 @@ views.partners = async () => {
 const tradeState = { tab: 'overview', cq: '', pf: '', pq: '', pp: 1, of: '', oq: '' };
 views.trade = async () => {
   const edit = can('trade', true), T = tradeState;
-  const tabs = [['overview', 'Overview'], ['countries', 'Countries'], ['rates', 'Currencies & rates'], ['products', 'Products'], ['suppliers', 'International suppliers'], ['purchase', 'Purchase orders'], ['imports', 'Import shipments'], ['shipping', 'Shipping & duties'], ['carriers', 'Carriers'], ['customs', 'Customs & docs'], ['orders', 'International orders'], ['tracking', 'Global tracking'], ...(can('finance') ? [['payments', 'Payments']] : []), ['settings', 'Settings'], ['audit', 'Activity']];
+  const tabs = [['overview', 'Overview'], ['countries', 'Countries'], ['rates', 'Currencies & rates'], ['products', 'Products'], ['suppliers', 'International suppliers'], ['purchase', 'Purchase orders'], ['imports', 'Import shipments'], ['shipping', 'Shipping & duties'], ['carriers', 'Carriers'], ['customs', 'Customs & docs'], ['orders', 'International orders'], ['tracking', 'Global tracking'], ...(can('finance') ? [['payments', 'Payments']] : []), ['reports', 'Reports'], ['assistant', 'Assistant'], ['notifications', 'Notifications'], ['settings', 'Settings'], ['audit', 'Activity']];
   const ngn = (n) => naira(Math.round(Number(n || 0)));
   const yn = (b) => (b ? '<span class="pill ok">Yes</span>' : '<span class="pill">No</span>');
   const frame = (body) => mn(hd('GLOBAL TRADE &amp; LOGISTICS', '') + `<div class="tbar">${tabs.map(([k, t]) => `<button class="btn ${T.tab === k ? '' : 'ghost'} sm" data-tab="${k}">${t}</button>`).join('')}</div>` + body);
@@ -3476,6 +3476,41 @@ views.trade = async () => {
         <label class="f"><span class="mu2">Amount (NGN)</span><input id="rfa" type="number" step="0.01" min="0.01" max="${e(el.dataset.max)}" value="${e(el.dataset.max)}"></label><label class="f"><span class="mu2">Reason</span><input id="rfr" maxlength="200"></label><button class="btn" id="rfgo">Send refund to Paystack</button>`);
       monAll('#rfgo', 'click', async () => { const r = await api('/api/admin/trade/payments/' + el.dataset.rf + '/refund', { method: 'POST', body: { amount_ngn: Number($('#rfa', modal).value), reason: $('#rfr', modal).value, idempotency_key: key } }); closeModal(); toast(r.payment.status === 'succeeded' ? 'Refund confirmed by Paystack' : 'Refund sent. Waiting for Paystack to confirm.'); views.trade(); });
     });
+    return;
+  }
+  if (T.tab === 'reports') {
+    const lst = (await api('/api/admin/trade/reports')).reports.filter((r) => !r.finance || can('finance'));
+    T.rk = lst.some((r) => r.key === T.rk) ? T.rk : lst[0].key;
+    const qs = new URLSearchParams({ ...(T.rf ? { from: T.rf } : {}), ...(T.rt ? { to: T.rt } : {}), ...(T.rc ? { country: T.rc } : {}) });
+    const d = await api('/api/admin/trade/reports/' + T.rk + (qs.toString() ? '?' + qs : ''));
+    const fmt = (c, v) => (v == null || v === '' ? '<span class="mu2">–</span>' : c.type === 'ngn' ? ngn(v) : c.type === 'num' || c.type === 'int' ? Number(v).toLocaleString() : e(v));
+    frame(`<div class="panel"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><label class="f"><span class="mu2">Report</span><br><select id="rk">${lst.map((r) => `<option value="${r.key}" ${r.key === T.rk ? 'selected' : ''}>${e(r.title)}</option>`).join('')}</select></label>
+      <label class="f"><span class="mu2">From</span><br><input id="rf" type="date" value="${e(T.rf || '')}"></label><label class="f"><span class="mu2">To</span><br><input id="rt" type="date" value="${e(T.rt || '')}"></label><label class="f"><span class="mu2">Country code</span><br><input id="rc" maxlength="2" value="${e(T.rc || '')}" style="width:70px"></label><button class="btn sm" id="rgo">Show</button></div>
+      <div style="margin:10px 0"><b>${e(d.title)}</b> · ${['xlsx', 'csv', 'pdf'].map((k) => `<a class="btn ghost sm" href="/api/admin/trade/reports/${T.rk}/export?${new URLSearchParams({ format: k, ...Object.fromEntries(qs) })}" download>${k === 'xlsx' ? 'Excel' : k.toUpperCase()}</a>`).join(' ')}</div>
+      ${d.summary ? `<div class="mu2" style="margin-bottom:8px">${Object.entries(d.summary).map(([k, v]) => e(k.replace(/_/g, ' ')) + ': <b>' + Number(v).toLocaleString() + '</b>').join(' · ')}</div>` : ''}
+      <div class="tw">${d.rows.length ? `<table class="t"><tr>${d.columns.map((c) => `<th>${e(c.label)}</th>`).join('')}</tr>${d.rows.map((r) => `<tr>${d.columns.map((c) => `<td>${fmt(c, r[c.key])}</td>`).join('')}</tr>`).join('')}</table>` : '<div class="mu2">Nothing to show for these filters.</div>'}</div>
+      ${(d.notes || []).map((n) => `<div class="mu2" style="margin-top:8px">${e(n)}</div>`).join('')}</div>`);
+    wireTabs(); on('#rk', 'change', () => { T.rk = $('#rk').value; views.trade(); });
+    on('#rgo', 'click', () => { T.rf = $('#rf').value; T.rt = $('#rt').value; T.rc = $('#rc').value.trim().toUpperCase(); T.rk = $('#rk').value; views.trade(); });
+    return;
+  }
+  if (T.tab === 'assistant') {
+    const d = await api('/api/admin/trade/assistant'), sev = { high: 'bad', medium: 'warn', info: '' };
+    frame(`<div class="panel"><h3 style="margin-top:0">Global Trade Assistant <span class="pill">advice only</span></h3><div class="mu2">${e(d.status.note)} It cannot approve customs, release shipments, pay or change anything. A person always decides.</div>
+      ${edit ? `<label style="display:block;margin:8px 0"><input type="checkbox" id="aion" ${d.status.enabled ? 'checked' : ''}> Switch the assistant chat on</label>` : ''}
+      ${d.status.chat_available ? '<div style="margin-top:10px"><input id="aiq" maxlength="1000" placeholder="Ask about delays, freight, suppliers, sales…" style="width:70%"> <button class="btn sm" id="aigo">Ask</button><div id="aia" class="mu" style="margin-top:8px;white-space:pre-wrap"></div></div>' : ''}</div>
+      <div class="panel"><h3 style="margin-top:0">Things to look at (${d.count})</h3>${d.insights.length ? d.insights.map((i) => `<div style="margin:8px 0"><span class="pill ${sev[i.severity]}">${e(i.severity)}</span> <b>${e(i.title)}</b><div class="mu2">${e(i.detail)}${i.basis ? ' · basis: ' + e(i.basis) : ''}</div></div>`).join('') : '<div class="mu2">Nothing needs attention right now.</div>'}<div class="mu2" style="margin-top:8px">${e(d.note)}</div></div>`);
+    wireTabs();
+    on('#aion', 'change', async () => { await api('/api/admin/trade/settings', { method: 'PUT', body: { ai_assistant_enabled: $('#aion').checked } }); views.trade(); });
+    on('#aigo', 'click', async () => { const out = $('#aia'); out.textContent = 'Thinking…'; try { const r = await api('/api/admin/trade/assistant/chat', { method: 'POST', body: { messages: [{ role: 'user', content: $('#aiq').value }] } }); out.textContent = r.reply; } catch (er) { out.textContent = er.message; } });
+    return;
+  }
+  if (T.tab === 'notifications') {
+    const d = await api('/api/admin/trade/notifications?audience=' + encodeURIComponent(T.na || '')), st = { sent: 'ok', skipped: 'warn', failed: 'bad', queued: '' };
+    frame(`<div class="panel"><div class="mu2" style="margin-bottom:8px">Email: ${e(d.channels.email)}. SMS: ${e(d.channels.sms)}. WhatsApp: ${e(d.channels.whatsapp)}. "Sent" means handed to the email service; "skipped" means no email service is connected or customer emails are switched off in Settings.</div>
+      <select id="na"><option value="">Customers and staff</option><option value="customer" ${T.na === 'customer' ? 'selected' : ''}>Customers</option><option value="admin" ${T.na === 'admin' ? 'selected' : ''}>Staff alerts</option></select> ${edit ? '<button class="btn ghost sm" id="nsw">Check for new updates now</button>' : ''}
+      <div class="tw" style="margin-top:10px">${d.notifications.length ? `<table class="t"><tr><th>When</th><th>For</th><th>Message</th><th>Order</th><th>Status</th></tr>${d.notifications.map((n) => `<tr><td>${dt(n.created)}</td><td>${e(n.audience)}${n.recipient ? '<br><span class="mu2">' + e(n.recipient) + '</span>' : ''}</td><td>${e(n.subject)}</td><td>${e(n.export_ref || n.import_ref || '')}</td><td><span class="pill ${st[n.status]}">${e(n.status)}</span></td></tr>`).join('')}</table>` : '<div class="mu2">No notifications yet.</div>'}</div></div>`);
+    wireTabs(); on('#na', 'change', () => { T.na = $('#na').value; views.trade(); }); on('#nsw', 'click', async () => { const r = await api('/api/admin/trade/notifications/sweep', { method: 'POST', body: {} }); toast(r.created + ' new'); views.trade(); });
     return;
   }
   if (T.tab === 'settings') {

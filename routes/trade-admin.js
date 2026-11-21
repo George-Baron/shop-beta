@@ -12,9 +12,13 @@ const SUP = require('../lib/trade/suppliers');
 const IM = require('../lib/trade/imports');
 const PAY = require('../lib/trade/payments');
 const TR = require('../lib/trade/tracking');
+const NT = require('../lib/trade/notify');
+const RP = require('../lib/trade/reports');
+const AD = require('../lib/trade/advisor');
 const ST = require('../lib/staff');
 const S = require('../lib/shop');
 const { fail } = S;
+const A_LIM = require('../lib/auth').limiter('trade-ai', 30, 600000);
 
 const router = express.Router();
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -103,6 +107,14 @@ router.get('/payments/reconciliation', ah(async (req, res) => res.json(await PAY
 router.get('/payments', ah(async (req, res) => res.json(await PAY.list(req.query))));
 router.post('/payments/:id/refund', ah(async (req, res) => res.json(await PAY.refund(Number(req.params.id), req.body || {}, req.user, ip(req)))));
 router.post('/payments/:id/refresh', ah(async (req, res) => res.json(await PAY.refresh(Number(req.params.id), req.user, ip(req)))));
+router.get('/reports', ah(async (req, res) => res.json({ reports: RP.list() })));
+router.get('/reports/:key', ah(async (req, res) => res.json(await RP.run(req.params.key, req.query))));
+router.get('/reports/:key/export', ah(async (req, res) => { const f = await RP.file(req.params.key, req.query, String(req.query.format || 'xlsx')); res.set({ 'Content-Type': f.type, 'Content-Disposition': `attachment; filename="${f.name}"`, 'Cache-Control': 'no-store' }); res.send(f.buf); }));
+router.get('/assistant', ah(async (req, res) => res.json({ status: await AD.status(), ...(await AD.insights()) })));
+router.get('/assistant/quotes/:ref', ah(async (req, res) => res.json(await AD.compareQuotes(req.params.ref))));
+router.post('/assistant/chat', A_LIM, ah(async (req, res) => res.json(await AD.chat((req.body || {}).messages, req.user))));
+router.get('/notifications', ah(async (req, res) => res.json(await NT.list(req.query))));
+router.post('/notifications/sweep', ah(async (req, res) => res.json(await NT.sweep())));
 router.get('/tracking', ah(async (req, res) => res.json(await TR.overview(req.query))));
 
 router.get('/purchase-orders', ah(async (req, res) => res.json(await IM.listPOs(req.query))));
