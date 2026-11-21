@@ -84,7 +84,8 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
     await test('webhook without a valid signature is rejected', async () => assert.strictEqual((await webhook('WF-X', 'bad')).s, 401));
     await test('duplicate webhooks, repeats and parallel verifies credit once', async () => {
       const ref = await fund(bob, 7000);
-      await Promise.all([webhook(ref), webhook(ref), call('GET', '/api/wallet/fund/' + ref, null, bob.cookie), call('GET', '/api/wallet/fund/' + ref, null, bob.cookie)]);
+      const rs = await Promise.all([webhook(ref), webhook(ref), call('GET', '/api/wallet/fund/' + ref, null, bob.cookie), call('GET', '/api/wallet/fund/' + ref, null, bob.cookie)]);
+      assert.ok(rs.every((r) => r.s === 200), 'no request may fail: ' + rs.map((r) => r.s));
       await until(async () => (await q('SELECT status FROM wallet_funding WHERE ref=$1', [ref]))[0].status === 'success');
       await webhook(ref); await call('GET', '/api/wallet/fund/' + ref, null, bob.cookie); await sleep(800);
       assert.strictEqual((await bal(bob)).available_balance, 7000);

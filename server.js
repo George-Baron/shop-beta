@@ -104,6 +104,8 @@ app.use('/api', A.loadUser);
 app.use('/api/notifications', require('./routes/notifications'));
 app.use(['/api/wallet', '/api/mobile/v1/wallet'], require('./routes/wallet').customer);
 app.use(['/api/admin/wallet', '/api/mobile/v1/admin/wallet'], require('./routes/wallet').admin);
+app.use(['/api/loyalty', '/api/mobile/v1/loyalty'], require('./routes/loyalty').customer);
+app.use(['/api/admin/loyalty', '/api/mobile/v1/admin/loyalty'], require('./routes/loyalty').admin);
 app.use('/api/admin/pharmacy', require('./routes/pharmacy-admin'));
 app.use('/api/admin/rider-ops', require('./routes/rider-admin'));
 app.use('/api/admin', require('./routes/admin'));
