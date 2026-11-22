@@ -2,7 +2,7 @@
 
 Base path: `/api/mobile/v1`. JSON in, JSON out. Built for the VELTO-MART Android and iOS apps. The website and its `/api/...` routes are unchanged.
 
-Status of this document: covers sign-in, profile, devices, account deletion, catalogue, cart, checkout, payments, orders, addresses, wishlist, notifications and wholesale (all built and tested). **Not built yet:** push notifications and preferences, support requests, returns enquiries, reviews, wholesale file attachments. They are listed at the end.
+Status of this document: covers sign-in, profile, devices, account deletion, catalogue, cart, checkout, payments, orders, addresses, wishlist, notifications, push, support and wholesale (all built and tested). **Not built yet:** a support inbox the customer can read in the app, reviews, wholesale file attachments. They are listed at the end.
 
 ## Rules every endpoint follows
 
@@ -151,10 +151,37 @@ Same rules as the website's wholesale area. Only an **approved** wholesale accou
 
 Other accounts (not the owner of a quotation or request) get `404`. Admin, staff and other roles cannot sign in to the app at all.
 
+## Push notifications (auth required)
+
+Pushes go through Expo's push service. The app asks the customer for permission, gets an Expo push token on the phone, and registers it. **A push is a nudge only**: it carries a title and one short line plus `data: { notificationId, type, link }`, never an address, phone number or payment detail. The full text is always in the notification centre above.
+
+| Method and path | Body | Answer |
+| --- | --- | --- |
+| POST `/push-token` | `{ token: "ExponentPushToken[...]", platform: "ios"\|"android" }` | `{ ok }`. One token per signed-in device; send it again after every sign-in and whenever Expo gives a new token. `400 invalid_push_token` for anything else |
+| DELETE `/push-token` | `{ token }` | `{ ok }`. Call it at sign-out. Only removes the caller's own token |
+| GET `/notifications/settings` | | `{ settings: { orders, wholesale, offers } }`. Defaults: orders on, wholesale on, offers off |
+| PUT `/notifications/settings` | `{ orders?, wholesale?, offers? }` (booleans) | `{ settings }`. Fields that are not booleans are ignored |
+
+How it behaves:
+- Every notification saved for a customer (order placed, confirmed, being prepared, shipped, delivered, cancelled, payment received, wholesale quotation and request updates, announcements to wholesale buyers) is pushed by the background worker. Types not mapped to a switch (for example staff-only alerts) are never pushed.
+- **No duplicates:** each notification can be pushed once (a unique delivery row is claimed before sending). If Expo is unreachable or answers 5xx/429 the claim is released and the job retries with the normal back-off, so it is sent once when Expo returns.
+- Switching a category off stops its pushes; the notification still appears in the notification centre.
+- A phone that signs out, is removed under `/me/devices`, or whose account is switched off or deleted gets nothing. When Expo answers `DeviceNotRegistered` the token is switched off and never tried again.
+- Optional server setting `EXPO_ACCESS_TOKEN` (only if "enhanced push security" is on in the Expo account). It is never sent to the app.
+- Push delivery to real phones cannot be proven from the test suite (it uses a stand-in for Expo). It needs a real-device test with an Expo project and, for iOS, an Apple push key.
+
+## Support (auth required)
+
+| Method and path | Body | Answer |
+| --- | --- | --- |
+| GET `/support/topics` | | `{ topics: [{ id, label }] }` (order_issue, delivery, payment, return_refund, account, other) |
+| POST `/support` | `{ topic, message, orderRef? }` | `{ ok, message }`. `orderRef` must be the customer's own order (`404` otherwise). Limited to 6 per hour per account (`429`) |
+
+The message lands in the store's existing inbox (admin > Messages, subject `[App] <topic> - order <ref>`), is emailed to the store contact address and notifies staff who manage orders. The team replies **by email** to the customer's account address. There is no in-app reply thread yet, and refunds are still decided and issued by staff exactly as on the website.
+
 ## Not built yet
 
 - Wholesale spreadsheet import and file attachments on a request for quotation (use the website for those).
-- Push notifications (device tokens, Expo push sending, preferences, de-duplication).
-- Support requests, complaints and return or refund enquiries linked to orders.
+- A support history and reply thread inside the app (messages are answered by email).
 - Product reviews from the app.
 - Other payment gateways (Interswitch, Flutterwave, Monnify): **not active and not offered**; nothing exists in the code.

@@ -12,6 +12,7 @@ const V = require('../lib/vendors');
 const D = require('../lib/delivery');
 const geo = require('../lib/geo');
 const N = require('../lib/notify');
+const Push = require('../lib/push');
 const log = require('../lib/log');
 const P = require('./public').shared;
 const { str, int, card, parseImages } = S;
@@ -161,6 +162,27 @@ router.delete('/wishlist/:id', auth, ah(async (req, res) => { await run('DELETE 
 /* ================= notification centre (the same list the website shows) ================= */
 router.get('/notifications', auth, ah(async (req, res) => res.json(await N.list(req.user, req.query))));
 router.get('/notifications/count', auth, ah(async (req, res) => res.json({ unread: await N.count(req.user) })));
+/* ---------- support: lands in the same inbox as the website contact form (admin > Messages), with the order named ---------- */
+const TOPICS = { order_issue: 'Problem with my order', delivery: 'Delivery', payment: 'Payment', return_refund: 'Return or refund', account: 'My account', other: 'Something else' };
+router.post('/support', auth, M.limit('m-support', 6, 3600000, (req) => req.user.id, 'You have sent several messages already. Please wait a while, we will reply by email.'), ah(async (req, res) => {
+  const b = req.body || {}, topic = TOPICS[b.topic] ? b.topic : '', text = str(b.message, 2000);
+  if (!topic) M.fail(400, 'invalid_topic', 'Please choose what your message is about.');
+  if (text.length < 5) M.fail(400, 'message_too_short', 'Please tell us a little more.');
+  let ref = '';
+  if (b.orderRef) { const o = await S.loadOrder('ref=? AND user_id=?', str(b.orderRef, 20).toUpperCase(), req.user.id); if (!o) M.fail(404, 'not_found', 'We could not find that order on your account.'); ref = o.ref; }   // only the customer's own orders can be named
+  const subject = `[App] ${TOPICS[topic]}${ref ? ' - order ' + ref : ''}`;
+  await run('INSERT INTO messages (name,email,subject,body,read,created) VALUES (?,?,?,?,0,?)', req.user.name, req.user.email, subject, text, now());
+  const set = await S.getSettings();
+  if (set.contact_email) await S.queueMail(set.contact_email, `New message: ${subject}`, S.mailWrap(set, `<p><b>${S.esc(req.user.name)}</b> (${S.esc(req.user.email)}, ${S.esc(req.user.phone || 'no phone')}) wrote from the app:</p><p style="white-space:pre-wrap">${S.esc(text)}</p>`));
+  await N.toStaff('orders', true, { type: 'support', title: `Customer message: ${subject}`, link: '/admin#/messages' });
+  res.json({ ok: true, message: 'We have your message and will reply to ' + req.user.email + '.' });
+}));
+router.get('/support/topics', ah(async (req, res) => res.json({ topics: Object.entries(TOPICS).map(([id, label]) => ({ id, label })) })));
+
+router.get('/notifications/settings', auth, ah(async (req, res) => res.json({ settings: await Push.prefs(req.user.id) })));
+router.put('/notifications/settings', auth, ah(async (req, res) => res.json({ settings: await Push.setPrefs(req.user.id, req.body || {}) })));
+router.post('/push-token', auth, ah(async (req, res) => { try { await Push.register(req.user, req.mobileSession, req.body && req.body.token, req.body && req.body.platform); } catch (e) { if (e.status === 400) require('../lib/mobile-auth').fail(400, e.code, e.message); throw e; } res.json({ ok: true }); }));
+router.delete('/push-token', auth, ah(async (req, res) => { await Push.unregister(req.user, req.body && req.body.token); res.json({ ok: true }); }));
 router.post('/notifications/read', auth, ah(async (req, res) => { await N.markRead(req.user, req.body || {}); res.json({ ok: true, unread: await N.count(req.user) }); }));
 
 module.exports = router;

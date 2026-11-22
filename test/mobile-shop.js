@@ -193,6 +193,20 @@ async function test(name, fn) {
     assert.strictEqual(g.status, 200); assert.strictEqual(g.json.next, 'pod');
   });
 
+  console.log('\nSupport');
+  await test('support messages need sign-in, a topic and a message, and can name only the customer\'s own order', async () => {
+    assert.strictEqual((await guest.post('/support', { topic: 'other', message: 'Hello there' })).status, 401);
+    assert.strictEqual((await ada.post('/support', { topic: 'nonsense', message: 'Hello there' })).json.code, 'invalid_topic');
+    assert.strictEqual((await ada.post('/support', { topic: 'other', message: 'hi' })).json.code, 'message_too_short');
+    assert.strictEqual((await ada.post('/support', { topic: 'delivery', orderRef: podRef, message: 'Where is my parcel please?' })).status, 200);
+    assert.strictEqual((await bola.post('/support', { topic: 'delivery', orderRef: podRef, message: 'This is not my order' })).status, 404, 'another customer cannot name it');
+    assert.ok((await ada.get('/support/topics')).json.topics.length >= 5);
+  });
+  await test('the message reaches the store inbox (admin Messages) with the order and the customer\'s own email', async () => {
+    const m = (await pgQ("SELECT name, email, subject, body FROM messages WHERE subject LIKE '[App]%' ORDER BY id DESC LIMIT 5"));
+    assert.strictEqual(m.length, 1); assert.strictEqual(m[0].email, 'ada.shop@example.com'); assert.ok(m[0].subject.includes(podRef)); assert.ok(/parcel/.test(m[0].body));
+  });
+
   srv.kill(); fake.close();
   await new Promise((r) => setTimeout(r, 300));
   fs.rmSync(DATA, { recursive: true, force: true });
