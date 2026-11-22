@@ -105,6 +105,8 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.use(['/api/wallet', '/api/mobile/v1/wallet'], require('./routes/wallet').customer);
 app.use(['/api/admin/wallet', '/api/mobile/v1/admin/wallet'], require('./routes/wallet').admin);
 app.use(['/api/loyalty', '/api/mobile/v1/loyalty'], require('./routes/loyalty').customer);
+app.use('/api/mobile/v1/auth', require('./routes/mobile').auth);
+app.use(['/api/account/summary', '/api/mobile/v1/account'], require('./routes/mobile').account);
 app.use('/api/cards/webhook', require('./routes/cards').webhook);
 app.use(['/api/cards', '/api/mobile/v1/cards'], require('./routes/cards').customer);
 app.use(['/api/admin/cards', '/api/mobile/v1/admin/cards'], require('./routes/cards').admin);
@@ -118,6 +120,7 @@ app.use('/api/partner', require('./routes/partner'));
 app.use('/api/supplier', require('./routes/supplier-portal'));
 app.use('/api/wholesale', require('./routes/wholesale'));
 app.use('/api', require('./routes/public'));
+app.use('/api/mobile/v1', require('./routes/public')); // the same shop endpoints under the apps' versioned prefix
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
 /* ---------- robots & sitemap ---------- */
