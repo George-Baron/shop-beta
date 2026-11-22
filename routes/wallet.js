@@ -5,7 +5,7 @@ const express = require('express');
 const A = require('../lib/auth');
 const W = require('../lib/wallet');
 const S = require('../lib/shop');
-const { get, all } = require('../lib/db');
+const { get, all, run } = require('../lib/db');
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 const customer = express.Router();
@@ -29,6 +29,21 @@ customer.get('/fund/:ref', A.limiter('wallet-verify', 40, 600000), ah(async (req
 
 const admin = express.Router();
 admin.use(A.requireAdmin);
+// Switches and limits (administrators). Switching the wallet off stops new top-ups only; customers can still spend what they already hold.
+const SETTINGS = ['wallet_enabled', 'wallet_min_fund', 'wallet_max_fund', 'wallet_max_balance', 'card_enabled'];
+admin.get('/settings', ah(async (req, res) => { const rows = await all('SELECT key, value FROM settings WHERE key = ANY(?)', SETTINGS); const m = Object.fromEntries(rows.map((r) => [r.key, r.value])); res.json({ wallet_enabled: m.wallet_enabled !== '0', wallet_min_fund: Number(m.wallet_min_fund || 100), wallet_max_fund: Number(m.wallet_max_fund || 1000000), wallet_max_balance: Number(m.wallet_max_balance || 5000000), card_enabled: m.card_enabled === '1', card_provider_ready: !!require('../lib/cards').provider() }); }));
+admin.put('/settings', ah(async (req, res) => {
+  const b = req.body || {}, put = (k, v) => run('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT (key) DO UPDATE SET value=excluded.value', k, String(v));
+  const num = (v, name) => { const n = Number(v); if (!Number.isSafeInteger(n) || n < 1) S.fail(400, name + ' must be a whole number of Naira, 1 or more.'); return n; };
+  if (b.wallet_enabled !== undefined) await put('wallet_enabled', b.wallet_enabled ? 1 : 0);
+  if (b.wallet_min_fund !== undefined) await put('wallet_min_fund', num(b.wallet_min_fund, 'The smallest top-up'));
+  if (b.wallet_max_fund !== undefined) await put('wallet_max_fund', num(b.wallet_max_fund, 'The largest top-up'));
+  if (b.wallet_max_balance !== undefined) await put('wallet_max_balance', num(b.wallet_max_balance, 'The largest wallet balance'));
+  if (b.card_enabled !== undefined) { if (b.card_enabled && !require('../lib/cards').provider()) S.fail(400, 'No card issuer is connected yet, so the card cannot be switched on.'); await put('card_enabled', b.card_enabled ? 1 : 0); }
+  const cache = require('../lib/cache'); cache.clear(); await cache.bump().catch(() => {}); // settings are cached for a few seconds; the switch must take effect at once on every instance
+  await W.audit(0, req.user, 'settings', JSON.stringify(b).slice(0, 200)).catch(() => {});
+  res.json({ ok: true });
+}));
 admin.get('/reconcile', ah(async (req, res) => res.json(await W.reconcile())));
 admin.get('/customers/:id', ah(async (req, res) => {
   const id = S.int(req.params.id), u = await get('SELECT id,name,email FROM users WHERE id=?', id); if (!u) S.fail(404, 'Not found.');

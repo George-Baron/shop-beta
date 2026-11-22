@@ -36,3 +36,6 @@ Settings (table `settings`): `wallet_enabled`, `wallet_min_fund`, `wallet_max_fu
 Wallet notifications for low balance and suspicious activity, finer staff permissions (admin-only for now), Interswitch/Flutterwave/Monnify funding (each must be confirmed and tested first), mobile token sign-in (the API uses the existing cookie session), and the website/app screens. The repo contains no Android or iOS code; the API is ready for the apps to use when they go live.
 
 Run: `npm run test:wallet`.
+
+## Switching the wallet on or off
+Admin > **Wallet & rewards** > **Switches and limits**: wallet top-ups on/off, smallest and largest top-up, largest balance, and the VELTO-MART CARD switch (it can only be turned on once a card issuer is connected). Off stops new top-ups only; customers can still spend their balance and refunds still return to the wallet. Rewards have their own switch lower on the same page.

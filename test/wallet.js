@@ -245,6 +245,17 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
       await call('POST', `/api/admin/wallet/customers/${buyer.id}/adjust`, { direction: 'credit', amount: 1, reason: '=HYPERLINK("http://evil")', reference: 'CSV-1' }, admin);
       const t2 = (await rep('/wallet-transactions.csv')).t; assert.ok(!/(^|,)"?[=+@-]\w*\(/m.test(t2) && t2.includes('"Adjustment: =HYPERLINK')); // text is quoted and never starts a cell with a formula character
     });
+    await test('an administrator can switch top-ups off and on; customers cannot', async () => {
+      assert.strictEqual((await call('PUT', '/api/admin/wallet/settings', { wallet_enabled: false }, ann.cookie)).s, 401);
+      assert.strictEqual((await call('PUT', '/api/admin/wallet/settings', { wallet_enabled: false }, admin)).s, 200);
+      assert.strictEqual((await call('GET', '/api/admin/wallet/settings', null, admin)).j.wallet_enabled, false);
+      assert.strictEqual((await call('POST', '/api/wallet/fund', { amount: 1000 }, ann.cookie)).s, 503);
+      assert.strictEqual((await bal(ann)).status, 'active'); // the balance is still visible and spendable
+      assert.strictEqual((await call('PUT', '/api/admin/wallet/settings', { wallet_enabled: true }, admin)).s, 200);
+      assert.strictEqual((await call('POST', '/api/wallet/fund', { amount: 1000 }, ann.cookie)).s, 200);
+      assert.strictEqual((await call('PUT', '/api/admin/wallet/settings', { wallet_min_fund: 0 }, admin)).s, 400);
+      assert.strictEqual((await call('PUT', '/api/admin/wallet/settings', { card_enabled: true }, admin)).s, 400); // no issuer connected
+    });
     await test('the books still balance after all of that', async () => { const r = (await call('GET', '/api/admin/wallet/reconcile', null, admin)).j; assert.strictEqual(r.ok, true, JSON.stringify(r)); });
   } finally {
     app.kill(); fake.close(); await sleep(300);
