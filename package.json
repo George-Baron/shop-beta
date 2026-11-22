@@ -33,6 +33,7 @@
     "test:loyalty": "node --disable-warning=ExperimentalWarning test/loyalty.js",
     "test:cards": "node --disable-warning=ExperimentalWarning test/cards.js",
     "test:mobile": "node --disable-warning=ExperimentalWarning test/mobile.js",
+    "test:restore-wallet": "node --disable-warning=ExperimentalWarning test/wallet-restore.js",
     "test:wholesale": "node --disable-warning=ExperimentalWarning test/wholesale.js",
     "test:vendors": "node --disable-warning=ExperimentalWarning test/vendors.js",
     "test:dropship:unit": "node --disable-warning=ExperimentalWarning test/dropship-unit.js",
