@@ -38,4 +38,17 @@ admin.post('/customers/:id/freeze', ah(async (req, res) => { await W.setFrozen(S
 admin.post('/customers/:id/unfreeze', ah(async (req, res) => { await W.setFrozen(S.int(req.params.id), false, '', req.user); res.json({ ok: true }); }));
 admin.post('/customers/:id/adjust', ah(async (req, res) => res.json(await W.adjust(S.int(req.params.id), req.body || {}, req.user))));
 
-module.exports = { customer, admin };
+// Financial reports (administrators). ?from=&to= are epoch seconds.
+const F = require('../lib/finance');
+admin.get('/funding', ah(async (req, res) => res.json({ funding: await F.fundingList(req.query) })));
+admin.get('/suspicious', ah(async (req, res) => res.json(await F.suspicious())));
+const reports = express.Router();
+reports.use(A.requireAdmin);
+reports.get('/summary', ah(async (req, res) => res.json(await F.summary(req.query))));
+reports.get('/wallet', ah(async (req, res) => res.json(await F.wallet(req.query))));
+reports.get('/sales', ah(async (req, res) => res.json(await F.sales(req.query))));
+reports.get('/rewards', ah(async (req, res) => res.json(await F.loyalty(req.query))));
+reports.get('/gateways', ah(async (req, res) => res.json(await F.gateways(req.query))));
+reports.get('/wallet-transactions.csv', ah(async (req, res) => { res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="wallet-transactions.csv"' }); res.send(await F.walletCsv(req.query)); }));
+
+module.exports = { customer, admin, reports };

@@ -209,6 +209,42 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
       assert.strictEqual((await bal(dana)).available_balance, b0 - o.total); assert.strictEqual((await call('GET', '/api/loyalty', null, dana.cookie)).j.points, 1000);
       assert.strictEqual(pv.j.order_total, o.total);
     });
+    console.log('Financial reports');
+    const rep = async (u, c = admin) => call('GET', '/api/admin/finance' + u, null, c);
+    await test('reports are for administrators only', async () => { for (const u of ['/summary', '/wallet', '/sales', '/rewards', '/gateways', '/wallet-transactions.csv']) assert.strictEqual((await rep(u, buyer.cookie)).s, 401, u); assert.strictEqual((await call('GET', '/api/admin/wallet/suspicious', null, buyer.cookie)).s, 401); });
+    await test('wallet liability, funding, spending and refunds match the ledger', async () => {
+      const w = (await rep('/wallet')).j, db = (await q("SELECT COALESCE(SUM(balance),0) b FROM ledger_accounts WHERE kind='customer_wallet'"))[0].b;
+      assert.strictEqual(w.liability.total_wallet_balances, Number(db) / 100); assert.strictEqual(w.reconciliation.ok, true);
+      const sumT = async (t) => Number((await q("SELECT COALESCE(SUM(amount),0) s FROM wallet_txns WHERE type=$1 AND status='completed'", [t]))[0].s) / 100;
+      assert.strictEqual(w.funding.total, await sumT('deposit')); assert.strictEqual(w.spending.total, await sumT('purchase')); assert.strictEqual(w.refunds_to_wallet.total, await sumT('refund')); assert.ok(/not sales revenue/i.test(w.accounting_note));
+      // money in = money out + what is still held
+      assert.strictEqual(Math.round((w.funding.total + w.refunds_to_wallet.total + w.rewards_converted_to_wallet.total + w.adjustments.credits - w.spending.total - w.adjustments.debits) * 100) / 100, w.liability.total_wallet_balances);
+    });
+    await test('wallet top-ups never count as sales; sales split by how each order was paid', async () => {
+      const s0 = (await rep('/sales')).j; await call('GET', '/api/wallet/fund/' + await fund(buyer, 12345), null, buyer.cookie);
+      const s1 = (await rep('/sales')).j; assert.strictEqual(s1.sales_recognised, s0.sales_recognised); assert.strictEqual(s1.orders, s0.orders);
+      const db = (await q("SELECT COALESCE(SUM(total),0) t, COALESCE(SUM(wallet_amount),0) w FROM orders WHERE payment_status='paid' AND status NOT IN ('refunded','cancelled')"))[0];
+      assert.strictEqual(s1.sales_recognised, Number(db.t)); assert.strictEqual(s1.paid_from_wallet, Number(db.w) / 100);
+      assert.strictEqual(Math.round((s1.paid_from_wallet + s1.paid_by_gateway_or_card + s1.paid_on_delivery) * 100) / 100, s1.sales_recognised);
+    });
+    await test('a date range limits the figures', async () => {
+      const far = (await rep('/wallet?from=4000000000&to=4100000000')).j; assert.strictEqual(far.funding.total, 0); assert.strictEqual(far.spending.count, 0);
+    });
+    await test('gateway performance shows success rates for top-ups and order payments', async () => {
+      const g = (await rep('/gateways')).j.wallet_funding_by_gateway.paystack; assert.ok(g.attempts >= 5 && g.success >= 1 && g.failed >= 1 && g.mismatch >= 1); assert.ok(g.success_rate > 0 && g.success_rate < 100);
+    });
+    await test('the rewards report shows points outstanding as a liability and checkout discounts', async () => {
+      const r = (await rep('/rewards')).j; assert.ok('points_outstanding' in r && 'liability_value' in r && 'checkout_discounts' in r && Array.isArray(r.tier_distribution)); assert.ok(/liability/i.test(r.accounting_note));
+    });
+    await test('staff can review top-ups and spot suspicious ones (amount mismatch)', async () => {
+      const f = (await call('GET', '/api/admin/wallet/funding?status=mismatch', null, admin)).j.funding; assert.ok(f.length >= 1 && f[0].status === 'mismatch');
+      const s = (await call('GET', '/api/admin/wallet/suspicious', null, admin)).j; assert.ok(s.amount_mismatches.length >= 1); assert.ok('large_deposits_24h' in s);
+    });
+    await test('the wallet transactions CSV has one line per transaction and is safe to open in a spreadsheet', async () => {
+      const r = await rep('/wallet-transactions.csv'); assert.strictEqual(r.s, 200); const lines = r.t.split('\n'); const n = Number((await q('SELECT COUNT(*) n FROM wallet_txns'))[0].n); assert.strictEqual(lines.length, n + 1);
+      await call('POST', `/api/admin/wallet/customers/${buyer.id}/adjust`, { direction: 'credit', amount: 1, reason: '=HYPERLINK("http://evil")', reference: 'CSV-1' }, admin);
+      const t2 = (await rep('/wallet-transactions.csv')).t; assert.ok(!/(^|,)"?[=+@-]\w*\(/m.test(t2) && t2.includes('"Adjustment: =HYPERLINK')); // text is quoted and never starts a cell with a formula character
+    });
     await test('the books still balance after all of that', async () => { const r = (await call('GET', '/api/admin/wallet/reconcile', null, admin)).j; assert.strictEqual(r.ok, true, JSON.stringify(r)); });
   } finally {
     app.kill(); fake.close(); await sleep(300);
