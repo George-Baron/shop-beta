@@ -2422,7 +2422,7 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['commercial', '🧭', 'Commercial operations'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['riders', '📍', 'Riders live'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['activity', '🕵️', 'Activity log'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['dropship', '🚚', 'Dropshipping'], ['staff', '👤', 'Employees & roles'], ['notifications', '🔔', 'Notifications']];
+const NAV = [['dashboard', '📊', 'Dashboard'], ['commercial', '🧭', 'Commercial operations'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['riders', '📍', 'Riders live'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['activity', '🕵️', 'Activity log'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['dropship', '🚚', 'Dropshipping'], ['staff', '👤', 'Employees & roles'], ['wallet', '👛', 'Wallet & rewards'], ['cards', '💳', 'VELTO-MART CARD'], ['notifications', '🔔', 'Notifications']];
 const NAVMOD = { dashboard: 'any', notifications: 'any', orders: 'orders', products: 'catalog', catalogio: 'catalog', categories: 'catalog', reviews: 'catalog', customers: 'customers', messages: 'customers', coupons: 'marketing', marketing: 'marketing', deliveries: 'delivery', riders: 'delivery', partners: 'delivery', vendors: 'partners', wholesale: 'wholesale', warehouse: 'warehouse', rfq: 'rfq' };
 const can = (m, w) => { const p = (me && me.perms) || []; return p.includes('*') || p.includes(m + (w ? ':edit' : ':view')); };
 const visible = (k) => k === 'commercial' ? !!(me && (me.role === 'admin' || can('partners') || can('rfq') || can('reports') || can('finance'))) : (me && me.role === 'admin') || (NAVMOD[k] === 'any') || (NAVMOD[k] && can(NAVMOD[k], false));
@@ -2635,6 +2635,69 @@ views.staff = async () => {
   };
   on('#radd', 'click', () => roleForm(null)); onAll('[data-re]', 'click', (el) => roleForm(d.roles.find((r) => r.id === Number(el.dataset.re))));
   onAll('[data-rd]', 'click', async (el) => { if (!confirm('Delete this role?')) return; await api('/api/admin/staff/roles/' + el.dataset.rd, { method: 'DELETE' }); route(); });
+};
+
+/* ---------------- wallet, rewards and card (administrators) ---------------- */
+const atime = (t) => (t ? new Date(t * 1000).toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
+const lbl = (k) => String(k).replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
+// Shows any report object: numbers and text as tiles, nested objects as blocks, lists as small tables. Money in these reports is already in Naira.
+const kvHtml = (o, depth = 0) => {
+  if (o == null) return '<span class="mu">—</span>';
+  if (Array.isArray(o)) {
+    if (!o.length) return '<span class="mu">None</span>';
+    if (typeof o[0] !== 'object') return e(o.join(', '));
+    const cols = Object.keys(o[0]).filter((k) => typeof o[0][k] !== 'object');
+    return `<div style="overflow:auto"><table class="tbl"><tr>${cols.map((c) => `<th>${e(lbl(c))}</th>`).join('')}</tr>${o.slice(0, 50).map((r) => `<tr>${cols.map((c) => `<td>${/^(created|updated|occurred|date|ends|starts)$/.test(c) && Number(r[c]) > 1e9 ? atime(Number(r[c])) : e(r[c])}</td>`).join('')}</tr>`).join('')}</table></div>`;
+  }
+  if (typeof o === 'object') {
+    const sc = Object.entries(o).filter(([, v]) => v === null || typeof v !== 'object'), nested = Object.entries(o).filter(([, v]) => v !== null && typeof v === 'object');
+    return `${sc.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin:8px 0">${sc.map(([k, v]) => `<div class="stat"><div class="l">${e(lbl(k))}</div><div class="v" style="font-size:${depth ? 17 : 20}px">${typeof v === 'boolean' ? (v ? 'Yes' : 'No') : typeof v === 'number' ? v.toLocaleString('en-NG') : e(v === null ? '—' : v)}</div></div>`).join('')}</div>` : ''}${nested.map(([k, v]) => `<h4 style="margin:12px 0 4px">${e(lbl(k))}</h4>${kvHtml(v, depth + 1)}`).join('')}`;
+  }
+  return e(o);
+};
+const sw = (id, label, on) => `<label class="chk"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}> <span>${label}</span></label>`;
+
+views.wallet = async () => {
+  const [sum, rec, sus, cfg, camps] = await Promise.all([api('/api/admin/finance/summary'), api('/api/admin/wallet/reconcile'), api('/api/admin/wallet/suspicious'), api('/api/admin/loyalty/config'), api('/api/admin/loyalty/campaigns')]);
+  const c = cfg.config;
+  mn(hd('Wallet and rewards', '<a class="btn ghost sm" href="/api/admin/finance/wallet-transactions.csv" download>Wallet transactions CSV</a>')
+   + `<div class="panel"><h3 style="margin-top:0">Are the books balanced? <span style="color:${rec.ok ? 'var(--ok,#0a7d3b)' : 'var(--bad,#c0392b)'}">${rec.ok ? 'Yes' : 'NO: look into this now'}</span></h3>${kvHtml(rec)}<button class="btn ghost sm" id="rrun">Check again</button></div>
+   <div class="panel"><h3 style="margin-top:0">Money summary</h3><p class="mu" style="margin-top:0">A wallet top-up is money held for the customer, not sales. Sales are counted when an order is placed.</p>${kvHtml(sum)}</div>
+   <div class="panel"><h3 style="margin-top:0">Look at a customer's wallet</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><input id="wcid" type="number" placeholder="Customer ID" style="max-width:180px"><button class="btn sm" id="wcgo">Open</button></div><div id="wcbox"></div></div>
+   <div class="panel"><h3 style="margin-top:0">Things to look at</h3>${kvHtml(sus)}</div>
+   <div class="panel"><h3 style="margin-top:0">Rewards settings</h3><div class="row c2"><label class="f">Points per ₦1,000 spent<input id="lc1" type="number" min="0" value="${c.perThousand}"></label><label class="f">Maximum checkout discount from points (%)<input id="lc2" type="number" min="0" max="100" value="${c.maxDiscountPct}"></label></div>
+    <div class="row c2"><label class="f">Points needed per step<input id="lc3" type="number" min="1" value="${c.redeemPoints}"></label><label class="f">Naira value of each step<input id="lc4" type="number" min="0" value="${c.redeemValue}"></label></div><label class="f">Smallest redemption (points)<input id="lc5" type="number" min="0" value="${c.minRedeem}" style="max-width:200px"></label>
+    ${sw('lc6', 'Rewards switched on', c.enabled)}${sw('lc7', 'Earn points on delivery fees too', c.includeDelivery)}${sw('lc8', 'Let customers turn points into wallet credit (needs finance sign-off)', c.walletRedeem)}<button class="btn sm" id="lcsave">Save settings</button>
+    <h4 style="margin:16px 0 4px">Tiers</h4>${cfg.tiers.map((t) => `<div class="row c2" style="align-items:end"><b>${e(t.name)}</b><span class="mu">from ${Number(t.min_lifetime).toLocaleString('en-NG')} lifetime points · ×${t.multiplier_pct / 100}</span></div>`).join('')}</div>
+   <div class="panel"><h3 style="margin-top:0">Campaigns</h3>${camps.campaigns.length ? kvHtml(camps.campaigns.map((x) => ({ id: x.id, name: x.name, kind: x.kind, multiplier_pct: x.multiplier_pct, bonus_points: x.bonus_points, starts: x.starts, ends: x.ends, min_tier: x.min_tier, active: x.active ? 'yes' : 'no' }))) : '<p class="mu">No campaigns yet.</p>'}
+    <h4 style="margin:12px 0 4px">New campaign</h4><div class="row c2"><label class="f">Name<input id="cpn" maxlength="80"></label><label class="f">Type<select id="cpk"><option value="multiplier">Points multiplier</option><option value="first_purchase">First purchase bonus</option></select></label></div>
+    <div class="row c2"><label class="f">Multiplier % (150 = ×1.5)<input id="cpm" type="number" min="100" max="1000" value="150"></label><label class="f">Bonus points (first purchase)<input id="cpb" type="number" min="0" value="0"></label></div><div class="row c2"><label class="f">Starts<input id="cps" type="datetime-local"></label><label class="f">Ends<input id="cpe" type="datetime-local"></label></div>
+    <label class="f">Short description for customers<input id="cpd" maxlength="200"></label><button class="btn sm" id="cpadd">Create campaign</button></div>`);
+  $('#rrun').addEventListener('click', () => route());
+  $('#lcsave').addEventListener('click', guard(async () => { await api('/api/admin/loyalty/config', { method: 'PUT', body: { loyalty_points_per_1000: Number($('#lc1').value), loyalty_max_discount_pct: Number($('#lc2').value), loyalty_redeem_points: Number($('#lc3').value), loyalty_redeem_value: Number($('#lc4').value), loyalty_min_redeem: Number($('#lc5').value), loyalty_enabled: $('#lc6').checked, loyalty_include_delivery: $('#lc7').checked, loyalty_wallet_redeem: $('#lc8').checked } }); toast('Saved'); }));
+  $('#cpadd').addEventListener('click', guard(async () => { const t = (id) => Math.floor(new Date($(id).value).getTime() / 1000) || 0; await api('/api/admin/loyalty/campaigns', { body: { name: $('#cpn').value, kind: $('#cpk').value, multiplier_pct: Number($('#cpm').value), bonus_points: Number($('#cpb').value), starts: t('#cps'), ends: t('#cpe'), description: $('#cpd').value } }); toast('Campaign created'); route(); }));
+  const open = guard(async () => {
+    const id = Number($('#wcid').value); if (!id) return toast('Enter a customer ID', 'bad');
+    const d = await api('/api/admin/wallet/customers/' + id), w = d.wallet;
+    $('#wcbox').innerHTML = `<h4 style="margin:12px 0 4px">${e(d.customer.name)} · ${e(d.customer.email)}</h4><p>Available <b>${naira(w.available_balance)}</b> · Held ${naira(w.pending_balance)} · Status <b>${e(w.status)}</b></p>
+     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${w.status === 'frozen' ? '<button class="btn sm" id="wfz" data-a="unfreeze">Unfreeze</button>' : '<button class="btn ghost sm" id="wfz" data-a="freeze">Freeze wallet</button>'}</div>
+     <div class="row c2"><label class="f">Adjustment<select id="adr"><option value="credit">Add money</option><option value="debit">Take money</option></select></label><label class="f">Amount (₦)<input id="ada" type="number" min="1"></label></div><div class="row c2"><label class="f">Reason<input id="adw" maxlength="150"></label><label class="f">Reference (ticket or case no.)<input id="adf" maxlength="60"></label></div><button class="btn sm" id="adgo">Post adjustment</button>
+     <h4 style="margin:12px 0 4px">Recent transactions</h4>${kvHtml(d.transactions.map((t) => ({ ref: t.ref, type: t.type, direction: t.direction, amount: t.amount, new_balance: t.new_balance, description: t.description, created: t.created })))}<h4 style="margin:12px 0 4px">Staff actions</h4>${kvHtml(d.audit)}`;
+    $('#wfz').addEventListener('click', guard(async (ev) => { const a = ev.currentTarget.dataset.a; const reason = a === 'freeze' ? prompt('Why is this wallet being frozen?') : ''; if (a === 'freeze' && !reason) return; await api(`/api/admin/wallet/customers/${id}/${a}`, { body: { reason } }); toast('Done'); open(); }));
+    $('#adgo').addEventListener('click', guard(async () => { if (!confirm('Post this adjustment? It is recorded in the ledger and cannot be deleted.')) return; await api(`/api/admin/wallet/customers/${id}/adjust`, { body: { direction: $('#adr').value, amount: Number($('#ada').value), reason: $('#adw').value, reference: $('#adf').value } }); toast('Adjustment posted'); open(); }));
+  });
+  $('#wcgo').addEventListener('click', open);
+};
+
+views.cards = async () => {
+  const [rep, apps] = await Promise.all([api('/api/admin/cards/report'), api('/api/admin/cards/applications')]);
+  mn(hd('VELTO-MART CARD') + `<div class="panel"><p class="mu" style="margin-top:0">The card stays switched off for customers until a card issuer is chosen and set up. See docs/CARDS.md.</p>${kvHtml(rep)}</div>
+   <div class="panel"><h3 style="margin-top:0">Applications</h3>${apps.applications.length ? `<div style="overflow:auto"><table class="tbl"><tr><th>#</th><th>Customer</th><th>Type</th><th>Status</th><th>Note</th><th>Updated</th><th></th></tr>${apps.applications.map((a) => `<tr><td>${a.id}</td><td>${e(a.customer)}<br><small class="mu">${e(a.email)}</small></td><td>${e(a.kind)}</td><td>${e(a.status)}</td><td>${e(a.status_note)}</td><td>${atime(Number(a.updated))}</td><td><button class="btn ghost sm" data-ad="${a.id}">Open</button></td></tr>`).join('')}</table></div>` : '<p class="mu">No applications yet.</p>'}<div id="adbox"></div></div>`);
+  onAll('[data-ad]', 'click', guard(async (el) => {
+    const d = await api('/api/admin/cards/applications/' + el.dataset.ad);
+    $('#adbox').innerHTML = `<h4>Application ${d.application.id}</h4>${kvHtml(d.application)}<h4>Cards</h4>${kvHtml(d.cards)}${d.cards.map((c) => (c.status !== 'blocked' && c.status !== 'replaced' ? `<button class="btn ghost sm" data-blk="${c.id}">Block ${e(c.masked_number)}</button> ` : '')).join('')}<h4>History</h4>${kvHtml(d.history)}`;
+    onAll('[data-blk]', 'click', guard(async (b) => { const reason = prompt('Why is this card being blocked?'); if (!reason) return; await api(`/api/admin/cards/${b.dataset.blk}/block`, { body: { reason } }); toast('Card blocked'); route(); }));
+  }));
 };
 
 /* ---------------- notifications and announcements ---------------- */

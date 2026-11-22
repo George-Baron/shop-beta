@@ -51,6 +51,7 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
   try {
     await up();
     let chromium; try { ({ chromium } = require('playwright')); } catch { console.log('playwright is not installed: skipping'); process.exit(0); }
+    const admin = (await call('POST', '/api/auth/login', { email: 'owner@example.com', password: 'OwnerPass123' })).c;
     const ann = await register('Ann');
     const prod = (await q('SELECT id FROM products WHERE active=1 AND stock>=30 AND id NOT IN (SELECT product_id FROM variants) ORDER BY id LIMIT 1'))[0];
     const ref = await fund(ann, 3000); await call('GET', '/api/wallet/fund/' + ref, null, ann.cookie);
@@ -70,6 +71,13 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
       await page.waitForFunction(() => document.querySelector('#vbox').innerText.includes('From wallet'), null, { timeout: 8000 });
     });
     await test('no script errors on those pages', async () => assert.deepStrictEqual(errs, []));
+    const actx = await browser.newContext(); await actx.addCookies([{ name: admin.split('=')[0], value: admin.split('=').slice(1).join('=').split(';')[0], url: base }]);
+    const ap = await actx.newPage(); const aerrs = []; ap.on('pageerror', (e) => aerrs.push(e.message));
+    await test('admin Wallet and rewards page shows the books check, settings and campaigns', async () => { await ap.goto(`${base}/admin#/wallet`); await ap.waitForFunction(() => document.body.innerText.includes('Are the books balanced') && document.body.innerText.includes('Rewards settings') && document.body.innerText.includes('New campaign'), null, { timeout: 10000 }); assert.ok((await ap.innerText('body')).includes('Yes')); });
+    await test('admin can open a customer wallet and see its transactions', async () => { await ap.fill('#wcid', String(ann.id)); await ap.click('#wcgo'); await ap.waitForFunction(() => document.body.innerText.toLowerCase().includes('recent transactions'), null, { timeout: 8000 }); });
+    await test('admin can save rewards settings', async () => { await ap.click('#lcsave'); await ap.waitForFunction(() => document.body.innerText.includes('Saved'), null, { timeout: 5000 }); });
+    await test('admin card page loads', async () => { await ap.goto(`${base}/admin#/cards`); await ap.waitForFunction(() => document.body.innerText.includes('Applications'), null, { timeout: 10000 }); });
+    await test('no script errors on the admin pages', async () => assert.deepStrictEqual(aerrs, []));
     await browser.close();
   } finally {
     app.kill(); fake.close(); await sleep(300);
