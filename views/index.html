@@ -884,6 +884,33 @@ async function view(main, seg, u, cfg) {
 }
 
 /* ---------------- checkout ---------------- */
+/* ---------------- checkout: use wallet and points (the server works out every amount again when the order is placed) ---------------- */
+const veltoOk = () => !!(store.user && store.user.role === 'customer' && fxc.code === 'NGN');
+async function veltoSync(st) {
+  const box = $('#vbox'); if (!box) return;
+  if (!veltoOk() || (st.country && st.country !== 'NG')) { box.innerHTML = ''; return; }
+  if (!st.vinit) { st.vinit = true; const p = await safeApi('/api/wallet/preferences'); if (!p._err) { st.useWallet = !!p.preselect_wallet || p.default_method === 'wallet'; st.vpts = !!p.preselect_points; } }
+  const seq = st.vseq = (st.vseq || 0) + 1;
+  if (st.vpoints === undefined) { const r = await safeApi('/api/loyalty'); st.vpoints = r._err ? 0 : r.points; }
+  const body = { items: cart.items, coupon: cart.coupon, state: st.state, delivery: st.delivery, useWallet: !!st.useWallet, usePoints: st.vpts ? st.vpoints : 0 };
+  const pv = await safeApi('/api/wallet/preview', { body });
+  if (seq !== st.vseq) return;
+  if (pv._err) { st.useWallet = false; st.usePoints = 0; box.innerHTML = pv._status === 404 || pv._status === 503 ? '' : ''; return; }
+  st.usePoints = st.vpts ? pv.points_used : 0;
+  const hasWallet = pv.available_balance > 0, hasPts = st.vpoints > 0;
+  if (!hasWallet && !hasPts) { st.useWallet = false; st.usePoints = 0; box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="card"><h3>Wallet and points</h3>
+    ${hasPts ? `<label class="chk"><input type="checkbox" id="vpts" ${st.vpts ? 'checked' : ''}><span>Use my points (${st.vpoints} available)${st.vpts && pv.points_used ? ` · using ${pv.points_used} for −${naira(pv.loyalty_discount)}` : ''}</span></label>` : ''}
+    ${hasWallet ? `<label class="chk"><input type="checkbox" id="vwal" ${st.useWallet ? 'checked' : ''}><span>Pay with my VELTO Wallet (${wnaira(pv.available_balance)} available)</span></label>` : ''}
+    <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;font-size:14px">
+     <div class="sum"><span>Order total</span><span>${wnaira(pv.order_total)}</span></div>
+     ${pv.loyalty_discount ? `<div class="sum" style="color:var(--ok)"><span>Points discount</span><span>−${wnaira(pv.loyalty_discount)}</span></div>` : ''}
+     ${st.useWallet ? `<div class="sum"><span>From wallet</span><span>−${wnaira(pv.wallet_contribution)}</span></div><div class="sum total"><span>${pv.remaining_payment > 0 ? 'Left to pay online' : 'Left to pay'}</span><span>${wnaira(pv.remaining_payment)}</span></div>` : ''}
+    </div><p class="mu" style="font-size:12px;margin:6px 0 0">Final amounts are confirmed by our server when you place the order.</p></div>`;
+  const on = (id, fn) => { const x = $(id, box); if (x) x.addEventListener('change', () => { fn(x.checked); veltoSync(st).catch(() => {}); }); };
+  on('#vpts', (v) => { st.vpts = v; }); on('#vwal', (v) => { st.useWallet = v; });
+}
+
 async function checkout(main, cfg) {
   if (!cart.items.length) { main.innerHTML = '<div class="wrap empty"><div class="em">🛒</div><h2>Your cart is empty</h2><p><a class="btn" href="/" data-link>Continue shopping</a></p></div>'; return 'Checkout'; }
   const user = store.user; let addrs = []; if (user) { try { addrs = (await api('/api/addresses')).addresses; } catch { /* optional */ } }
@@ -907,7 +934,7 @@ async function checkout(main, cfg) {
        <label class="f">Landmark (optional)<input id="mland" maxlength="150" placeholder="Opposite the blue gate, 2nd floor…"></label></div>
      <div class="card"><h3>3. Delivery option</h3><div id="dopts" class="mu">Choose your state to see delivery options.</div></div>
      <div id="rxcard"></div>
-     <div class="card"><h3>4. Payment</h3><div id="popts"></div></div></div>
+     <div class="card"><h3>4. Payment</h3><div id="popts"></div></div><div id="vbox"></div></div>
     <aside class="card" style="position:sticky;top:130px"><h3>Order summary</h3><div id="osum" class="loading-page" style="min-height:120px"></div>
      <div style="display:flex;gap:8px;margin:12px 0"><input id="ocode" placeholder="Promo code" value="${e(cart.coupon)}"><button type="button" class="btn ghost sm" id="oapply">Apply</button></div>
      <p class="err hide" id="cerr" role="alert"></p><button class="btn lg block" id="place" disabled>Place order</button><p class="mu" style="font-size:12px;margin-top:8px">🔒 Secure checkout. Prices are confirmed by our server.</p></aside></form></div>`;
@@ -992,6 +1019,7 @@ async function checkout(main, cfg) {
       st.delivery = d.selected || st.delivery;
       if (r.blocked && r.blocked.length) err(r.blocked[0]);
       drawPay(r.payments || []);
+      veltoSync(st).catch(() => {});
       const zone = cfg.zones.find((z) => z.state === st.state);
       $$('input[name=pm]').forEach((i) => { if (i.value === 'pod') { const ok = zone && zone.pod && st.delivery !== 'pickup'; i.disabled = !ok; if (!ok && i.checked) { const o = $$('input[name=pm]').find((x) => x.value !== 'pod' && !x.disabled); if (o) { o.checked = true; st.payment = o.value; } } } });
       $('#addrfields').classList.toggle('hide', st.delivery === 'pickup');
@@ -1025,7 +1053,7 @@ async function checkout(main, cfg) {
     if (!st.idem) st.idem = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2))).replace(/[^A-Za-z0-9_-]/g, '');
     ls.set('sb_checkout', { name: g('cn'), email: g('ce'), phone: g('cp'), country: st.country, state: st.state, city: g('cc'), address: g('ca') });
     try {
-      const r = await api('/api/checkout', { body: { items: cart.items, coupon: cart.coupon, contact: { name: g('cn'), email: g('ce'), phone: g('cp') }, address: { state: st.state, city: g('cc'), address: g('ca'), country: st.country, postcode: st.country === 'NG' ? '' : g('cpc') }, currency: fxc.code, prescriptionIds: st.rx || [], delivery: st.delivery, payment: st.payment, notes: g('cnotes'), idempotencyKey: st.idem, location: needPin() && mp.pin ? { ...mp.pin, landmark: g('mland') } : undefined } });
+      const r = await api('/api/checkout', { body: { items: cart.items, coupon: cart.coupon, contact: { name: g('cn'), email: g('ce'), phone: g('cp') }, address: { state: st.state, city: g('cc'), address: g('ca'), country: st.country, postcode: st.country === 'NG' ? '' : g('cpc') }, currency: fxc.code, prescriptionIds: st.rx || [], delivery: st.delivery, payment: st.payment, notes: g('cnotes'), idempotencyKey: st.idem, useWallet: !!(st.useWallet && st.payment !== 'pod' && veltoOk()), usePoints: st.usePoints > 0 && veltoOk() ? st.usePoints : undefined, location: needPin() && mp.pin ? { ...mp.pin, landmark: g('mland') } : undefined } });
       try { sessionStorage.setItem('sb_last', JSON.stringify({ ref: r.ref, email: g('ce'), token: r.token || '' })); } catch { /* private mode */ }
       try { if (window.gtag) window.gtag('event', 'begin_checkout', { value: st.data.total, currency: 'NGN' }); if (window.fbq) window.fbq('track', 'InitiateCheckout'); } catch { /* blocked */ }
       if (r.next === 'paystack' || r.next === 'stripe') { location.href = r.url; return; }
@@ -1414,23 +1442,106 @@ async function forgotPage(main, u) {
 }
 
 /* ---------------- account ---------------- */
+/* ---------------- VELTO account: overview, wallet, rewards, card ---------------- */
+const ftime = (t) => (t ? new Date(t * 1000).toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
+const wnaira = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 0, maximumFractionDigits: 2 }); // wallet money is shown in Naira, never converted
+const WTYPE = { deposit: 'Top-up', purchase: 'Purchase', refund: 'Refund', reward: 'Rewards', adjustment: 'Adjustment', withdrawal: 'Withdrawal' };
+const txRow = (t) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)"><div><b>${e(WTYPE[t.type] || t.type)}</b>${t.status === 'reversed' ? ' <small class="mu">(reversed)</small>' : ''}<br><small class="mu">${e(t.description || '')} ${t.order_ref ? '· ' + e(t.order_ref) : ''}<br>${ftime(t.created)} · ${e(t.ref)}</small></div><div style="text-align:right"><b style="color:${t.direction === 'credit' ? 'var(--ok,#0a7d3b)' : 'inherit'}">${t.direction === 'credit' ? '+' : '−'}${wnaira(t.amount)}</b><br><small class="mu">Balance ${wnaira(t.new_balance)}</small></div></div>`;
+const ptsRow = (x) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)"><div><b>${e(({ earn: 'Earned', redeem: 'Redeemed', reverse: 'Reversed', adjust: 'Adjustment', bonus: 'Bonus', referral: 'Referral', expire: 'Expired' })[x.kind] || x.kind)}</b><br><small class="mu">${e(x.note || '')} ${x.order_ref ? '· ' + e(x.order_ref) : ''}<br>${ftime(x.created)}</small></div><div style="text-align:right"><b>${x.points > 0 ? '+' : ''}${x.points}</b><br><small class="mu">Balance ${x.balance_after}</small></div></div>`;
+const safeApi = async (p, o) => { try { return await api(p, o); } catch (er) { return { _err: er.message, _status: er.status }; } };
+
+async function veltoTab(box, tab) {
+  const act = (sel, fn) => $$(sel, box).forEach((x) => x.addEventListener('click', async () => { try { await fn(x); } catch (er) { toast(er.message, 'bad'); } }));
+  if (tab === 'overview') {
+    const s = await safeApi('/api/account/summary');
+    if (s._err) { box.innerHTML = `<p class="err">${e(s._err)}</p>`; return; }
+    const w = s.wallet, r = s.rewards, c = s.card;
+    box.innerHTML = `<div class="row c2" style="margin-bottom:12px">
+      <div class="card"><small class="mu">VELTO Wallet</small><div style="font-size:28px;font-weight:800">${wnaira(w.available_balance)}</div>${w.pending_balance ? `<small class="mu">${wnaira(w.pending_balance)} held for an order</small><br>` : ''}${w.status === 'frozen' ? '<small class="err">Wallet is on hold. Contact support.</small><br>' : ''}<button class="btn sm" data-atab2="wallet" style="margin-top:8px">Add money</button></div>
+      <div class="card"><small class="mu">VELTO Rewards · ${e(r.tier.name)}</small><div style="font-size:28px;font-weight:800">${r.points} pts</div>${r.next_tier ? `<small class="mu">${r.next_tier.points_needed} more to reach ${e(r.next_tier.name)}</small><br>` : '<small class="mu">Top tier</small><br>'}<button class="btn ghost sm" data-atab2="rewards" style="margin-top:8px">View rewards</button></div></div>
+      <div class="card" style="margin-bottom:12px"><b>VELTO-MART CARD</b><p class="mu" style="margin:4px 0 8px">${c.cards.length ? c.cards.map((k) => e(k.masked_number) + ' · ' + e(k.status)).join('<br>') : e(c.programme_available ? 'Apply for your card.' : 'Coming soon. We will tell you as soon as you can apply.')}</p><button class="btn ghost sm" data-atab2="card">Open</button></div>
+      <div class="card"><b>Recent orders</b>${s.recent_orders.length ? s.recent_orders.map((o) => `<div style="display:flex;justify-content:space-between;padding:6px 0"><a href="/order/${e(o.ref)}" data-link>${e(o.ref)}</a><span class="mu">${e(o.status)} · ${naira(o.total)}</span></div>`).join('') : '<p class="mu">No orders yet.</p>'}</div>`;
+    act('[data-atab2]', (b) => go('/account?tab=' + b.dataset.atab2));
+    return;
+  }
+  if (tab === 'wallet') {
+    const q = new URLSearchParams(location.search), back = q.get('wallet');
+    if (back) { const v = await safeApi('/api/wallet/fund/' + encodeURIComponent(back)); toast(v._err ? v._err : v.status === 'success' ? 'Money added to your wallet' : v.status === 'failed' ? 'That payment did not go through' : 'We are confirming your payment', v.status === 'success' ? undefined : 'bad'); history.replaceState(null, '', '/account?tab=wallet'); }
+    const [w, h, p] = await Promise.all([safeApi('/api/wallet'), safeApi('/api/wallet/transactions?limit=30'), safeApi('/api/wallet/preferences')]);
+    if (w._err) { box.innerHTML = `<div class="card"><p class="${w._status === 404 || w._status === 503 ? 'mu' : 'err'}">${e(w._status === 404 || w._status === 503 ? 'The VELTO Wallet is not available right now.' : w._err)}</p></div>`; return; }
+    box.innerHTML = `<div class="card" style="margin-bottom:12px"><small class="mu">Available balance</small><div style="font-size:32px;font-weight:800">${wnaira(w.available_balance)}</div>
+      ${w.pending_balance ? `<small class="mu">${wnaira(w.pending_balance)} is held for an order waiting for payment.</small><br>` : ''}
+      <small class="mu">Added ${wnaira(w.total_funded)} · Spent ${wnaira(w.total_spent)} · Refunded ${wnaira(w.total_refunds)}</small>
+      <p class="mu" style="font-size:12px;margin:8px 0 0">Your wallet can only be used to shop on VELTO-MART. It is not a bank account and money cannot be withdrawn or sent to other people. Refunds to the wallet go back to the wallet.</p></div>
+     ${w.status === 'frozen' ? '<div class="card"><p class="err">Your wallet is on hold. Please contact support.</p></div>' : `<form id="wf" class="card" style="margin-bottom:12px"><h3>Add money</h3><label class="f">Amount (₦${w.limits.min_fund.toLocaleString('en-NG')} to ₦${w.limits.max_fund.toLocaleString('en-NG')})<input id="wfa" type="number" inputmode="numeric" min="${w.limits.min_fund}" max="${w.limits.max_fund}" required></label><button class="btn" id="wfb">Pay with Paystack</button><p class="mu" style="font-size:12px">You are sent to Paystack to pay. Your wallet is credited only after Paystack confirms the payment.</p></form>`}
+     <div class="card" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h3 style="margin:0">Transactions</h3><div style="display:flex;gap:8px"><select id="wfil"><option value="">All</option><option value="deposits">Top-ups</option><option value="purchases">Purchases</option><option value="refunds">Refunds</option><option value="rewards">Rewards</option><option value="adjustments">Adjustments</option></select><a class="btn ghost sm" href="/api/wallet/statement.csv" download>Statement</a></div></div><div id="wtx">${h.transactions && h.transactions.length ? h.transactions.map(txRow).join('') : '<p class="mu">Nothing here yet.</p>'}</div>${h.more ? '<button class="btn ghost sm" id="wmore" style="margin-top:8px">Show more</button>' : ''}</div>
+     <form id="wpf" class="card"><h3>Payment preferences</h3><label class="f">Usual way to pay<select id="ppm"><option value="">No preference</option><option value="wallet">Wallet</option><option value="paystack">Paystack</option><option value="card">Card</option><option value="pod">Pay on delivery</option></select></label>
+      <label class="chk"><input type="checkbox" id="ppw"> <span>Use my wallet first at checkout</span></label><label class="chk"><input type="checkbox" id="ppp"> <span>Apply my points at checkout</span></label><label class="chk"><input type="checkbox" id="ppn"> <span>Send me offers and reward news</span></label><p class="mu" style="font-size:12px">These only pre-select choices. You always see the final amounts and confirm before paying.</p><button class="btn sm">Save</button></form>`;
+    if (!p._err) { $('#ppm').value = p.default_method; $('#ppw').checked = p.preselect_wallet; $('#ppp').checked = p.preselect_points; $('#ppn').checked = p.promo_notifications; }
+    const wf = $('#wf', box); if (wf) wf.addEventListener('submit', async (ev) => { ev.preventDefault(); const b = $('#wfb'); b.disabled = true; try { const r = await api('/api/wallet/fund', { body: { amount: Number($('#wfa').value) } }); location.href = r.url; } catch (er) { toast(er.message, 'bad'); b.disabled = false; } });
+    let last = h.transactions && h.transactions.length ? h.transactions[h.transactions.length - 1].id : 0;
+    const load = async (append) => { const r = await safeApi('/api/wallet/transactions?limit=30&type=' + encodeURIComponent($('#wfil').value) + (append ? '&before=' + last : '')); if (r._err) return toast(r._err, 'bad'); const rows = r.transactions || []; if (rows.length) last = rows[rows.length - 1].id; $('#wtx').innerHTML = (append ? $('#wtx').innerHTML : '') + (rows.length ? rows.map(txRow).join('') : append ? '' : '<p class="mu">Nothing here.</p>'); const m = $('#wmore'); if (m) m.style.display = r.more ? '' : 'none'; };
+    $('#wfil').addEventListener('change', () => load(false)); const mb = $('#wmore'); if (mb) mb.addEventListener('click', () => load(true));
+    $('#wpf').addEventListener('submit', async (ev) => { ev.preventDefault(); try { await api('/api/wallet/preferences', { method: 'PUT', body: { default_method: $('#ppm').value, preselect_wallet: $('#ppw').checked, preselect_points: $('#ppp').checked, promo_notifications: $('#ppn').checked } }); toast('Preferences saved'); } catch (er) { toast(er.message, 'bad'); } });
+    return;
+  }
+  if (tab === 'rewards') {
+    const [r, h, rf] = await Promise.all([safeApi('/api/loyalty'), safeApi('/api/loyalty/history?limit=30'), safeApi('/api/loyalty/referrals')]);
+    if (r._err) { box.innerHTML = `<div class="card"><p class="mu">${e(r._status === 503 ? 'VELTO Rewards is switched off right now.' : r._err)}</p></div>`; return; }
+    const nt = r.next_tier, cur = r.tiers.find((t) => t.name === r.tier.name), pct = nt && cur ? Math.min(100, Math.round(((r.lifetime_points - cur.from) / (nt.at - cur.from)) * 100)) : 100;
+    box.innerHTML = `<div class="card" style="margin-bottom:12px"><small class="mu">Your points</small><div style="font-size:32px;font-weight:800">${r.points}</div><small class="mu">Worth about ${naira(r.redemption.available_value)} at checkout${r.pending_points ? ` · ${r.pending_points} more on the way` : ''}</small>
+      <div style="margin-top:10px"><b>${e(r.tier.name)}</b> <small class="mu">earns ×${r.tier.earning_multiplier}${r.tier.benefits ? ' · ' + e(r.tier.benefits) : ''}</small><div style="height:8px;background:var(--border);border-radius:8px;margin:6px 0"><div style="height:8px;width:${pct}%;background:var(--accent);border-radius:8px"></div></div><small class="mu">${nt ? `${nt.points_needed} more points to ${e(nt.name)}` : 'You are at the top tier'}</small></div>
+      <p class="mu" style="font-size:12px;margin:10px 0 0">You earn ${r.earning.points_per_1000} points per ₦1,000 spent. ${r.redemption.points} points = ${naira(r.redemption.value)}. Use them at checkout, up to ${r.redemption.max_checkout_discount_pct}% of an order.</p></div>
+     ${r.redemption.to_wallet ? `<form id="rdf" class="card" style="margin-bottom:12px"><h3>Turn points into wallet credit</h3><label class="f">Points (min ${r.redemption.minimum}, in steps of ${r.redemption.points})<input id="rdp" type="number" min="${r.redemption.minimum}" step="${r.redemption.points}" required></label><button class="btn sm">Convert</button></form>` : ''}
+     ${r.offers.length ? `<div class="card" style="margin-bottom:12px"><h3>Offers for you</h3>${r.offers.map((o) => `<p style="margin:6px 0"><b>${e(o.name)}</b> <small class="mu">until ${fdate(o.ends)}</small><br><small class="mu">${e(o.description || (o.kind === 'first_purchase' ? o.bonus_points + ' bonus points on your first order' : '×' + o.multiplier + ' points'))}</small></p>`).join('')}</div>` : ''}
+     ${rf._err ? '' : `<div class="card" style="margin-bottom:12px"><h3>Invite friends</h3><p class="mu" style="margin-top:0">When a friend joins with your link and completes a first order of ${naira(rf.minimum_first_order)} or more, you get ${rf.reward_points} points and they get ${rf.friend_bonus_points}.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><input id="rfl" readonly value="${e(rf.link)}" style="flex:1;min-width:200px"><button class="btn sm" id="rfc">Copy link</button></div><small class="mu">Code ${e(rf.code)} · ${rf.totals.registered} waiting · ${rf.totals.rewarded} rewarded · ${rf.totals.points_earned} points earned</small>${rf.referrals.map((x) => `<div style="padding:6px 0;border-top:1px solid var(--border)">${e(x.name)} <small class="mu">${e(x.status)}${x.points ? ' · +' + x.points : ''}</small></div>`).join('')}</div>`}
+     <div class="card"><h3>Points history</h3>${h.entries && h.entries.length ? h.entries.map(ptsRow).join('') : '<p class="mu">No points activity yet. Your first order starts it.</p>'}</div>`;
+    const rd = $('#rdf', box); if (rd) rd.addEventListener('submit', async (ev) => { ev.preventDefault(); try { await api('/api/loyalty/redeem', { body: { points: Number($('#rdp').value), idempotencyKey: crypto.randomUUID() } }); toast('Points converted to wallet credit'); go('/account?tab=rewards', true); } catch (er) { toast(er.message, 'bad'); } });
+    const cp = $('#rfc', box); if (cp) cp.addEventListener('click', async () => { try { await navigator.clipboard.writeText($('#rfl').value); toast('Link copied'); } catch { $('#rfl').select(); } });
+    return;
+  }
+  if (tab === 'card') {
+    const c = await safeApi('/api/cards');
+    if (c._err) { box.innerHTML = `<p class="err">${e(c._err)}</p>`; return; }
+    const open = c.applications.filter((a) => !['approved', 'rejected', 'cancelled'].includes(a.status));
+    const cardsHtml = c.cards.map((k) => `<div class="card" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><div><b>${e(k.brand)}</b> <small class="mu">${e(k.kind)} · ${e(k.network || '')}</small><div style="font-size:20px;letter-spacing:1px;margin:6px 0">${e(k.masked_number)}</div><small class="mu">${k.expiry ? 'Expires ' + e(k.expiry) + ' · ' : ''}Status: <b>${e(k.status)}</b>${k.delivery_status ? ' · Delivery: ' + e(k.delivery_status) : ''}</small></div><div style="text-align:right"><small class="mu">Balance</small><div style="font-size:20px;font-weight:800">${wnaira(k.balance)}</div></div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${k.status === 'inactive' ? `<button class="btn sm" data-cc="activate" data-id="${k.id}">Activate</button>` : ''}${k.status === 'active' ? `<button class="btn ghost sm" data-cc="freeze" data-id="${k.id}">Freeze</button>` : ''}${k.status === 'frozen' ? `<button class="btn sm" data-cc="unfreeze" data-id="${k.id}">Unfreeze</button>` : ''}${k.kind === 'virtual' && ['active', 'frozen'].includes(k.status) ? `<button class="btn ghost sm" data-ccreveal="${k.id}">Show card details</button>` : ''}${['inactive', 'active', 'frozen'].includes(k.status) ? `<button class="btn ghost sm" data-cc="block" data-id="${k.id}">Report lost or block</button>` : ''}<button class="btn ghost sm" data-cctx="${k.id}">Transactions</button></div><div id="cctx${k.id}"></div></div>`).join('');
+    const apps = open.map((a) => `<div class="card" style="margin-bottom:12px"><b>Application: ${e(a.kind)} card</b><br><small class="mu">Status: ${e(a.status)} ${a.message ? '· ' + e(a.message) : ''}<br>Updated ${ftime(a.updated)}</small></div>`).join('');
+    const form = c.programme.available && !open.length ? `<form id="caf" class="card"><h3>Apply for your VELTO-MART CARD</h3><p class="mu" style="margin-top:0">The card is issued by our licensed card issuing partner, who checks your identity. We never see or store your full card number, CVV or PIN.</p>
+      <label class="f">Card type<select id="cak">${c.programme.kinds.map((k) => `<option value="${k}">${k === 'virtual' ? 'Virtual (instant, online)' : 'Physical (delivered)'}</option>`).join('')}</select></label>
+      <label class="f">Name on card<input id="can" value="${e(c.cardholder_name)}" maxlength="100"></label><div class="row c2"><label class="f">BVN (11 digits)<input id="cab" inputmode="numeric" maxlength="11" autocomplete="off"></label><label class="f">or NIN (11 digits)<input id="cai" inputmode="numeric" maxlength="11" autocomplete="off"></label></div><label class="f">Date of birth<input id="cad" type="date"></label>
+      <div id="cadel" style="display:none"><div class="row c2"><label class="f">Delivery address<input id="caa" maxlength="200"></label><label class="f">City<input id="cac" maxlength="80"></label></div><div class="row c2"><label class="f">State<input id="cas" maxlength="60"></label><label class="f">Phone<input id="cap" type="tel" maxlength="30"></label></div></div>
+      <label class="chk"><input type="checkbox" id="cacon"> <span>I accept the VELTO-MART CARD terms and agree to share these details with the card issuer for verification.</span></label><button class="btn" id="cabtn">Submit application</button></form>` : '';
+    const soon = !c.programme.available && !c.cards.length ? `<div class="card"><h3>VELTO-MART CARD</h3><p class="mu">${e(c.programme.message)}</p></div>` : '';
+    box.innerHTML = cardsHtml + apps + form + soon;
+    const kind = $('#cak', box); if (kind) { const sync = () => { $('#cadel').style.display = kind.value === 'physical' ? '' : 'none'; }; kind.addEventListener('change', sync); sync(); }
+    const caf = $('#caf', box); if (caf) caf.addEventListener('submit', async (ev) => { ev.preventDefault(); const b = $('#cabtn'); b.disabled = true; try { await api('/api/cards/apply', { body: { kind: $('#cak').value, full_name: $('#can').value, bvn: $('#cab').value, nin: $('#cai').value, dob: $('#cad').value, consent: $('#cacon').checked, delivery: { address: $('#caa').value, city: $('#cac').value, state: $('#cas').value, phone: $('#cap').value } } }); toast('Application sent'); go('/account?tab=card', true); } catch (er) { toast(er.message, 'bad'); b.disabled = false; } });
+    act('[data-cc]', async (b) => { if (b.dataset.cc === 'block' && !confirm('Block this card permanently? You will need to apply for a replacement.')) return; await api(`/api/cards/${b.dataset.id}/${b.dataset.cc}`, { body: {} }); toast('Done'); go('/account?tab=card', true); });
+    act('[data-ccreveal]', async (b) => { const r = await api('/api/cards/' + b.dataset.ccreveal + '/reveal'); if (r.url) window.open(r.url, '_blank', 'noopener'); else toast('Card details are shown on the issuer page only.'); });
+    act('[data-cctx]', async (b) => { const r = await api(`/api/cards/${b.dataset.cctx}/transactions`); $('#cctx' + b.dataset.cctx).innerHTML = r.transactions.length ? r.transactions.map((t) => `<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border)"><span>${e(t.merchant || t.kind)}<br><small class="mu">${ftime(t.date)} · ${e(t.status)}</small></span><b>${wnaira(t.amount)}</b></div>`).join('') : '<p class="mu">No card transactions yet.</p>'; });
+  }
+}
+
 async function account(main, u, cfg) {
   if (!store.user) { go('/login?next=/account', true); return ''; }
-  const tab = u.searchParams.get('tab') || 'orders';
+  const tab = u.searchParams.get('tab') || (u.searchParams.get('wallet') ? 'wallet' : 'orders');
   const [od, ad] = await Promise.all([api('/api/orders'), api('/api/addresses')]);
   const usr = store.user;
-  const tabs = [['orders', 'Orders'], ['addresses', 'Addresses'], ['profile', 'Profile']];
+  const tabs = [['orders', 'Orders'], ['overview', 'Overview'], ['wallet', 'Wallet'], ['rewards', 'Rewards'], ['card', 'Card'], ['addresses', 'Addresses'], ['profile', 'Profile']];
+  const velto = ['overview', 'wallet', 'rewards', 'card'].includes(tab);
   let body = '';
   if (tab === 'orders') body = od.orders.length ? od.orders.map((o) => `<a class="card" href="/order/${e(o.ref)}" data-link style="display:flex;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap"><div><b>${e(o.ref)}</b> <span class="mu">· ${fmt(o.created)}</span><br><span class="mu" style="font-size:13px">${o.items.map((i) => e(i.name) + ' ×' + i.qty).join(', ').slice(0, 90)}</span></div><div style="text-align:right"><b>${naira(o.total)}</b><br><span class="chip on" style="cursor:default">${e(STATUS[o.status] || o.status)}</span></div></a>`).join('') : '<div class="empty"><div class="em">📦</div><p>No orders yet.</p><a class="btn" href="/" data-link>Start shopping</a></div>';
   if (tab === 'addresses') body = `${ad.addresses.map((a) => `<div class="card" style="display:flex;justify-content:space-between;gap:10px;margin-bottom:10px"><div><b>${e(a.label)}</b><br>${e(a.name)} ${e(a.phone)}<br>${e(a.address)}, ${e(a.city)}, ${e(a.state)}</div><button class="btn ghost sm" data-deladdr="${a.id}">Delete</button></div>`).join('') || '<p class="mu">No saved addresses.</p>'}
     <form id="adf" class="card"><h3>Add an address</h3><div class="row c2">${field('al', 'Label', { val: 'Home', max: 30 })}${field('an2', 'Recipient name', { val: usr.name })}</div><div class="row c2">${field('ap2', 'Phone', { val: usr.phone, type: 'tel' })}<label class="f">State<select id="as" required><option value="">Choose…</option>${cfg.zones.map((z) => `<option>${e(z.state)}</option>`).join('')}</select></label></div><div class="row c2">${field('ac2', 'City / area')}${field('aa', 'Street address', { req: 1 })}</div><button class="btn">Save address</button></form>`;
   if (tab === 'profile') body = `<form id="pf" class="card" style="max-width:480px"><h3>Your details</h3>${field('pn', 'Full name', { val: usr.name, req: 1 })}${field('pp', 'Phone', { val: usr.phone, type: 'tel' })}<label class="f">Email<input value="${e(usr.email)}" disabled></label><h4 style="margin-bottom:6px">Change password (optional)</h4>${field('pc', 'Current password', { type: 'password', auto: 'current-password' })}${field('pw', 'New password', { type: 'password', auto: 'new-password' })}<button class="btn">Save changes</button></form>`;
+  if (velto) body = '<div id="vx"><p class="mu">Loading…</p></div>';
   main.innerHTML = `<div class="wrap page"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><h1 style="margin:0">Hi, ${e(usr.name.split(' ')[0])}</h1><div style="display:flex;gap:8px">${usr.role === 'admin' ? '<a class="btn sm" href="/admin">Admin dashboard</a>' : ''}<button class="btn ghost sm" id="logout">Sign out</button></div></div>
    <div class="tabs2">${tabs.map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" data-atab="${k}">${l}</button>`).join('')}</div>${body}</div>`;
   main.addEventListener('click', async (ev) => {
     const t = ev.target.closest('[data-atab]'); if (t) go('/account?tab=' + t.dataset.atab);
     const d = ev.target.closest('[data-deladdr]'); if (d) { await api('/api/addresses/' + d.dataset.deladdr, { method: 'DELETE' }); go('/account?tab=addresses', true); }
   });
+  if (velto) veltoTab($('#vx'), tab).catch((er) => { $('#vx').innerHTML = `<p class="err">${e(er.message)}</p>`; });
   $('#logout').addEventListener('click', async () => { await api('/api/auth/logout', { body: {} }); store.user = null; toast('Signed out'); go('/'); });
   const af = $('#adf'); if (af) af.addEventListener('submit', async (ev) => { ev.preventDefault(); try { await api('/api/addresses', { body: { label: $('#al').value, name: $('#an2').value, phone: $('#ap2').value, state: $('#as').value, city: $('#ac2').value, address: $('#aa').value } }); toast('Address saved'); go('/account?tab=addresses', true); } catch (er) { toast(er.message, 'bad'); } });
   const pf = $('#pf'); if (pf) pf.addEventListener('submit', async (ev) => { ev.preventDefault(); try { const r = await api('/api/me', { method: 'PUT', body: { name: $('#pn').value, phone: $('#pp').value, password: $('#pc').value, newPassword: $('#pw').value } }); store.user = r.user; toast('Saved'); go('/account?tab=profile', true); } catch (er) { toast(er.message, 'bad'); } });
