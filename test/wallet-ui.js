@@ -60,9 +60,11 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
     const page = await ctx.newPage(); const errs = []; page.on('pageerror', (e) => errs.push(e.message));
     await page.addInitScript((id) => { localStorage.setItem('sb_cart', JSON.stringify([{ productId: id, variantId: null, qty: 1 }])); }, prod.id);
     console.log('Browser');
-    for (const [tab, text] of [['overview', 'VELTO Wallet'], ['wallet', 'Add money'], ['rewards', 'Your points'], ['card', 'coming soon']]) {
+    for (const [tab, text] of [['overview', 'Add money'], ['wallet', 'Add money'], ['rewards', 'Points balance'], ['card', 'coming soon']]) {
       await test('account tab ' + tab + ' renders', async () => { await page.goto(`${base}/account?tab=${tab}`); await page.waitForFunction((t) => document.body.innerText.toLowerCase().includes(t.toLowerCase()), text, { timeout: 8000 }); });
     }
+    await test('the account Overview shows the wallet, rewards and card as cards', async () => { await page.goto(`${base}/account?tab=overview`); await page.waitForSelector('.vcards .vc', { timeout: 8000 }); assert.strictEqual(await page.locator('.vcards .vc').count(), 3); assert.ok(await page.locator('.vc-wallet').count() === 1 && await page.locator('.vc-soon').count() === 1, 'wallet card and a coming-soon card (no number) are shown'); if (process.env.SHOTS) await page.screenshot({ path: process.env.SHOTS + '/overview.png', fullPage: true }); });
+    await test('the Rewards and Wallet tabs lead with their card', async () => { await page.goto(`${base}/account?tab=rewards`); await page.waitForSelector('.vc[class*=vc-bronze], .vc[class*=vc-silver], .vc[class*=vc-gold], .vc[class*=vc-platinum]', { timeout: 8000 }); await page.goto(`${base}/account?tab=wallet`); await page.waitForSelector('.vc-wallet', { timeout: 8000 }); });
     await test('returning from Paystack shows the verified top-up', async () => {
       const r2 = await fund(ann, 1000); await page.goto(`${base}/account?tab=wallet&wallet=${r2}`); await page.waitForFunction(() => document.body.innerText.includes('₦4,000'), null, { timeout: 8000 });
     });
@@ -74,7 +76,7 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
     const actx = await browser.newContext(); await actx.addCookies([{ name: admin.split('=')[0], value: admin.split('=').slice(1).join('=').split(';')[0], url: base }]);
     const ap = await actx.newPage(); const aerrs = []; ap.on('pageerror', (e) => aerrs.push(e.message));
     await test('admin Wallet and rewards page shows the books check, settings and campaigns', async () => { await ap.goto(`${base}/admin#/wallet`); await ap.waitForFunction(() => document.body.innerText.includes('Are the books balanced') && document.body.innerText.includes('Rewards settings') && document.body.innerText.includes('New campaign'), null, { timeout: 10000 }); assert.ok((await ap.innerText('body')).includes('Yes')); });
-    await test('admin can open a customer wallet and see its transactions', async () => { await ap.fill('#wcid', String(ann.id)); await ap.click('#wcgo'); await ap.waitForFunction(() => document.body.innerText.toLowerCase().includes('recent transactions'), null, { timeout: 8000 }); });
+    await test('admin can open a customer wallet and see its transactions', async () => { await ap.fill('#wcid', String(ann.id)); await ap.click('#wcgo'); await ap.waitForFunction(() => document.body.innerText.toLowerCase().includes('recent transactions'), null, { timeout: 8000 }); assert.ok(await ap.locator('#wcbox .vc').count() >= 1, 'the customer wallet shows as a card'); if (process.env.SHOTS) await ap.screenshot({ path: process.env.SHOTS + '/admin.png', fullPage: true }); });
     await test('admin can save rewards settings', async () => { await ap.click('#lcsave'); await ap.waitForFunction(() => document.body.innerText.includes('Saved'), null, { timeout: 5000 }); });
     await test('admin card page loads', async () => { await ap.goto(`${base}/admin#/cards`); await ap.waitForFunction(() => document.body.innerText.includes('Applications'), null, { timeout: 10000 }); });
     await test('admin can paste many categories under a department and create them', async () => {
