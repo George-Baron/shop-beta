@@ -1,10 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Alert, Linking, Text, View } from 'react-native';
 import { Banner, Body, Button, Card, ErrorState, H1, H2, Loading, Pic, Row, Screen } from '@/components/ui';
 import { api } from '@/lib/api';
-import { openPayment, safePayUrl } from '@/lib/checkout';
+import { mapsUrl, openPayment, safePayUrl } from '@/lib/checkout';
 import { dateTime, naira, payLabel, statusLabel } from '@/lib/format';
 import { usePaymentCheck } from '@/lib/payment';
 import { useOrder } from '@/lib/queries';
@@ -58,7 +58,15 @@ export default function OrderScreen() {
       <Card>
         <H2>Progress</H2>
         {o.events.map((e, i) => <View key={i} style={{ marginBottom: space.sm }}><Body style={{ fontWeight: '700' }}>{statusLabel(e.status)}</Body>{e.note ? <Body muted>{e.note}</Body> : null}<Body muted>{dateTime(e.created)}</Body></View>)}
-        {o.rider ? <Body style={{ marginTop: 6 }}>Your rider is on the way.</Body> : null}
+        {o.rider ? (() => {
+          const url = mapsUrl(o.rider.lat, o.rider.lng), mins = Math.max(0, Math.round((Date.now() / 1000 - o.rider.at) / 60));
+          return (
+            <View style={{ marginTop: 6 }}>
+              <Body>Your rider is on the way. Last location update {mins < 1 ? 'just now' : `${mins} min ago`}.</Body>
+              {url ? <Button title="See last location in Maps" kind="secondary" onPress={() => Linking.openURL(url)} style={{ marginTop: 8 }} /> : null}
+            </View>
+          );
+        })() : o.status === 'shipped' ? <Body style={{ marginTop: 6 }}>Your order is on its way.</Body> : null}
       </Card>
       <Card>
         <H2>Items</H2>

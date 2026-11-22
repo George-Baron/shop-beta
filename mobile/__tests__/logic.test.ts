@@ -77,3 +77,16 @@ describe('display and routing', () => {
     expect(routeFor({ type: 'x', link: 'https://evil.example' })).toBe('/notifications'); expect(routeFor(undefined)).toBe('/notifications');
   });
 });
+
+describe('version 1 choices', () => {
+  const { visibleMethods, mapsUrl } = require('../src/lib/checkout');
+  test('only Paystack and pay on delivery are offered; Stripe stays hidden; demo only outside production', () => {
+    expect(visibleMethods(['paystack', 'stripe', 'pod'], 'production')).toEqual(['paystack', 'pod']);
+    expect(visibleMethods(['demo', 'pod'], 'production')).toEqual(['pod']);
+    expect(visibleMethods(['demo', 'pod'], 'staging')).toEqual(['demo', 'pod']);
+  });
+  test('the rider location link is built from checked numbers only', () => {
+    expect(mapsUrl(6.5244, 3.3792)).toBe('https://www.google.com/maps/search/?api=1&query=6.524400,3.379200');
+    for (const bad of [['x', 1], [91, 0], [0, 181], [null, null], ['6.5&q=evil', 3]]) expect(mapsUrl(bad[0], bad[1])).toBeNull();
+  });
+});

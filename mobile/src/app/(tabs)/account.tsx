@@ -36,6 +36,7 @@ export default function Account() {
         <Item href="/notifications" label="Notifications" hint={notices.data?.unread ? `${notices.data.unread} new ›` : '›'} />
         <Item href="/notification-settings" label="Notification settings" />
         <Item href="/profile" label="My details and password" />
+        <Item href="/addresses" label="Saved addresses" />
         <Item href="/devices" label="Signed-in devices" />
         <Item href="/wholesale" label="Wholesale (business buyers)" />
         <Item href="/support" label="Contact us" />

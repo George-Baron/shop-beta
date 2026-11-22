@@ -7,7 +7,7 @@ import { usePriced } from '@/app/(tabs)/cart';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useCart } from '@/lib/cart';
-import { cartItems, forgetKeys, keyFor, openPayment, safePayUrl } from '@/lib/checkout';
+import { cartItems, forgetKeys, keyFor, openPayment, safePayUrl, visibleMethods } from '@/lib/checkout';
 import { ENV } from '@/lib/config';
 import { naira, payLabel } from '@/lib/format';
 import { useConfig } from '@/lib/queries';
@@ -32,7 +32,7 @@ export default function Checkout() {
   const [error, setError] = useState('');
   const priced = usePriced(state || 'Lagos', delivery);
   const p = priced.data;
-  const methods = (p?.payments ?? []).filter((m) => m !== 'demo' || ENV !== 'production');
+  const methods = visibleMethods(p?.payments ?? [], ENV);
   useEffect(() => { if (methods.length && !methods.includes(payment)) setPayment(methods[0]); }, [methods.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (status !== 'in') return <Empty title="Sign in to check out" hint="Your cart is saved on this phone." action={<Link href="/sign-in" asChild><Button title="Sign in or create account" onPress={() => undefined} /></Link>} />;

@@ -55,6 +55,7 @@ export default function Root() {
                 <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
                 <Stack.Screen name="notification-settings" options={{ title: 'Notification settings' }} />
                 <Stack.Screen name="profile" options={{ title: 'My details' }} />
+                <Stack.Screen name="addresses" options={{ title: 'Saved addresses' }} />
                 <Stack.Screen name="devices" options={{ title: 'Signed-in devices' }} />
                 <Stack.Screen name="support" options={{ title: 'Contact us' }} />
                 <Stack.Screen name="delete-account" options={{ title: 'Delete account' }} />

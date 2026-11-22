@@ -15,7 +15,7 @@ Push notifications and store-like behaviour need a development build (`eas build
 | Command | What it proves |
 | --- | --- |
 | `npm run typecheck` | TypeScript is clean |
-| `npm test` | 22 unit tests: token refresh and sign-out rules, cart, idempotency keys, https-only payment pages, forms, notification routing |
+| `npm test` | 24 unit tests: token refresh and sign-out rules, cart, idempotency keys, https-only payment pages, forms, notification routing |
 | `npm run test:contract` | The app's real API client against a real server (needs `CONTRACT_API_URL`, a **test** server; see `../docs/MOBILE_RELEASE.md`) |
 | `npx expo export --platform android` / `ios` | The JavaScript bundle builds for each platform |
 

@@ -12,6 +12,7 @@ Status of everything below: the **app code, API and tests exist**. Nothing has b
 | Paystack, Stripe, Resend, Supabase | Already used by the website | No new account. The app reuses them through the server |
 
 ## 2. Server side (do this first, on STAGING)
+Full step-by-step: `MOBILE_STAGING.md` (note: the live Render service auto-deploys, so do not merge the pull request until staging passes).
 1. Merge the pull request to a staging branch/copy of the server. Migrations `030_mobile_sessions.sql` and `031_push.sql` run on start and only **add** tables; no existing table is changed or dropped.
 2. Back up the production database before the first production deploy (`docs/RESTORE.md`).
 3. Server settings (Render environment). Nothing new is required. Optional: `EXPO_ACCESS_TOKEN` (only if "enhanced push security" is turned on in Expo), `ACCOUNT_DELETE_WAIT_DAYS` (default 14), `EXPO_PUSH_URL` (leave unset).

@@ -27,3 +27,7 @@ export const wholesaleApplySchema = z.object({
   reg_no: z.string().trim().min(3, 'Enter the business registration number (RC).'), business_type: z.string().trim().min(2, 'What kind of business is it?'), buys: z.string().trim().min(5, 'Tell us what you buy.'), est_monthly: z.string().trim().optional(),
 });
 export const deleteSchema = z.object({ password: z.string().min(1, 'Enter your password to confirm.') });
+export const addressSchema = z.object({
+  label: z.string().trim().max(30), name: z.string().trim().max(80), phone: phoneOptional,
+  state: z.string().min(1, 'Choose the state.'), city: z.string().trim().min(2, 'Enter the city or area.').max(60), address: z.string().trim().min(5, 'Enter the street address.').max(200),
+});
