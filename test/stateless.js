@@ -66,7 +66,7 @@ const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJA
   await test('storage outage gives a clear error and saves nothing', async () => {
     const bad = spawnApp(P2 + 1, { SUPABASE_SERVICE_ROLE_KEY: 'wrong' }); await up(P2 + 1);
     const r = await call(P2 + 1, 'POST', '/api/admin/upload', { data: PNG }, cookie);
-    assert.strictEqual(r.s, 502); assert.match(r.j.error, /not available/); bad.kill();
+    assert.strictEqual(r.s, 502); assert.match(r.j.error, /Photo storage (is not available|failed)/); bad.kill();
   });
   await test('a bad file is refused before it reaches storage', async () => {
     const before = objects.size; const r = await call(P1, 'POST', '/api/admin/upload', { data: 'data:image/png;base64,' + Buffer.from('not an image at all').toString('base64') }, cookie);

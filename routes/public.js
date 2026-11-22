@@ -231,22 +231,40 @@ router.post('/cart/abandon', A.limiter('abandon', 40, 3600000), ah(async (req, r
 
 router.post('/checkout', A.limiter('checkout', 20, 3600000), ah(async (req, res) => {
   const key = req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey) || '';
-  const order = await S_.createOrder(req.body || {}, req.user, key);
+  // VELTO wallet: the customer's explicit choice to pay from it (payment 'wallet' or useWallet true). Amounts are always worked out on the server.
+  const wantWallet = !!(req.body && (req.body.useWallet === true || req.body.payment === 'wallet'));
+  if (wantWallet && !req.user) fail(401, 'Please sign in to pay with your wallet.');
+  let order = await S_.createOrder(wantWallet && req.body.payment === 'wallet' ? { ...req.body, payment: 'paystack' } : (req.body || {}), req.user, key);
   // Prescription orders are paid only after the pharmacist approves: nothing is charged now.
   if (order.rx_required && order.rx_status !== 'verified') return res.json({ ref: order.ref, token: order.access_token, next: 'rx', replayed: !!order.replayed });
   if (order.replayed) { // the same checkout sent again: answer exactly as before, send no second email, start no second payment
     if (order.status === 'cancelled') fail(409, 'That order was cancelled. Please place a new order.');
+    if (Number(order.wallet_amount) > 0 && order.payment_status === 'paid') return res.json({ ref: order.ref, token: order.access_token, next: 'wallet', wallet_amount: Number(order.wallet_amount) / 100, replayed: true });
     if (order.payment_method === 'pod' || order.payment_status === 'paid') return res.json({ ref: order.ref, token: order.access_token, next: 'pod', replayed: true });
     if (order.gateway !== 'stripe' && !S_.paystackLive()) return res.json({ ref: order.ref, token: order.access_token, next: 'demo', replayed: true });
     if (!order.pay_url) { order.pay_url = await S_.startPayment(order); await run('UPDATE orders SET pay_url=? WHERE id=?', order.pay_url, order.id); }
     return res.json({ ref: order.ref, token: order.access_token, next: order.gateway === 'stripe' ? 'stripe' : 'paystack', url: order.pay_url, replayed: true });
+  }
+  const pts = req.body && Number(req.body.usePoints) > 0 ? req.body.usePoints : 0;
+  if (pts && !req.user) { await S_.cancelOrder(order, 'Points could not be applied'); fail(401, 'Please sign in to use your points.'); }
+  if (pts) {
+    try { await require('../lib/loyalty').applyToOrder(order, req.user, pts); } catch (err) { await S_.cancelOrder(order, 'Points could not be applied'); throw err; }
+    order = await S_.loadOrder('id=?', order.id); // now carries the reduced total
+  }
+  let walletPart = 0;
+  if (wantWallet && order.payment_method !== 'pod') {
+    let r;
+    try { r = await require('../lib/wallet').applyToOrder(order, req.user); } catch (err) { await S_.cancelOrder(order, 'Wallet payment could not be applied'); throw err; }
+    walletPart = r.wallet_amount;
+    if (r.paid) { S_.mailOrderPlaced(order); return res.json({ ref: order.ref, token: order.access_token, next: 'wallet', wallet_amount: r.wallet_amount, remaining: 0 }); }
+    order = await S_.loadOrder('id=?', order.id); // now carries the reduced gateway amount
   }
   if (order.payment_method === 'pod') { S_.mailOrderPlaced(order); return res.json({ ref: order.ref, token: order.access_token, next: 'pod' }); }
   if (order.gateway !== 'stripe' && !S_.paystackLive()) return res.json({ ref: order.ref, token: order.access_token, next: 'demo' });
   try {
     const url = await S_.startPayment(order);
     await run('UPDATE orders SET pay_url=? WHERE id=?', url, order.id);
-    return res.json({ ref: order.ref, token: order.access_token, next: order.gateway === 'stripe' ? 'stripe' : 'paystack', url });
+    return res.json({ ref: order.ref, token: order.access_token, next: order.gateway === 'stripe' ? 'stripe' : 'paystack', url, ...(walletPart ? { wallet_amount: walletPart, remaining: Number(order.charge_amount) / 100 } : {}) });
   } catch (err) { await S_.cancelOrder(order, 'Payment could not be started'); throw err; }
 }));
 
@@ -337,6 +355,7 @@ router.get('/orders', A.requireUser, ah(async (req, res) => {
 /* ================= payments ================= */
 router.get('/paystack/verify', A.limiter('verify', 40, 600000), ah(async (req, res) => {
   const ref = str(req.query.reference || req.query.trxref, 20).toUpperCase();
+  if (/^WF-/.test(ref)) return res.json({ ok: true }); // wallet top-ups are checked at /api/wallet/fund/:ref
   const prior = await S_.loadOrder('ref=?', ref);
   if (!(prior && prior.gateway === 'stripe') && !S_.paystackLive()) return res.json({ ok: true });
   const o = await S_.settleWithPaystack(ref);
@@ -392,6 +411,9 @@ router.post('/auth/register', A.limiter('register', 5, 3600000), ah(async (req, 
     if (err && err.code === '23505') fail(400, CANT);
     throw err;
   }
+  await require('../lib/wallet').ensureWallet(Number(r.lastInsertRowid)).catch((e) => console.error('Wallet creation failed (it is created on first use):', e.message));
+  await require('../lib/loyalty').ensureAccount(Number(r.lastInsertRowid)).catch((e) => console.error('Rewards enrolment failed (done on first use):', e.message));
+  if (b.referralCode) await require('../lib/loyalty').recordReferral(Number(r.lastInsertRowid), b.referralCode).catch((e) => console.error('Referral not recorded:', e.message));
   await A.startSession(req, res, Number(r.lastInsertRowid), 'customer');
   res.json({ user: A.publicUser(await get('SELECT * FROM users WHERE id=?', Number(r.lastInsertRowid))) });
 }));
