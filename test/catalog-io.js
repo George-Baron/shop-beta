@@ -262,6 +262,20 @@ const canon = (parsed, mapping = parsed.mapping) => parsed.rows.map((r) => { con
     rows[0].price = String(Number(rows[0].price) + 50); v = (await A('POST', '/validate', { rows, mode: 'update' })).j; assert.strictEqual(v.summary.update, 1);
   });
 
+  await test('categories named in a file but missing from the shop can be created under the right department', async () => {
+    const st = (await pg('SELECT slug, name FROM stores WHERE slug <> $1 ORDER BY sort LIMIT 1', ['pharmacy'], DB))[0];
+    const rows = [1, 2, 3].map((i) => ({ line: i + 1, name: 'Cat test ' + i, sku: 'CT-' + i, department: st.name, category: i === 3 ? 'Brand New Aisle B' : 'Brand New Aisle A', price: '500', stock: '5' }));
+    rows.push({ line: 5, name: 'Ghost', sku: 'CT-9', department: 'No Such Department', category: 'Whatever', price: '5', stock: '1' });
+    let v = (await A('POST', '/validate', { rows, mode: 'create' })).j; assert.ok(v.results.some((r) => /does not exist/.test(r.errors.join())));
+    const none = await call('POST', '/api/admin/catalog/missing-categories', { rows, create: true }, null); assert.ok([401, 403].includes(none.s), 'a signed-out visitor cannot create categories');
+    const pv = (await A('POST', '/missing-categories', { rows })).j; assert.strictEqual(pv.missing.length, 2); assert.strictEqual(pv.created, 0); assert.strictEqual(pv.unknownDepartments.length, 1);
+    assert.strictEqual(Number((await pg("SELECT COUNT(*) n FROM categories WHERE name LIKE 'Brand New Aisle%'", [], DB))[0].n), 0, 'the preview saves nothing');
+    const cr = (await A('POST', '/missing-categories', { rows, create: true })).j; assert.strictEqual(cr.created, 2);
+    const made = await pg("SELECT store, name FROM categories WHERE name LIKE 'Brand New Aisle%' ORDER BY name", [], DB); assert.deepStrictEqual(made.map((x) => x.store), [st.slug, st.slug]);
+    assert.strictEqual((await A('POST', '/missing-categories', { rows, create: true })).j.created, 0, 'running it again creates nothing twice');
+    v = (await A('POST', '/validate', { rows, mode: 'create' })).j; assert.strictEqual(v.results.filter((r) => !r.errors.length).length, 3, 'the three real rows now pass; the unknown department row still fails');
+  });
+
   srv.kill(); await sleep(300);
   await pg(`DROP DATABASE IF EXISTS ${DB} WITH (FORCE)`).catch(() => {});
   console.log(`\n${passed} passed, ${failed} failed`);

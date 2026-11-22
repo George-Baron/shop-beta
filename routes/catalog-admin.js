@@ -29,6 +29,12 @@ router.post('/parse', big, ah(async (req, res) => {
 }));
 // 2. check the rows (nothing is saved)
 router.post('/validate', big, ah(async (req, res) => res.json(await IO.validate(req.body && req.body.rows, req.body && req.body.mode))));
+// Categories named in the file that do not exist yet (create:true adds them under the department each row names). Administrator only; departments are never created.
+router.post('/missing-categories', big, ah(async (req, res) => {
+  const b = req.body || {}; const create = b.create === true;
+  if (create) cache.clear();
+  try { res.json(await IO.missingCategories(b.rows, { create })); } finally { if (create) cache.bump().catch((e) => console.error('Cache bump failed:', e.message)); }
+}));
 // 3. save the valid rows, a chunk at a time. Update mode needs the explicit confirmation, so nothing existing is changed silently.
 router.post('/commit', big, ah(async (req, res) => {
   const b = req.body || {};
