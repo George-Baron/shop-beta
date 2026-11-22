@@ -245,6 +245,30 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
     await test('the report shows members, points outstanding and tier mix', async () => {
       const r = (await call('GET', '/api/admin/loyalty/report', null, admin)).j; assert.ok(r.members >= 2, JSON.stringify(r)); assert.ok(r.tier_distribution.length >= 1);
     });
+
+    console.log('Points expiry');
+    const DAYS = 86400, t0 = Math.floor(Date.now() / 1000);
+    const eva = await register('Eva');
+    const ev = async () => (await call('GET', '/api/loyalty', null, eva.cookie)).j;
+    await call('GET', '/api/loyalty', null, eva.cookie);
+    const seed = async (kind, pts, ageDays) => { await q('INSERT INTO loyalty_ledger (user_id,kind,points,balance_after,idem_key,note,actor,created) VALUES ($1,$2,$3,0,$4,$5,$6,$7)', [eva.id, kind, pts, 'seed:' + kind + pts + ageDays, 'seed', 'test', t0 - ageDays * DAYS]); await q('UPDATE loyalty_accounts SET points=points+$1 WHERE user_id=$2', [pts, eva.id]); };
+    await test('expiry is off by default: old points stay', async () => { await seed('bonus', 500, 400); await seed('bonus', 300, 350); await seed('bonus', 200, 1); await seed('redeem', -100, 10); assert.strictEqual((await ev()).points, 900); assert.strictEqual((await ev()).expiring_points, 0); });
+    await test('only an administrator can set the expiry period, and it is capped', async () => {
+      assert.strictEqual((await call('PUT', '/api/admin/loyalty/config', { loyalty_expiry_months: 12 }, eva.cookie)).s, 401);
+      assert.strictEqual((await call('PUT', '/api/admin/loyalty/config', { loyalty_expiry_months: 9999 }, admin)).s, 200);
+      assert.strictEqual(Number((await q("SELECT value FROM settings WHERE key='loyalty_expiry_months'"))[0].value), 60);
+      assert.strictEqual((await call('PUT', '/api/admin/loyalty/config', { loyalty_expiry_months: 12 }, admin)).s, 200);
+    });
+    await test('points older than the period expire first-in-first-out, net of what was already spent', async () => {
+      const r = await ev(); assert.strictEqual(r.points, 500, 'balance ' + r.points); // 500 old - 100 already used = 400 expire
+      const rows = await q("SELECT points, kind FROM loyalty_ledger WHERE user_id=$1 AND kind='expire'", [eva.id]); assert.strictEqual(rows.length, 1); assert.strictEqual(Number(rows[0].points), -400);
+    });
+    await test('running the sweep again expires nothing more', async () => { await call('POST', '/api/admin/loyalty/sweep', {}, admin); await ev(); assert.strictEqual(Number((await q("SELECT COUNT(*) n FROM loyalty_ledger WHERE user_id=$1 AND kind='expire'", [eva.id]))[0].n), 1); assert.strictEqual((await ev()).points, 500); });
+    await test('the customer sees points that expire in the next 30 days, and is warned once', async () => {
+      const r = await ev(); assert.strictEqual(r.expiring_points, 300); assert.strictEqual(r.expiry_months, 12);
+      assert.ok(Number((await q('SELECT expiry_reminded FROM loyalty_accounts WHERE user_id=$1', [eva.id]))[0].expiry_reminded) > 0);
+    });
+    await test('the ledger still adds up to the balance', async () => { const s = (await q('SELECT COALESCE(SUM(points),0) s FROM loyalty_ledger WHERE user_id=$1', [eva.id]))[0].s; const b = (await q('SELECT points FROM loyalty_accounts WHERE user_id=$1', [eva.id]))[0].points; assert.strictEqual(Number(s), Number(b)); });
   } finally {
     app.kill(); fake.close(); await sleep(300);
     await pg(`DROP DATABASE IF EXISTS ${DB} WITH (FORCE)`).catch(() => {});

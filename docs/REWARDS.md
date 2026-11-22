@@ -38,3 +38,13 @@ GET/PUT `/api/wallet/preferences` `{default_method: ''|wallet|paystack|card|pod,
 
 ## Not built yet
 Points expiry and reminders, birthday rewards (needs a date-of-birth field), product-level eligibility lists, tier downgrade review, tier discounts at checkout, promotional notifications honouring `promo_notifications` (no promotional messages are sent yet), and the screens. Run: `npm run test:loyalty`.
+
+## Points expiry
+
+Off by default. An administrator sets "Points expire after (months)" on the Wallet & rewards page (`loyalty_expiry_months`, 0 to 60; 0 means points never expire).
+
+- First in, first out: points earned before the cutoff expire once everything already spent, reversed or expired is set against the oldest points first.
+- An `expire` row is written to the points ledger (never an edit), once per customer per day, then the customer is notified.
+- A reminder goes out once when points will expire within 30 days (at most one every 25 days per customer).
+- Points handed back (for example when an unpaid order is cancelled) count as new points from that day.
+- Runs in the existing 5-minute loyalty job and when a customer opens their rewards. Tell customers (and update the terms) before switching it on: expiry only takes effect from the day it is set, and it applies to points already earned.
