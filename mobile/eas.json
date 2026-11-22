@@ -1,0 +1,30 @@
+{
+  "cli": { "version": ">= 16.0.0", "appVersionSource": "remote" },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": { "APP_ENV": "development" },
+      "android": { "buildType": "apk" },
+      "ios": { "simulator": true }
+    },
+    "staging": {
+      "distribution": "internal",
+      "channel": "staging",
+      "env": { "APP_ENV": "staging", "EXPO_PUBLIC_API_URL": "https://REPLACE-WITH-STAGING-SERVER" },
+      "android": { "buildType": "apk" }
+    },
+    "production": {
+      "channel": "production",
+      "autoIncrement": true,
+      "env": { "APP_ENV": "production", "EXPO_PUBLIC_API_URL": "https://REPLACE-WITH-LIVE-SERVER" },
+      "android": { "buildType": "app-bundle" }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": { "serviceAccountKeyPath": "./secrets/google-play-service-account.json", "track": "internal" },
+      "ios": { "ascAppId": "REPLACE-AFTER-APP-STORE-CONNECT-RECORD-EXISTS" }
+    }
+  }
+}

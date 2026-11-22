@@ -229,25 +229,29 @@ router.post('/cart/abandon', A.limiter('abandon', 40, 3600000), ah(async (req, r
   res.json({ ok: true });
 }));
 
-router.post('/checkout', A.limiter('checkout', 20, 3600000), ah(async (req, res) => {
-  const key = req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey) || '';
-  const order = await S_.createOrder(req.body || {}, req.user, key);
+// The whole checkout answer in one place, shared by the website and the mobile API (routes/mobile-shop.js), so both behave identically.
+async function runCheckout(body, user, key) {
+  const order = await S_.createOrder(body || {}, user, key);
   // Prescription orders are paid only after the pharmacist approves: nothing is charged now.
-  if (order.rx_required && order.rx_status !== 'verified') return res.json({ ref: order.ref, token: order.access_token, next: 'rx', replayed: !!order.replayed });
+  if (order.rx_required && order.rx_status !== 'verified') return { ref: order.ref, token: order.access_token, next: 'rx', replayed: !!order.replayed };
   if (order.replayed) { // the same checkout sent again: answer exactly as before, send no second email, start no second payment
     if (order.status === 'cancelled') fail(409, 'That order was cancelled. Please place a new order.');
-    if (order.payment_method === 'pod' || order.payment_status === 'paid') return res.json({ ref: order.ref, token: order.access_token, next: 'pod', replayed: true });
-    if (order.gateway !== 'stripe' && !S_.paystackLive()) return res.json({ ref: order.ref, token: order.access_token, next: 'demo', replayed: true });
+    if (order.payment_method === 'pod' || order.payment_status === 'paid') return { ref: order.ref, token: order.access_token, next: 'pod', replayed: true };
+    if (order.gateway !== 'stripe' && !S_.paystackLive()) return { ref: order.ref, token: order.access_token, next: 'demo', replayed: true };
     if (!order.pay_url) { order.pay_url = await S_.startPayment(order); await run('UPDATE orders SET pay_url=? WHERE id=?', order.pay_url, order.id); }
-    return res.json({ ref: order.ref, token: order.access_token, next: order.gateway === 'stripe' ? 'stripe' : 'paystack', url: order.pay_url, replayed: true });
+    return { ref: order.ref, token: order.access_token, next: order.gateway === 'stripe' ? 'stripe' : 'paystack', url: order.pay_url, replayed: true };
   }
-  if (order.payment_method === 'pod') { S_.mailOrderPlaced(order); return res.json({ ref: order.ref, token: order.access_token, next: 'pod' }); }
-  if (order.gateway !== 'stripe' && !S_.paystackLive()) return res.json({ ref: order.ref, token: order.access_token, next: 'demo' });
+  if (order.payment_method === 'pod') { S_.mailOrderPlaced(order); return { ref: order.ref, token: order.access_token, next: 'pod' }; }
+  if (order.gateway !== 'stripe' && !S_.paystackLive()) return { ref: order.ref, token: order.access_token, next: 'demo' };
   try {
     const url = await S_.startPayment(order);
     await run('UPDATE orders SET pay_url=? WHERE id=?', url, order.id);
-    return res.json({ ref: order.ref, token: order.access_token, next: order.gateway === 'stripe' ? 'stripe' : 'paystack', url });
+    return { ref: order.ref, token: order.access_token, next: order.gateway === 'stripe' ? 'stripe' : 'paystack', url };
   } catch (err) { await S_.cancelOrder(order, 'Payment could not be started'); throw err; }
+}
+router.post('/checkout', A.limiter('checkout', 20, 3600000), ah(async (req, res) => {
+  const key = req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey) || '';
+  res.json(await runCheckout(req.body || {}, req.user, key));
 }));
 
 /* ================= delivery map ================= */
@@ -301,17 +305,20 @@ async function customerOrder(o) {
 router.post('/orders/lookup', A.limiter('lookup', 40, 600000), ah(async (req, res) => {
   res.json({ order: await customerOrder(await ownedOrder(req, req.body.ref, req.body.email, req.body.token)) });
 }));
-router.post('/orders/:ref/rate-delivery', A.limiter('rate-delivery', 20, 600000), ah(async (req, res) => {
-  const o = await ownedOrder(req, req.params.ref, req.body.email, req.body.token);
+// Records the buyer's rating of a delivered order (shared with the mobile API).
+async function rateDelivery(o, body) {
   if (o.view !== 'full') fail(403, 'Open your order from the link in your confirmation email to rate the delivery.');
   if (o.status !== 'delivered') fail(400, 'You can rate the delivery once the order has arrived.');
   const a = await get("SELECT rider_id FROM rider_assignments WHERE order_id=? AND assignment_status='delivered' ORDER BY id DESC LIMIT 1", o.id);
   if (!a) fail(400, 'This order was not delivered by one of our riders.');
-  const rating = int(req.body.rating), comment = str(req.body.comment, 500);
+  const rating = int(body.rating), comment = str(body.comment, 500);
   if (!(rating >= 1 && rating <= 5)) fail(400, 'Choose a rating from 1 to 5.');
   try {
     await run("INSERT INTO rider_feedback (rider_id, order_id, rating, complaint, comment, source, recorded_by, created_at) VALUES (?,?,?,?,?,'customer','customer',?)", a.rider_id, o.id, rating, rating <= 2 ? comment : '', comment, now());
   } catch (e) { if (e.code === '23505') fail(409, 'You have already rated this delivery. Thank you.'); throw e; }
+}
+router.post('/orders/:ref/rate-delivery', A.limiter('rate-delivery', 20, 600000), ah(async (req, res) => {
+  await rateDelivery(await ownedOrder(req, req.params.ref, req.body.email, req.body.token), req.body);
   res.json({ ok: true });
 }));
 router.post('/orders/:ref/cancel', A.limiter('cancel', 10, 600000), ah(async (req, res) => {
@@ -499,4 +506,6 @@ router.post('/newsletter', A.limiter('news', 10, 3600000), ah(async (req, res) =
   res.json({ ok: true });
 }));
 
+// Shared with the mobile API so it answers from the same code (never a second copy of the business rules).
+router.shared = { buildConfig, buildHome, buildProduct, listProducts, customerOrder, runCheckout, rateDelivery, PRODUCT_SELECT, publicCache };
 module.exports = router;
