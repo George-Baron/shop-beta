@@ -60,6 +60,7 @@
     "test:dropship-money": "node --disable-warning=ExperimentalWarning test/dropship-money.js",
     "test:mobile-auth": "node --disable-warning=ExperimentalWarning test/mobile-auth.js",
     "test:mobile-shop": "node --disable-warning=ExperimentalWarning test/mobile-shop.js",
+    "test:mobile-wholesale": "node --disable-warning=ExperimentalWarning test/mobile-wholesale.js",
     "test:supplier-portal": "node --disable-warning=ExperimentalWarning test/supplier-portal.js"
   },
   "dependencies": {

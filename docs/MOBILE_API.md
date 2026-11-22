@@ -2,7 +2,7 @@
 
 Base path: `/api/mobile/v1`. JSON in, JSON out. Built for the VELTO-MART Android and iOS apps. The website and its `/api/...` routes are unchanged.
 
-Status of this document: covers sign-in, profile, devices, account deletion, catalogue, cart, checkout, payments, orders, addresses, wishlist and notifications (all built and tested). **Not built yet:** wholesale, push notifications and preferences, support requests, returns enquiries, reviews. They are listed at the end.
+Status of this document: covers sign-in, profile, devices, account deletion, catalogue, cart, checkout, payments, orders, addresses, wishlist, notifications and wholesale (all built and tested). **Not built yet:** push notifications and preferences, support requests, returns enquiries, reviews, wholesale file attachments. They are listed at the end.
 
 ## Rules every endpoint follows
 
@@ -131,9 +131,29 @@ GET `/wishlist` (ids); GET `/wishlist/products` (cards); POST `/wishlist/:id`; D
 
 GET `/notifications`, GET `/notifications/count`, POST `/notifications/read` `{ all: true }` or `{ ids: [...] }`. The same notifications the website shows.
 
+## Wholesale (auth required; `/wholesale/...`)
+
+Same rules as the website's wholesale area. Only an **approved** wholesale account sees wholesale prices or can ask for quotations (`403` otherwise). Wholesale stock is the separate wholesale warehouse; retail stock is never used to work out wholesale availability, and partner-store products are never sold wholesale. Flow: apply, evaluation, approval, request a quotation, we send the proforma (goods + logistics fee + service fee), the buyer accepts (stock is set aside in the wholesale warehouse), the buyer pays **before shipping**, we ship.
+
+| Method and path | Body | Answer |
+| --- | --- | --- |
+| GET `/wholesale/me` | | `{ account, terms }`. `account` is `null` until the customer applies; `status` is `pending` (under evaluation), `approved` or `rejected` |
+| POST `/wholesale/apply` | `{ business_name, contact_name, phone, address, state, city, reg_no, business_type, buys, est_monthly? }` | `{ ok, account }`. Once only (`409`) |
+| GET `/wholesale/catalog` | query `q`, `store` | `{ products: [{ id, slug, name, brand, store, category, retail_price, price (wholesale), min_qty, stock (wholesale warehouse), ... }] }` |
+| POST `/wholesale/quotes` | `{ items: [{ productId, qty }], ship_address, ship_state, ... }` | `{ ok, ref }`. Quantity must meet the minimum and the wholesale warehouse stock |
+| GET `/wholesale/quotes`, GET `/wholesale/quotes/:ref` | | Quotations and the proforma (`status`: requested, quoted, accepted, paid, shipped, delivered, declined, expired, cancelled) |
+| GET `/wholesale/quotes/:ref/invoice` | | The final invoice. `404` until payment is received |
+| POST `/wholesale/quotes/:ref/accept`, `/decline` | | `{ ok }`. Accepting sets the goods aside; only once |
+| POST `/wholesale/quotes/:ref/pay` | | `{ url }` (Paystack page, Naira) after accepting. A second tap returns the same page. `409` before accepting |
+| GET `/wholesale/quotes/:ref/payment-status` | | `{ ref, status, paid, checking }`. The server asks Paystack and checks reference, currency and amount; marked paid once |
+| GET/POST `/wholesale/rfq`, GET/PUT/DELETE `/wholesale/rfq/:ref` | `{ items: [{ name, qty, description?, barcode?, brand?, packaging?, target_price? }], delivery_location, required_date?, comments? }` | Requests for quotation: a draft the buyer edits and deletes |
+| POST `/wholesale/rfq/:ref/submit`, `/accept`, `/decline` | | Submit a draft; accept or decline our priced reply |
+
+Other accounts (not the owner of a quotation or request) get `404`. Admin, staff and other roles cannot sign in to the app at all.
+
 ## Not built yet
 
-- Wholesale (apply, status, price list, quotes, pay): the backend exists (`/api/wholesale`); the mobile routes are next. Wholesale stock and prices stay completely separate from retail.
+- Wholesale spreadsheet import and file attachments on a request for quotation (use the website for those).
 - Push notifications (device tokens, Expo push sending, preferences, de-duplication).
 - Support requests, complaints and return or refund enquiries linked to orders.
 - Product reviews from the app.

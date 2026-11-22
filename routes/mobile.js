@@ -106,6 +106,7 @@ router.delete('/me/devices/:id', M.requireAuth, ah(async (req, res) => {
 router.post('/me/delete-account', M.requireAuth, M.limit('m-delete', 5, 3600000, (req) => req.user.id), ah(async (req, res) => res.json({ ok: true, ...(await M.requestDeletion(req.user, req.body && req.body.password)) })));
 
 router.use(require('./mobile-shop'));   // catalogue, cart, checkout, orders, addresses, wishlist, notifications
+router.use('/wholesale', require('./mobile-wholesale'));   // approved wholesale buyers: quotations and payment
 
 /* ================= errors: always { error, code, requestId } ================= */
 // eslint-disable-next-line no-unused-vars
