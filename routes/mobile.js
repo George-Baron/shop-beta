@@ -105,10 +105,13 @@ router.delete('/me/devices/:id', M.requireAuth, ah(async (req, res) => {
 }));
 router.post('/me/delete-account', M.requireAuth, M.limit('m-delete', 5, 3600000, (req) => req.user.id), ah(async (req, res) => res.json({ ok: true, ...(await M.requestDeletion(req.user, req.body && req.body.password)) })));
 
+router.use(require('./mobile-shop'));   // catalogue, cart, checkout, orders, addresses, wishlist, notifications
+
 /* ================= errors: always { error, code, requestId } ================= */
 // eslint-disable-next-line no-unused-vars
 router.use((err, req, res, next) => {
-  if (err instanceof S.HttpError) return res.status(err.status).json({ error: err.message, code: err.code || 'error', requestId: req.id });
+  const DEFAULT = { 400: 'invalid_request', 401: 'unauthorized', 403: 'forbidden', 404: 'not_found', 409: 'conflict', 410: 'gone', 422: 'unprocessable', 429: 'rate_limited', 502: 'upstream_error' };
+  if (err instanceof S.HttpError) return res.status(err.status).json({ error: err.message, code: err.code || DEFAULT[err.status] || 'error', requestId: req.id });
   if (err && err.type === 'entity.parse.failed') return res.status(400).json({ error: 'That request was not understood.', code: 'bad_request', requestId: req.id });
   return next(err);   // anything unexpected goes to the server's own handler, which logs it and answers 500
 });
