@@ -1,30 +1,64 @@
 {
-  "cli": { "version": ">= 16.0.0", "appVersionSource": "remote" },
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "env": { "APP_ENV": "development" },
-      "android": { "buildType": "apk" },
-      "ios": { "simulator": true }
+      "env": {
+        "APP_ENV": "development"
+      },
+      "android": {
+        "buildType": "apk",
+        "image": "latest"
+      },
+      "ios": {
+        "simulator": true,
+        "image": "latest"
+      }
     },
     "staging": {
       "distribution": "internal",
       "channel": "staging",
-      "env": { "APP_ENV": "staging", "EXPO_PUBLIC_API_URL": "https://REPLACE-WITH-STAGING-SERVER" },
-      "android": { "buildType": "apk" }
+      "env": {
+        "APP_ENV": "staging",
+        "EXPO_PUBLIC_API_URL": "https://REPLACE-WITH-STAGING-SERVER"
+      },
+      "android": {
+        "buildType": "apk",
+        "image": "latest"
+      },
+      "ios": {
+        "image": "latest"
+      }
     },
     "production": {
       "channel": "production",
       "autoIncrement": true,
-      "env": { "APP_ENV": "production", "EXPO_PUBLIC_API_URL": "https://REPLACE-WITH-LIVE-SERVER" },
-      "android": { "buildType": "app-bundle" }
+      "env": {
+        "APP_ENV": "production",
+        "EXPO_PUBLIC_API_URL": "https://REPLACE-WITH-LIVE-SERVER"
+      },
+      "android": {
+        "buildType": "app-bundle",
+        "image": "latest"
+      },
+      "ios": {
+        "image": "latest"
+      }
     }
   },
   "submit": {
     "production": {
-      "android": { "serviceAccountKeyPath": "./secrets/google-play-service-account.json", "track": "internal" },
-      "ios": { "ascAppId": "REPLACE-AFTER-APP-STORE-CONNECT-RECORD-EXISTS" }
+      "android": {
+        "serviceAccountKeyPath": "./secrets/google-play-service-account.json",
+        "track": "internal"
+      },
+      "ios": {
+        "ascAppId": "REPLACE-AFTER-APP-STORE-CONNECT-RECORD-EXISTS"
+      }
     }
   }
 }
