@@ -77,6 +77,14 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
     await test('admin can open a customer wallet and see its transactions', async () => { await ap.fill('#wcid', String(ann.id)); await ap.click('#wcgo'); await ap.waitForFunction(() => document.body.innerText.toLowerCase().includes('recent transactions'), null, { timeout: 8000 }); });
     await test('admin can save rewards settings', async () => { await ap.click('#lcsave'); await ap.waitForFunction(() => document.body.innerText.includes('Saved'), null, { timeout: 5000 }); });
     await test('admin card page loads', async () => { await ap.goto(`${base}/admin#/cards`); await ap.waitForFunction(() => document.body.innerText.includes('Applications'), null, { timeout: 10000 }); });
+    await test('admin can paste many categories under a department and create them', async () => {
+      const st = (await q("SELECT name FROM stores WHERE slug <> 'pharmacy' ORDER BY sort LIMIT 1"))[0].name;
+      await ap.goto(`${base}/admin#/categories`); await ap.waitForSelector('#bulkc', { timeout: 10000 }); await ap.click('#bulkc');
+      await ap.fill('#bct', `Department\tCategory\n${st}\tPaste Test Aisle\n${st}\tFlour, Sugar & Paste Test\nNo Such Dept\tNope`); await ap.click('#bcc');
+      await ap.waitForFunction(() => document.querySelector('#bcp').innerText.includes('2 new categories'), null, { timeout: 8000 });
+      await ap.click('#bcg'); await ap.waitForFunction(() => document.body.innerText.includes('Paste Test Aisle'), null, { timeout: 8000 });
+      assert.strictEqual(Number((await q("SELECT COUNT(*) n FROM categories WHERE name IN ('Paste Test Aisle','Flour, Sugar & Paste Test')"))[0].n), 2);
+    });
     await test('no script errors on the admin pages', async () => assert.deepStrictEqual(aerrs, []));
     await browser.close();
   } finally {
