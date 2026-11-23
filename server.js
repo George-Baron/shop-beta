@@ -27,7 +27,7 @@ const worker = require('./lib/worker');
 const { esc, BASE_URL, getSettings, parseImages, naira } = S;
 const app = express();
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-// gzip pages and JSON (level 1: nearly the same size, several times less CPU). Pages carry a per-visitor security nonce, so they cannot be compressed once and reused;
+// gzip pages and JSON (level 1: nearly the same size, several times less CPU). The page itself is now a tiny shell and the big script and style files are compressed once at start-up (lib/assets.js);
 // when the request comes through Cloudflare (it adds cf-ray) we send pages uncompressed and let Cloudflare compress them at the edge, which saves a lot of CPU.
 app.use(compression({ threshold: 1024, level: 1, filter: (req, res) => !(req.headers['cf-ray'] && /text\/html/.test(String(res.getHeader('Content-Type') || ''))) && compression.filter(req, res) }));
 app.disable('x-powered-by');
@@ -139,14 +139,17 @@ app.get('/sitemap.xml', ah(async (req, res) => {
 }));
 
 /* ---------- pages (one HTML shell, filled in per URL for search engines and link previews) ---------- */
-const TEMPLATE = fs.readFileSync(path.join(__dirname, 'views', 'index.html'), 'utf8');
+// The big inline script and style blocks are moved out into hashed, pre-compressed files (see lib/assets.js), so the page itself is a tiny shell.
+const ASSETS = require('./lib/assets').build(fs.readFileSync(path.join(__dirname, 'views', 'index.html'), 'utf8'));
+const TEMPLATE = ASSETS.shell;
+app.get('/assets/:name', require('./lib/assets').handler(ASSETS.files));
 const PAGES = { about: 'About us', faq: 'Frequently asked questions', shipping: 'Shipping & Returns', privacy: 'Privacy policy', terms: 'Terms of service', contact: 'Contact us' };
 const NOINDEX = new Set(['rider', 'pharmacist', 'partner', 'supplier', 'wholesale', 'import-export', 'checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
 const clip = (s, n) => { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s; };
 const absUrl = (u) => (!u ? '' : /^https?:\/\//.test(u) ? u : BASE_URL + u);
 
-function pixelSnippet(id, nonce) {
-  return `<script nonce="${nonce}">!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${id}');</script>`;
+function pixelScript(id) {
+  return `!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${id}');`;
 }
 
 async function describe(req) {
@@ -206,7 +209,7 @@ async function describe(req) {
 }
 
 // The page head (title, description, structured data, plain-text body for search engines) is the same for everyone, so it is kept for 30 seconds.
-// Only successful pages are kept, so a flood of made-up addresses cannot fill the cache with 404s. The per-request nonce below is never cached.
+// Only successful pages are kept, so a flood of made-up addresses cannot fill the cache with 404s.
 const DESCRIBE_KEYS = ['store', 'q', 'category', 'page', 'sort', 'min', 'max', 'size', 'color', 'rating', 'instock', 'flag'];
 const describeCached = (req) => {
   const q = DESCRIBE_KEYS.map((k) => (req.query[k] === undefined ? '' : k + '=' + String(req.query[k]).slice(0, 60))).join('&');
@@ -214,24 +217,31 @@ const describeCached = (req) => {
   return cache.cached(key, 30000, () => describe(req), (d) => d.status === 200);
 };
 
-app.get(/^\/(?!api\/|uploads\/|health).*/, ah(async (req, res) => {
+// The Meta pixel start-up snippet, served as a small file (instead of inline in every page) so the page needs no per-visitor nonce.
+app.get('/px/:id.js', (req, res) => {
+  if (!/^[A-Za-z0-9_-]{1,40}$/.test(req.params.id)) return res.status(404).end();
+  res.set({ 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=3600', 'X-Content-Type-Options': 'nosniff' }).send(pixelScript(req.params.id));
+});
+
+app.get(/^\/(?!api\/|uploads\/|assets\/|px\/|health).*/, ah(async (req, res) => {
   const d = await describeCached(req);
-  const nonce = crypto.randomBytes(16).toString('base64');
   const tags = [
     `<title>${esc(d.title)}</title>`, `<meta name="description" content="${esc(d.desc)}">`, `<link rel="canonical" href="${esc(d.canonical)}">`,
     d.noindex ? '<meta name="robots" content="noindex,nofollow">' : '',
     `<meta property="og:site_name" content="${esc(d.S.store_name)}"><meta property="og:title" content="${esc(d.title)}"><meta property="og:description" content="${esc(d.desc)}"><meta property="og:type" content="${d.type}"><meta property="og:url" content="${esc(d.canonical)}">`,
     d.image ? `<meta property="og:image" content="${esc(d.image)}"><meta name="twitter:card" content="summary_large_image">` : '<meta name="twitter:card" content="summary">',
     d.jsonld ? `<script type="application/ld+json" id="ldp">${JSON.stringify(d.jsonld).replace(/</g, '\\u003c')}</script>` : '',
-    d.S.meta_pixel_id && /^[A-Za-z0-9_-]+$/.test(d.S.meta_pixel_id) ? pixelSnippet(d.S.meta_pixel_id, nonce) : '',
+    d.S.meta_pixel_id && /^[A-Za-z0-9_-]+$/.test(d.S.meta_pixel_id) ? `<script src="/px/${d.S.meta_pixel_id}.js"></script>` : '',
   ].join('\n');
-  const html = TEMPLATE.replace(/<script>/g, `<script nonce="${nonce}">`)
+  const html = TEMPLATE
     .replace('<!--HTMLATTR-->', d.store && /^[a-z0-9-]+$/.test(d.store) ? ` data-store="${d.store}"` : '')
     .replace('<!--SEO-->', () => tags).replace('<!--PRERENDER-->', () => d.body);
   res.status(d.status).set({
-    'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache',
+    'Content-Type': 'text/html; charset=utf-8',
+    // The shell is the same for every visitor (the shop fills itself in from the API), so Cloudflare or any shared cache may keep it for a minute. Pages that are not meant for search engines (admin, account, checkout...) are never shared.
+    'Cache-Control': d.status === 200 && !d.noindex ? 'public, max-age=0, s-maxage=60, stale-while-revalidate=300' : 'no-cache',
     'Content-Security-Policy': [
-      "default-src 'self'", `script-src 'nonce-${nonce}' https://www.googletagmanager.com https://connect.facebook.net`,
+      "default-src 'self'", "script-src 'self' https://www.googletagmanager.com https://connect.facebook.net",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", 'font-src https://fonts.gstatic.com', "img-src 'self' data: https:",
       "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com https://www.facebook.com https://connect.facebook.net",
       "form-action 'self'", "frame-ancestors 'none'", "base-uri 'self'", "object-src 'none'",

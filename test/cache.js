@@ -47,17 +47,27 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     assert.ok(!/public/.test((await raw(P1, 'GET', '/api/me', null, cookie)).h['cache-control'] || ''));
     assert.ok(!/public/.test((await raw(P1, 'GET', '/api/orders', null, cookie)).h['cache-control'] || ''));
     assert.ok(!/public/.test((await raw(P1, 'GET', '/api/admin/dashboard', null, cookie)).h['cache-control'] || ''));
-    assert.match((await raw(P1, 'GET', '/')).h['cache-control'], /no-cache/);
+    assert.match((await raw(P1, 'GET', '/')).h['cache-control'], /s-maxage=60/);   // the shell is the same for everyone, so a shared cache may keep it a minute
   });
   await test('the cached config never leaks the signed-in user to other visitors', async () => {
     const anon1 = await raw(P1, 'GET', '/api/config'); const mine = await raw(P1, 'GET', '/api/config', null, cookie); const anon2 = await raw(P1, 'GET', '/api/config');
     assert.strictEqual(anon1.j.user, null); assert.strictEqual(mine.j.user.role, 'admin'); assert.strictEqual(anon2.j.user, null);
     assert.ok(!('cache_version' in mine.j.settings), 'internal cache_version must not be exposed');
   });
-  await test('page HTML keeps a fresh security nonce on every response even though the page head is cached', async () => {
-    const n = (r) => /nonce="([^"]+)"/.exec(r.t)[1];
-    const x = await raw(P1, 'GET', '/d/food'), y = await raw(P1, 'GET', '/d/food'); assert.notStrictEqual(n(x), n(y));
-    assert.ok(x.h['content-security-policy'].includes(n(x)));
+  await test('the page is a tiny shell with no inline scripts; the big script and style are hashed, compressed once and cached for a year', async () => {
+    const x = await raw(P1, 'GET', '/d/food');
+    assert.ok(x.t.length < 20000, 'shell is small, was ' + x.t.length);
+    assert.ok(!/<script>/.test(x.t) && !/nonce=/.test(x.t), 'no inline scripts and no per-visitor nonce');
+    const js = /src="(\/assets\/app\.[a-f0-9]+\.js)"/.exec(x.t)[1], css = /href="(\/assets\/app\.[a-f0-9]+\.css)"/.exec(x.t)[1];
+    const csp = x.h['content-security-policy']; assert.match(csp, /script-src 'self'/); assert.ok(!/script-src[^;]*unsafe-inline/.test(csp), 'inline scripts stay blocked');
+    assert.match(x.h['cache-control'], /s-maxage=60/);
+    for (const u of [js, css]) {
+      const a = await fetch(`http://127.0.0.1:${P1}${u}`, { headers: { 'Accept-Encoding': 'br' } });
+      assert.strictEqual(a.status, 200); assert.match(a.headers.get('cache-control'), /immutable/); assert.strictEqual(a.headers.get('content-encoding'), 'br');
+      const b = await fetch(`http://127.0.0.1:${P1}${u}`, { headers: { 'If-None-Match': a.headers.get('etag') } }); assert.strictEqual(b.status, 304);
+    }
+    assert.strictEqual((await fetch(`http://127.0.0.1:${P1}/assets/app.0000000000.js`)).status, 404);
+    assert.match((await raw(P1, 'GET', '/admin')).h['cache-control'], /no-cache/);
   });
   let pid, slug;
   await test('admin price edit shows at once on the same instance and within seconds on the other', async () => {
