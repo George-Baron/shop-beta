@@ -62,6 +62,7 @@ router.use('/wholesale', require('./wholesale-admin'));
 router.use('/catalog', require('./catalog-admin'));
 router.use('/rfq', require('./rfq-admin'));
 router.use('/commercial', require('./commercial-admin'));
+router.use('/returns', require('./returns-admin'));
 router.use('/warehouse', require('./warehouse'));
 router.get('/audit', ah(async (req, res) => {
   const w = [], a = [];
@@ -91,7 +92,7 @@ router.get('/dashboard', ah(async (req, res) => {
   res.json({
     today: cut(today), week: cut(week), month: cut(month), all: cut(allTime), customers: okCust ? customers : null,
     byStatus: okOrders ? byStatus : [], days: okMoney ? days : [], recent: okOrders ? recent.map((o) => (okMoney ? o : { ...o, total: null })) : [],
-    top: okOrders ? top.map((x) => (okMoney ? x : { ...x, rev: null })) : [], low: okStock ? low : [], unread: okCust ? unread : 0, hide: { money: !okMoney, orders: !okOrders, customers: !okCust, stock: !okStock },
+    top: okOrders ? top.map((x) => (okMoney ? x : { ...x, rev: null })) : [], low: okStock ? low : [], unread: okCust ? unread : 0, returns: okOrders ? await require('../lib/returns').summary() : { requested: 0, awaiting: 0, recent: [] }, hide: { money: !okMoney, orders: !okOrders, customers: !okCust, stock: !okStock },
   });
 }));
 

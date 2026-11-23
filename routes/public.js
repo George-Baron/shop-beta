@@ -305,6 +305,10 @@ async function customerOrder(o) {
     return out; // no delivery code and no rider position for a masked view
   }
   out.handover_code = await D.visibleCode(o);
+  const RT = require('../lib/returns');
+  out.returns = await RT.forCustomer(o);
+  const el = await RT.eligibility(o);
+  if (o.status === 'delivered' || out.returns.length) out.return_info = { can: el.can, reason: el.reason, days: el.days, deadline: el.deadline, lines: el.lines, reasons: RT.REASONS, conditions: RT.CONDITIONS };
   if (o.status === 'delivered') {   // the buyer's own delivery rating (the rider's identity is not part of it)
     const fb = await get("SELECT rating, comment FROM rider_feedback WHERE order_id=? AND source='customer'", o.id);
     if (fb) out.delivery_rating = { rating: Number(fb.rating), comment: fb.comment };
@@ -318,6 +322,17 @@ async function customerOrder(o) {
 }
 router.post('/orders/lookup', A.limiter('lookup', 40, 600000), ah(async (req, res) => {
   res.json({ order: await customerOrder(await ownedOrder(req, req.body.ref, req.body.email, req.body.token)) });
+}));
+// Return items after delivery (see lib/returns.js). Needs the signed-in owner or the private link from the confirmation email.
+router.post('/orders/:ref/return', A.limiter('order-return', 10, 3600000), ah(async (req, res) => {
+  const o = await ownedOrder(req, req.params.ref, req.body.email, req.body.token);
+  if (o.view !== 'full') fail(403, 'Open your order from the link in your confirmation email, or sign in, to return items.');
+  res.json({ ok: true, ...(await require('../lib/returns').request(o, req.body || {})) });
+}));
+router.post('/orders/:ref/return/:rid/cancel', A.limiter('order-return-cancel', 20, 3600000), ah(async (req, res) => {
+  const o = await ownedOrder(req, req.params.ref, req.body.email, req.body.token);
+  if (o.view !== 'full') fail(403, 'Open your order from the link in your confirmation email, or sign in.');
+  await require('../lib/returns').cancel(o, int(req.params.rid)); res.json({ ok: true });
 }));
 router.post('/orders/:ref/rate-delivery', A.limiter('rate-delivery', 20, 600000), ah(async (req, res) => {
   const o = await ownedOrder(req, req.params.ref, req.body.email, req.body.token);
