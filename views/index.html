@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"<!--HTMLATTR-->>
+<html lang="en-NG"<!--HTMLATTR-->>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -33,6 +33,7 @@
 [data-mode=dark]:not([data-store=electronics]){--bg:#0a1226;--surface:#111b33;--surface-2:#0d1730;--text:#eef0f4;--muted:#98a2b3;--border:#22304f;--head-bg:#0b1b3a;--head-ink:#eef0f4;--hero-ink:#eef0f4;--hero-muted:#a8b0bd;--hero-bg:linear-gradient(120deg,#1b1f27,#12151a);--accent-soft:#2a1d14;--shadow:0 8px 24px rgba(0,0,0,.45)}
 [data-mode=dark][data-store=supermarket]{--head-bg:#06301b}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
+.seo-static{max-width:900px;margin:0 auto;padding:8px 16px 40px;font-size:15px}.seo-static ul{padding-left:18px}.seo-static a{text-decoration:underline}
 body{margin:0;font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased;transition:background .2s}
 img{max-width:100%;display:block}a{color:inherit;text-decoration:none}button,input,select,textarea{font:inherit;color:inherit}
 h1,h2,h3{font-family:var(--display);line-height:1.2;margin:0 0 .5em}h1{font-size:clamp(28px,4vw,46px);letter-spacing:-.02em}h2{font-size:clamp(20px,2.4vw,26px)}h3{font-size:18px}
@@ -362,7 +363,7 @@ body.is-rider .ann,body.is-rider .head,body.is-rider .foot,body.is-rider .cookie
 </head>
 <body>
 <div id="adm"></div>
-<div id="shell"><div class="loading-page"></div></div>
+<div id="shell"><div class="loading-page"></div><!--SEOBODY--></div>
 <div class="scrim" id="scrim"></div>
 <aside class="drawer" id="drawer" aria-label="Shopping cart" aria-hidden="true"></aside>
 <div class="modal" id="modal" role="dialog" aria-modal="true"></div>
@@ -739,7 +740,7 @@ function reviewsHtml(p) {
     ${store.user ? '' : '<label class="f">Your name<input name="name" required maxlength="60"></label>'}<label class="f">Title<input name="title" maxlength="80"></label><label class="f">Your review<textarea name="body" rows="3" maxlength="1000" required></textarea></label><button class="btn">Submit review</button></form></div>`;
 }
 function ldjson(p, cfg) {
-  const old = document.getElementById('ldp'); if (old) old.remove();
+  const old = document.getElementById('ldp'); if (old && old.dataset.path === location.pathname) return; /* the server already wrote the full version for this address */ if (old) old.remove();
   const s = document.createElement('script'); s.type = 'application/ld+json'; s.id = 'ldp';
   s.textContent = JSON.stringify({ '@context': 'https://schema.org', '@type': 'Product', name: p.name, description: p.description, sku: p.sku, brand: { '@type': 'Brand', name: p.brand }, offers: { '@type': 'Offer', priceCurrency: 'NGN', price: p.price, availability: p.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: location.href }, ...(p.rating_n ? { aggregateRating: { '@type': 'AggregateRating', ratingValue: p.rating, reviewCount: p.rating_n } } : {}) });
   document.head.appendChild(s);
@@ -2520,7 +2521,7 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['commercial', '🧭', 'Commercial operations'], ['orders', '🧾', 'Orders'], ['returns', '↩️', 'Returns'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['riders', '📍', 'Riders live'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['activity', '🕵️', 'Activity log'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['dropship', '🚚', 'Dropshipping'], ['staff', '👤', 'Employees & roles'], ['wallet', '👛', 'Wallet & rewards'], ['cards', '💳', 'VELTO-MART CARD'], ['notifications', '🔔', 'Notifications']];
+const NAV = [['dashboard', '📊', 'Dashboard'], ['commercial', '🧭', 'Commercial operations'], ['orders', '🧾', 'Orders'], ['returns', '↩️', 'Returns'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['seo', '🔎', 'SEO'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['riders', '📍', 'Riders live'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['activity', '🕵️', 'Activity log'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['dropship', '🚚', 'Dropshipping'], ['staff', '👤', 'Employees & roles'], ['wallet', '👛', 'Wallet & rewards'], ['cards', '💳', 'VELTO-MART CARD'], ['notifications', '🔔', 'Notifications']];
 const NAVMOD = { returns: 'orders', dashboard: 'any', notifications: 'any', orders: 'orders', products: 'catalog', catalogio: 'catalog', categories: 'catalog', reviews: 'catalog', customers: 'customers', messages: 'customers', coupons: 'marketing', marketing: 'marketing', deliveries: 'delivery', riders: 'delivery', partners: 'delivery', vendors: 'partners', wholesale: 'wholesale', warehouse: 'warehouse', rfq: 'rfq' };
 const can = (m, w) => { const p = (me && me.perms) || []; return p.includes('*') || p.includes(m + (w ? ':edit' : ':view')); };
 const visible = (k) => k === 'commercial' ? !!(me && (me.role === 'admin' || can('partners') || can('rfq') || can('reports') || can('finance'))) : (me && me.role === 'admin') || (NAVMOD[k] === 'any') || (NAVMOD[k] && can(NAVMOD[k], false));
@@ -3127,6 +3128,19 @@ views.reviews = async () => {
   mn(hd('Reviews') + `<div class="panel"><div class="tw"><table class="t"><tr><th>Product</th><th>Rating</th><th>Review</th><th>By</th><th></th></tr>${d.reviews.map((r) => `<tr><td>${e(r.product)}</td><td>${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</td><td>${e(r.title)}<div class="mu2">${e(r.body)}</div></td><td>${e(r.name)}<div class="mu2">${dt(r.created)}</div></td><td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" data-ar="${r.id}" data-v="${r.approved ? 0 : 1}">${r.approved ? 'Hide' : 'Approve'}</button> <button class="btn ghost sm" data-dr="${r.id}">Delete</button></td></tr>`).join('') || '<tr><td colspan="5" class="mu">No reviews yet.</td></tr>'}</table></div></div>`);
   onAll('[data-ar]', 'click', async (el) => { await api('/api/admin/reviews/' + el.dataset.ar, { method: 'PUT', body: { approved: el.dataset.v === '1' } }); route(); });
   onAll('[data-dr]', 'click', async (el) => { if (!confirm('Delete this review?')) return; await api('/api/admin/reviews/' + el.dataset.dr, { method: 'DELETE' }); route(); });
+};
+
+/* ---------------- SEO status (owner only; read-only) ---------------- */
+views.seo = async () => {
+  const d = await api('/api/admin/seo');
+  const row = (k, v) => `<tr><td>${e(k)}</td><td>${v}</td></tr>`, ok = (b) => (b ? '✅' : '⚠️');
+  const grp = (label, g) => `<tr><td>${e(label)}</td><td><b>${g.count}</b>${g.count ? `<details><summary class="mu">Show ${Math.min(g.count, g.sample.length)}</summary>${g.sample.map((x) => `<div><a href="/product/${e(x.slug)}" target="_blank" rel="noopener">${e(x.name)}</a></div>`).join('')}</details>` : ''}</td></tr>`;
+  const warn = d.canonical_warnings.length ? d.canonical_warnings.map((w) => `<div class="note" style="margin:6px 0">⚠️ ${e(w)}</div>`).join('') : '<p>✅ No canonical address problems found.</p>';
+  mn(hd('SEO status') + `<div class="panel"><h3>Domain</h3><table class="t">${row('BASE_URL (used in every canonical link and sitemap address)', `${ok(d.domain.matches_production)} ${e(d.domain.base_url)}`)}${row('Production domain', e(d.domain.production_origin))}${row('Sitemap', `<a href="${e(d.urls.sitemap)}" target="_blank" rel="noopener">${e(d.urls.sitemap)}</a>`)}${row('robots.txt', `<a href="${e(d.urls.robots)}" target="_blank" rel="noopener">${e(d.urls.robots)}</a>`)}${row('Merchant Center feed', `<a href="${e(d.urls.merchant_feed)}" target="_blank" rel="noopener">${e(d.urls.merchant_feed)}</a>`)}</table>${warn}</div>
+  <div class="panel"><h3>What is public</h3><table class="t">${row('Public products', d.counts.public_products)}${row('Public departments', d.counts.public_departments)}${row('Partner stores', d.counts.partner_stores)}${row('Pages in the sitemap', d.counts.sitemap_urls)}${row('Products in the Merchant feed', `${d.merchant_feed.included} (left out: ${d.merchant_feed.excluded}: no price ${d.merchant_feed.excluded_reasons.price}, no photo ${d.merchant_feed.excluded_reasons.image}, no description ${d.merchant_feed.excluded_reasons.description})`)}</table></div>
+  <div class="panel"><h3>Product data to fix</h3><table class="t">${grp('Missing description', d.products.missing_description)}${grp('Very short description (under 40 characters)', d.products.short_description)}${grp('Missing photos', d.products.missing_images)}${grp('Missing brand', d.products.missing_brand)}${grp('No SKU and no valid barcode', d.products.missing_identifiers)}${row('Without a valid GTIN barcode (fine if the product has none)', d.products.no_valid_gtin.count)}${grp('Duplicate or unusual addresses (slugs)', d.products.bad_or_duplicate_slugs)}${grp('Price is zero', d.products.zero_price)}</table></div>
+  <div class="panel"><h3>Page details</h3><table class="t">${row('Departments with no description', d.metadata.departments_missing_description.length ? e(d.metadata.departments_missing_description.join(', ')) : '✅ none')}${row('Partner stores with no description', d.metadata.partner_stores_missing_description.length ? e(d.metadata.partner_stores_missing_description.join(', ')) : '✅ none')}${row('Products using their name as the description', d.metadata.products_without_own_description)}${row('Logo set (Settings)', ok(d.metadata.logo_configured))}${row('Social profiles used in structured data', d.metadata.social_profiles_configured.length ? e(d.metadata.social_profiles_configured.join(', ')) : 'none set')}</table></div>
+  <div class="panel"><h3>Google Search Console</h3><table class="t">${row('Verification meta tag (GOOGLE_SITE_VERIFICATION)', ok(d.search_console.meta_tag_configured))}${row('Verification file (GOOGLE_VERIFICATION_FILE)', ok(d.search_console.html_file_configured))}</table><p class="mu">${e(d.search_console.note)}</p></div>`);
 };
 
 /* ---------------- messages ---------------- */
