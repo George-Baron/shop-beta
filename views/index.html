@@ -2573,21 +2573,47 @@ views.returns = async () => {
   const d = await api('/api/admin/returns?' + new URLSearchParams({ ...(retstate.status ? { status: retstate.status } : {}), ...(retstate.q ? { q: retstate.q } : {}) }));
   retWaiting = (d.counts.requested || 0) + (d.counts.awaiting_settlement || 0) + (d.counts.settling || 0);
   const col = { requested: '#b45309', awaiting_settlement: '#1d4ed8', settling: '#1d4ed8', settled: '#15803d', rejected: '#b42318', cancelled: '#667085' };
-  mn(hd('Returns', `<span class="mu2">${d.counts.requested || 0} to review · ${(d.counts.awaiting_settlement || 0) + (d.counts.settling || 0)} awaiting settlement</span>`) + `<p class="mu2">Customers ask to return delivered items from their order page. Review each request, approve or decline it, then settle the approved refund: the money goes back to where the customer paid from.</p>
+  mn(hd('Returns', `<span class="mu2">${d.counts.requested || 0} to review · ${(d.counts.awaiting_settlement || 0) + (d.counts.settling || 0)} awaiting settlement</span> <button class="btn sm" id="ropen">+ Open a return for a customer</button>`) + `<p class="mu2">Customers ask to return delivered items from their order page. Review each request, approve or decline it, then settle the approved refund: the money goes back to where the customer paid from.</p>
    <div class="tbar"><select id="rs"><option value="">All returns</option>${Object.entries(d.labels).map(([k, v]) => `<option value="${k}" ${retstate.status === k ? 'selected' : ''}>${e(v)}${d.counts[k] ? ' (' + d.counts[k] + ')' : ''}</option>`).join('')}</select><input id="rq" placeholder="Search order, return or customer" value="${e(retstate.q)}"></div>
    <div class="panel"><div class="tw"><table class="t"><tr><th>Return</th><th>Order</th><th>Customer</th><th>Items</th><th>Reason</th><th>Refund</th><th>Status</th><th>Asked</th></tr>${d.returns.map((r) => `<tr class="click" data-ret="${r.id}"><td><b>${e(r.ref)}</b></td><td>${e(r.order_ref)}</td><td>${e(r.customer)}</td><td>${r.items.map((i) => i.qty + ' × ' + e(i.name)).join(', ')}</td><td>${e(r.reason)}</td><td>${naira(r.approved_amount != null ? r.approved_amount : r.requested_amount)}</td><td style="font-weight:700;color:${col[r.status] || '#344054'}">${e(r.status_text)}</td><td>${dt(r.created)}</td></tr>`).join('') || '<tr><td colspan="8" class="mu2">No returns yet.</td></tr>'}</table></div></div>`);
   on('#rs', 'change', () => { retstate.status = $('#rs').value; return views.returns(); });
   on('#rq', 'keydown', (ev) => { if (ev.key === 'Enter') { retstate.q = ev.target.value; return views.returns(); } });
   onAll('[data-ret]', 'click', (el) => returnModal(el.dataset.ret));
+  on('#ropen', 'click', openReturnForm);
   if (retTarget) { const t = retTarget; retTarget = null; returnModal(t); }
 };
+// Staff opens a return for a customer who asked by phone, in the shop or on WhatsApp.
+function openReturnForm() {
+  const mon = (sel, fn) => { const x = $(sel, modal); if (x) x.addEventListener('click', guard(fn)); };
+  openModal(`<h2>Open a return for a customer</h2><p class="mu2">Use this when the customer asked you directly. They get the same emails as if they had asked online, and the request goes to review and then to the owner for approval.</p>
+    <div class="fld"><label>Order number</label><input id="ro-ref" placeholder="e.g. VM-1234"></div><button class="btn sm" id="ro-find">Find order</button><div id="ro-body" style="margin-top:12px"></div>`);
+  mon('#ro-find', async () => {
+    const box = $('#ro-body', modal); box.innerHTML = '';
+    try {
+      const x = await api('/api/admin/returns/lookup?ref=' + encodeURIComponent($('#ro-ref', modal).value));
+      if (!x.can) { box.innerHTML = `<p style="color:#b42318">${e(x.reason || 'This order cannot be returned.')}</p>`; return; }
+      box.innerHTML = `<p><b>${e(x.order.ref)}</b> · ${e(x.order.name)} · ${e(x.order.email)}</p>${x.past_window ? `<p style="color:#b45309">This order is past its ${x.days}-day window. You can still open it; the approver will see that it is late.</p>` : ''}
+        ${x.lines.map((l) => `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:4px 0"><span>${e(l.name)} · ${naira(l.price)}</span><input type="number" min="0" max="${l.qty}" value="0" data-roq="${l.item_id}" style="width:64px"> <span class="mu2">of ${l.qty}</span></div>`).join('')}
+        <div class="fld"><label>Why</label><select id="ro-why">${Object.entries(x.reasons).map(([k, v]) => `<option value="${k}">${e(v)}</option>`).join('')}</select></div>
+        <div class="fld"><label>Condition</label><select id="ro-cond">${Object.entries(x.conditions).map(([k, v]) => `<option value="${k}">${e(v)}</option>`).join('')}</select></div>
+        <div class="fld"><label>Original packaging</label><select id="ro-pack"><option value="original">Yes</option><option value="no">No</option></select></div>
+        <div class="fld"><label>What happened (the customer's words)</label><textarea id="ro-det" rows="3"></textarea></div>
+        <div class="fld"><label>Internal note (optional)</label><input id="ro-note" placeholder="e.g. called 0803… on Monday"></div>
+        <button class="btn" id="ro-go">Open return</button>`;
+      mon('#ro-go', async () => {
+        const items = $$('[data-roq]', modal).map((i) => ({ item_id: Number(i.dataset.roq), qty: Number(i.value) })).filter((i) => i.qty > 0);
+        try { await api('/api/admin/returns/open', { body: { order_ref: x.order.ref, reason: $('#ro-why', modal).value, condition: $('#ro-cond', modal).value, packaging: $('#ro-pack', modal).value, details: $('#ro-det', modal).value, note: $('#ro-note', modal).value, items } }); toast('Return opened. The customer was emailed.'); closeModal(); await views.returns(); } catch (er) { toast(er.message, 'bad'); }
+      });
+    } catch (er) { box.innerHTML = `<p style="color:#b42318">${e(er.message)}</p>`; }
+  });
+}
 async function returnModal(id) {
   const d = await api('/api/admin/returns/' + id), r = d.return, o = d.order, P = d.plan;
   const canFinance = me.role === 'admin' || can('finance', true), canOrders = me.role === 'admin' || can('orders', true);
   const row = (a, b) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid var(--border)"><span class="mu2">${a}</span><span style="text-align:right">${b}</span></div>`;
   openModal(`<h2>Return ${e(r.ref)} <span class="mu2" style="font-size:14px">· order ${e(r.order_ref)}</span></h2>
     <p style="margin:0 0 8px;font-weight:700">${e(r.status_text)}</p>
-    ${row('Customer', `${e(r.customer)} · ${e(r.email)}${o.phone ? ' · ' + e(o.phone) : ''}`)}${row('Items to return', r.items.map((i) => i.qty + ' × ' + e(i.name) + ' (' + naira(i.price) + ')').join('<br>'))}${row('Reason', e(r.reason))}${row('Condition', e(r.condition))}${row('Original packaging', r.packaging === 'original' ? 'Yes' : 'No')}${row('What happened', e(r.details) || '<span class="mu2">—</span>')}${row('Customer photos', (d.photos || []).length ? `<span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${d.photos.map((p) => `<a href="/api/admin/returns/${r.id}/photos/${p}" target="_blank" rel="noopener"><img src="/api/admin/returns/${r.id}/photos/${p}" alt="Return photo" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--border)"></a>`).join('')}</span>` : '<span class="mu2">None attached</span>')}
+    ${row('Opened by', r.opened_by === 'staff' ? `${e(r.opened_by_name || 'Staff')} for the customer${r.past_window ? ' <b style="color:#b45309">(after the return window)</b>' : ''}${r.open_note ? '<br><span class="mu2">' + e(r.open_note) + '</span>' : ''}` : 'The customer')}${row('Customer', `${e(r.customer)} · ${e(r.email)}${o.phone ? ' · ' + e(o.phone) : ''}`)}${row('Items to return', r.items.map((i) => i.qty + ' × ' + e(i.name) + ' (' + naira(i.price) + ')').join('<br>'))}${row('Reason', e(r.reason))}${row('Condition', e(r.condition))}${row('Original packaging', r.packaging === 'original' ? 'Yes' : 'No')}${row('What happened', e(r.details) || '<span class="mu2">—</span>')}${row('Customer photos', (d.photos || []).length ? `<span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${d.photos.map((p) => `<a href="/api/admin/returns/${r.id}/photos/${p}" target="_blank" rel="noopener"><img src="/api/admin/returns/${r.id}/photos/${p}" alt="Return photo" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--border)"></a>`).join('')}</span>` : '<span class="mu2">None attached</span>')}
     ${row('Order paid with', e(o.payment_method) + (o.wallet_amount ? ' + wallet ' + naira(o.wallet_amount / 100) : ''))}${row('Order total', naira(o.total))}${row('Refund the rules suggest', naira(r.requested_amount))}
     ${r.decided_by ? row('Decision', `${e(r.decided_by)} · ${dt(r.decided_at)}${r.decision_note ? '<br>' + e(r.decision_note) : ''}`) : ''}
     ${r.status === 'settled' ? row('Settled', `${e(r.settled_by)} · ${dt(r.settled_at)}<br>${r.wallet_refunded ? 'To VELTO wallet: ' + naira(r.wallet_refunded / 100) + '<br>' : ''}${r.gateway_refunded ? (r.settle_method === 'manual' ? 'Paid by hand: ' : 'Back to card/bank: ') + naira(r.gateway_refunded / 100) + (r.settle_reference ? ' (ref ' + e(r.settle_reference) + ')' : r.gateway_ref ? ' (Paystack ref ' + e(r.gateway_ref) + ', ' + e(r.gateway_status) + ')' : '') : ''}${r.restocked ? '<br>Items put back in stock' : ''}`) : ''}

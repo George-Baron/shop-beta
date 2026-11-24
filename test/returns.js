@@ -181,6 +181,31 @@ const start = async (port, mail, fakePort) => {
     const d = await order({ ref: 'DISC1' + tag.toUpperCase().slice(-3), lines: [[kettle, 'Kettle', 6000, 1], [mug, 'Mug', 1000, 4]], fee: 0, discount: 1000 });   // subtotal 10000, paid 9000
     const rq = (await ask(d, { reason: 'changed_mind', condition: 'unopened', details: '', items: [{ item_id: d.items[0].id, qty: 1 }] })).j; assert.strictEqual((await ret(rq.id)).requested_amount, 5400);
   });
+  console.log('\nOperations Manager opens a return for a customer');
+  await test('the Operations Manager role exists and can open returns; roles without Orders: Edit cannot', async () => {
+    const roles = (await A('GET', '/staff')).j.roles, om = roles.find((x) => x.name === 'Operations Manager'); assert.ok(om && om.builtin, 'role is built in');
+    const ops = await emp('Opal Ops', 'opal@example.com', 'Operations Manager'), d = await order({ ref: 'OPS1' + tag.toUpperCase().slice(-3) });
+    assert.strictEqual((await A('GET', '/returns/lookup?ref=' + d.ref, undefined, ops)).s, 200);
+    const fin = await emp('Fin Only', 'finonly@example.com', 'Finance Officer'); assert.strictEqual((await A('POST', '/returns/open', { order_ref: d.ref }, fin)).s, 403);
+    const body = { order_ref: d.ref, reason: 'faulty', condition: 'damaged', packaging: 'original', details: 'Customer phoned: it will not switch on.', note: 'Phone call Monday', items: [{ item_id: d.items[0].id, qty: 1 }] };
+    const r = await A('POST', '/returns/open', body, ops); assert.strictEqual(r.s, 200, r.t);
+    const x = await ret(r.j.id); assert.strictEqual(x.opened_by, 'staff'); assert.strictEqual(x.opened_by_name, 'Opal Ops'); assert.strictEqual(x.status, 'requested'); assert.strictEqual(x.requested_amount, 6000); assert.strictEqual(x.open_note, 'Phone call Monday');
+    assert.ok((await q("SELECT 1 FROM outbox WHERE to_email='ada@buyer.com' AND subject LIKE $1", ['%' + r.j.ref + '%'])).length >= 1, 'the customer is emailed');
+    assert.ok((await view(d)).returns[0].ref === r.j.ref, 'the customer sees it on the order page');
+    assert.strictEqual((await A('POST', '/returns/open', body, ops)).s, 400, 'one open return per order');
+    const det = (await A('GET', '/returns/' + r.j.id)).j.return; assert.strictEqual(det.opened_by, 'staff'); assert.strictEqual(det.opened_by_name, 'Opal Ops');
+    assert.ok((await q("SELECT 1 FROM audit_log WHERE path='/api/admin/returns/open'")).length >= 1, 'in the activity log');
+  });
+  await test('staff may open one after the window, flagged late; the customer still cannot; unknown orders, unpaid and undelivered are refused', async () => {
+    const old = await order({ ref: 'OLD1' + tag.toUpperCase().slice(-3), deliveredAt: T() - 86400 * 20 }), b = { order_ref: old.ref, reason: 'faulty', condition: 'damaged', packaging: 'no', details: 'Found a defect while using it.', items: [{ item_id: old.items[0].id, qty: 1 }] };
+    assert.strictEqual((await ask(old, {})).s, 400, 'customer is blocked by the window');
+    const l = (await A('GET', '/returns/lookup?ref=' + old.ref)).j; assert.strictEqual(l.can, true); assert.strictEqual(l.past_window, true);
+    const r = await A('POST', '/returns/open', b); assert.strictEqual(r.s, 200, r.t); assert.strictEqual(Number((await ret(r.j.id)).past_window), 1);
+    assert.strictEqual((await A('POST', '/returns/open', { ...b, order_ref: 'NOPE-1' })).s, 404);
+    const unpaid = await order({ ps: 'unpaid' }); assert.strictEqual((await A('POST', '/returns/open', { ...b, order_ref: unpaid.ref, items: [{ item_id: unpaid.items[0].id, qty: 1 }] })).s, 400);
+    const sh = await order({ status: 'shipped', deliveredAt: null }); assert.strictEqual((await A('POST', '/returns/open', { ...b, order_ref: sh.ref, items: [{ item_id: sh.items[0].id, qty: 1 }] })).s, 400);
+    assert.strictEqual((await A('POST', '/returns/open', b, ada.c)).s !== 200, true, 'a shopper cannot use the staff route');
+  });
   console.log('\nSafety');
   await test('every step is in the activity log, and the page for customers never shows staff names or gateway details', async () => {
     assert.ok((await q("SELECT 1 FROM audit_log WHERE path LIKE '/api/admin/returns/%/approve'")).length >= 1); assert.ok((await q("SELECT 1 FROM audit_log WHERE path LIKE '/api/admin/returns/%/settle'")).length >= 1);
