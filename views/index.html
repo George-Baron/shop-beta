@@ -1152,9 +1152,18 @@ async function orderPage(main, ref, u, cfg) {
     const op = $('#retopen', retc); if (op) op.addEventListener('click', () => { $('#retform', retc).classList.toggle('hide'); });
     const go2 = $('#retgo2', retc); if (go2) go2.addEventListener('click', async () => {
       const items = $$('[data-ritem]', retc).filter((c) => c.checked).map((c) => { const q = $(`[data-rqty="${c.dataset.ritem}"]`, retc); return { item_id: Number(c.dataset.ritem), qty: q ? Number(q.value) : 1 }; });
-      try { go2.disabled = true; await api(`/api/orders/${encodeURIComponent(ref)}/return`, { body: { email, token, items, reason: $('#rreason', retc).value, condition: $('#rcond', retc).value, packaging: $('#rpack', retc).value, details: $('#rdet', retc).value } }); toast('Return request sent. We will email you the decision.'); rerender(); }
+      try {
+        go2.disabled = true;
+        const files = Array.from(($('#rphotos', retc) || {}).files || []).slice(0, 5);
+        if (($('#rphotos', retc) || {}).files && $('#rphotos', retc).files.length > 5) throw new Error('Please choose at most 5 photos.');
+        const shots = []; for (const f of files) shots.push(await shrinkPhoto(f));   // a bad file stops us before anything is sent
+        const made = await api(`/api/orders/${encodeURIComponent(ref)}/return`, { body: { email, token, items, reason: $('#rreason', retc).value, condition: $('#rcond', retc).value, packaging: $('#rpack', retc).value, details: $('#rdet', retc).value } });
+        let lost = 0; for (const data of shots) { try { await api(`/api/orders/${encodeURIComponent(ref)}/return/${made.id}/photos`, { body: { email, token, data } }); } catch { lost++; } }
+        toast(lost ? `Return request sent, but ${lost} photo${lost === 1 ? '' : 's'} could not be uploaded. You can email them to us.` : 'Return request sent. We will email you the decision.', lost ? 'bad' : undefined); rerender();
+      }
       catch (er) { go2.disabled = false; toast(er.message, 'bad'); }
     });
+    $$('[data-retphoto]', retc).forEach(async (img) => { try { const [rid, pid] = img.dataset.retphoto.split(':'); const r = await fetch(`/api/orders/${encodeURIComponent(ref)}/return/${rid}/photos/${pid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ email, token }) }); if (r.ok) img.src = await readAsData(await r.blob()); } catch { /* the picture just stays blank */ } });
     $$('[data-retcancel]', retc).forEach((b) => b.addEventListener('click', async () => { if (!confirm('Cancel this return request?')) return; try { await api(`/api/orders/${encodeURIComponent(ref)}/return/${b.dataset.retcancel}/cancel`, { body: { email, token } }); toast('Return request cancelled'); rerender(); } catch (er) { toast(er.message, 'bad'); } }));
   }
   const rt = $('#ratebox');
@@ -1183,6 +1192,17 @@ function shipmentsCard(order, ref, email, token, rerender) {
    ${x.refund_due ? `<div style="font-size:13px">Refund due to you: <b>${naira(x.refund_due)}</b></div>` : ''}</div>`).join('')}</div>`;
 }
 
+// Shrinks a phone photo in the browser (longest side 1600 px, JPEG) so it uploads quickly and stays under the size limit.
+const readAsData = (blob) => new Promise((resolve, reject) => { const fr = new FileReader(); fr.onload = () => resolve(fr.result); fr.onerror = () => reject(new Error('That file could not be read.')); fr.readAsDataURL(blob); });
+async function shrinkPhoto(file) {   // data: links only: the site's security policy does not allow blob: images
+  const src = await readAsData(file);
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => { const k = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); resolve(c.toDataURL('image/jpeg', 0.82)); };
+    img.onerror = () => reject(new Error('That file is not a photo we can read.'));
+    img.src = src;
+  });
+}
 function returnCard(order) {
   const ri = order.return_info, rs = order.returns || []; if (!ri && !rs.length) return '';
   const col = { requested: '#b45309', awaiting_settlement: '#1d4ed8', settling: '#1d4ed8', settled: '#15803d', rejected: '#b42318', cancelled: '#667085' };
@@ -1192,6 +1212,7 @@ function returnCard(order) {
     ${r.status === 'awaiting_settlement' ? '<div class="mu">Your return was approved. The refund goes back to the account your payment came from once it is settled; we will tell you when it is sent.</div>' : ''}
     ${r.refunded_to ? `<div style="color:#15803d">Refunded: ${e(r.refunded_to)}.</div>` : ''}
     ${r.note ? `<div class="mu">Note from our team: ${e(r.note)}</div>` : ''}
+    ${(r.photos || []).length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${r.photos.map((p) => `<img data-retphoto="${r.id}:${p}" alt="Return photo" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--line,#e5e7eb)">`).join('')}</div>` : ''}
     ${r.can_cancel ? `<button class="btn ghost sm" data-retcancel="${r.id}" style="margin-top:6px">Cancel this request</button>` : ''}</div>`).join('');
   let form = '';
   if (ri && ri.can) {
@@ -1202,6 +1223,8 @@ function returnCard(order) {
       <label class="f">2. What condition is it in?<select id="rcond"><option value="">Choose…</option>${Object.entries(ri.conditions).map(([k, v]) => `<option value="${k}">${e(v)}</option>`).join('')}</select></label>
       <label class="f">3. Do you still have the original packaging?<select id="rpack"><option value="">Choose…</option><option value="original">Yes</option><option value="no">No</option></select></label>
       <label class="f">4. Tell us what happened<textarea id="rdet" rows="3" maxlength="1000" placeholder="For example: the zip is broken, or the colour is different from the photo"></textarea></label>
+      <label class="f">5. Photos (optional, up to 5)<input type="file" id="rphotos" accept="image/png,image/jpeg,image/webp" multiple></label>
+      <div class="mu" style="margin:-4px 0 6px;font-size:12px">A photo of the problem helps us decide faster.</div>
       <div class="mu" style="margin:6px 0">If approved, your refund goes back to where your payment came from (card or wallet).</div>
       <button class="btn" id="retgo2">Send return request</button></div>`;
   } else if (ri && ri.reason && !rs.some((r) => ['requested', 'awaiting_settlement', 'settling'].includes(r.status))) form = `<div class="mu">${e(ri.reason)}</div>`;
@@ -2112,7 +2135,8 @@ async function partnerPortal(main) {
     }
     if (tab === 'earnings') {
       const r = await P('/earnings');
-      wrap(`<div class="row c2"><div class="card"><div class="mu">Owed to you now</div><h2 style="margin:4px 0">${naira(r.balance)}</h2><div class="mu" style="font-size:12px">Delivered sales ${naira(r.gross)} − our commission ${naira(r.commission)} − paid out ${naira(r.paid)}</div></div><div class="card"><div class="mu">On the way (not delivered yet)</div><h2 style="margin:4px 0">${naira(r.in_progress)}</h2><div class="mu" style="font-size:12px">Counted once the customer receives the order.</div></div></div>
+      wrap(`<div class="row c2"><div class="card"><div class="mu">Owed to you now</div><h2 style="margin:4px 0">${naira(r.balance)}</h2><div class="mu" style="font-size:12px">Delivered sales ${naira(r.gross)} − our commission ${naira(r.commission)}${r.adjustments ? ' − returns ' + naira(-r.adjustments) : ''} − paid out ${naira(r.paid)}</div></div><div class="card"><div class="mu">On the way (not delivered yet)</div><h2 style="margin:4px 0">${naira(r.in_progress)}</h2><div class="mu" style="font-size:12px">Counted once the customer receives the order.</div></div></div>
+        ${(r.adjustment_rows || []).length ? `<div class="card" style="margin-top:12px"><h3>Returns taken off your balance</h3><p class="mu" style="margin-top:0;font-size:13px">When a customer returns your item and is refunded, the value of those items (after our commission) is taken off what we owe you.</p>${r.adjustment_rows.map((a) => `<div style="display:flex;justify-content:space-between;padding:4px 0"><span>${fmt(a.created)} · order ${e(a.order_ref)} · ${e(a.note)}</span><b>−${naira(-a.amount)}</b></div>`).join('')}</div>` : ''}
         <div class="card" style="margin-top:12px"><h3>Payments we made to you</h3>${r.payouts.length ? r.payouts.map((p) => `<div style="display:flex;justify-content:space-between;padding:4px 0"><span>${fmt(p.created)} · ${e(p.method)} ${e(p.reference)}</span><b>${naira(p.amount)}</b></div>`).join('') : '<p class="mu">None yet.</p>'}</div>`);
       wire(); return;
     }
@@ -2563,7 +2587,7 @@ async function returnModal(id) {
   const row = (a, b) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid var(--border)"><span class="mu2">${a}</span><span style="text-align:right">${b}</span></div>`;
   openModal(`<h2>Return ${e(r.ref)} <span class="mu2" style="font-size:14px">· order ${e(r.order_ref)}</span></h2>
     <p style="margin:0 0 8px;font-weight:700">${e(r.status_text)}</p>
-    ${row('Customer', `${e(r.customer)} · ${e(r.email)}${o.phone ? ' · ' + e(o.phone) : ''}`)}${row('Items to return', r.items.map((i) => i.qty + ' × ' + e(i.name) + ' (' + naira(i.price) + ')').join('<br>'))}${row('Reason', e(r.reason))}${row('Condition', e(r.condition))}${row('Original packaging', r.packaging === 'original' ? 'Yes' : 'No')}${row('What happened', e(r.details) || '<span class="mu2">—</span>')}
+    ${row('Customer', `${e(r.customer)} · ${e(r.email)}${o.phone ? ' · ' + e(o.phone) : ''}`)}${row('Items to return', r.items.map((i) => i.qty + ' × ' + e(i.name) + ' (' + naira(i.price) + ')').join('<br>'))}${row('Reason', e(r.reason))}${row('Condition', e(r.condition))}${row('Original packaging', r.packaging === 'original' ? 'Yes' : 'No')}${row('What happened', e(r.details) || '<span class="mu2">—</span>')}${row('Customer photos', (d.photos || []).length ? `<span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${d.photos.map((p) => `<a href="/api/admin/returns/${r.id}/photos/${p}" target="_blank" rel="noopener"><img src="/api/admin/returns/${r.id}/photos/${p}" alt="Return photo" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--border)"></a>`).join('')}</span>` : '<span class="mu2">None attached</span>')}
     ${row('Order paid with', e(o.payment_method) + (o.wallet_amount ? ' + wallet ' + naira(o.wallet_amount / 100) : ''))}${row('Order total', naira(o.total))}${row('Refund the rules suggest', naira(r.requested_amount))}
     ${r.decided_by ? row('Decision', `${e(r.decided_by)} · ${dt(r.decided_at)}${r.decision_note ? '<br>' + e(r.decision_note) : ''}`) : ''}
     ${r.status === 'settled' ? row('Settled', `${e(r.settled_by)} · ${dt(r.settled_at)}<br>${r.wallet_refunded ? 'To VELTO wallet: ' + naira(r.wallet_refunded / 100) + '<br>' : ''}${r.gateway_refunded ? (r.settle_method === 'manual' ? 'Paid by hand: ' : 'Back to card/bank: ') + naira(r.gateway_refunded / 100) + (r.settle_reference ? ' (ref ' + e(r.settle_reference) + ')' : r.gateway_ref ? ' (Paystack ref ' + e(r.gateway_ref) + ', ' + e(r.gateway_status) + ')' : '') : ''}${r.restocked ? '<br>Items put back in stock' : ''}`) : ''}
@@ -2576,6 +2600,7 @@ async function returnModal(id) {
       <p class="mu2" style="margin:0 0 6px">${P.wallet ? `${naira(P.wallet / 100)} goes back to the customer's VELTO wallet (that part was paid from the wallet). ` : ''}${P.card ? `${naira(P.card / 100)} ${P.cash_order ? 'was paid in cash on delivery, so it cannot go back to a card' : 'goes back to the card or bank account the customer paid with'}.` : ''}</p>
       <label class="f">How do you want to pay it back?<select id="rm"><option value="original" ${P.cash_order ? 'disabled' : ''}>Original payment${P.can_auto ? ' (Paystack sends it, automatically)' : ''}</option>${P.has_wallet ? '<option value="wallet">VELTO wallet (instant)</option>' : ''}<option value="manual">Paid manually (bank transfer or the payment dashboard)</option></select></label>
       <label class="f hide" id="rrw">Reference of the refund you paid<input id="rr" maxlength="120" placeholder="Bank or Paystack reference"></label>
+      ${(d.vendor_shares || []).length ? `<label class="chk"><input type="checkbox" id="rcv" checked> Take it off the partner's balance: ${d.vendor_shares.map((v) => e(v.name || 'Partner') + ' ' + naira(v.amount)).join(', ')}</label><p class="mu2" style="margin:0 0 6px;font-size:12px">Untick if we cover this one (for example a delivery mistake). Not applied when the whole order is refunded: that order simply drops out of the partner's earnings.</p>` : ''}
       <label class="chk"><input type="checkbox" id="rst" ${['unopened', 'opened_unused'].some((c) => r.condition === ({ unopened: 'Unopened', opened_unused: 'Opened but unused' })[c]) ? 'checked' : ''}> Put the returned items back in stock</label>
       <div class="acts"><button class="btn" id="rsl">Settle refund</button><button class="btn ghost" id="rcl">Close</button></div>` : ''}
     ${r.status === 'awaiting_settlement' && !canFinance ? '<p class="mu2">This refund is waiting for someone with Finance access to settle it.</p>' : ''}
@@ -2586,7 +2611,7 @@ async function returnModal(id) {
   mon('#rap', () => send('#rap', `/api/admin/returns/${id}/approve`, { amount: Number($('#ra', modal).value), note: $('#rn', modal).value }, 'Approved. The refund is now awaiting settlement.')());
   mon('#rrj', () => send('#rrj', `/api/admin/returns/${id}/reject`, { note: $('#rn', modal).value }, 'Declined. The customer has been told.')());
   if ($('#rm', modal)) { const sync = () => $('#rrw', modal).classList.toggle('hide', $('#rm', modal).value !== 'manual'); $('#rm', modal).addEventListener('change', sync); if (P && P.cash_order) $('#rm', modal).value = P.has_wallet ? 'wallet' : 'manual'; sync(); }
-  mon('#rsl', () => send('#rsl', `/api/admin/returns/${id}/settle`, { method: $('#rm', modal).value, reference: $('#rr', modal).value, restock: $('#rst', modal).checked }, (x) => 'Refund settled' + (x.gateway_status && x.card ? ` (Paystack: ${x.gateway_status})` : ''))());
+  mon('#rsl', () => send('#rsl', `/api/admin/returns/${id}/settle`, { method: $('#rm', modal).value, reference: $('#rr', modal).value, restock: $('#rst', modal).checked, charge_vendor: $('#rcv', modal) ? $('#rcv', modal).checked : true }, (x) => 'Refund settled' + (x.gateway_status && x.card ? ` (Paystack: ${x.gateway_status})` : ''))());
 }
 
 /* ---------------- orders ---------------- */
@@ -3674,7 +3699,8 @@ async function vendorForm(id) {
    <label class="f full">Note to the store (shown to them; required when rejecting)<input id="vnote" value="${e(v.status_note)}" maxlength="300"></label></div>
    <div class="acts" style="flex-wrap:wrap"><button class="btn ghost" id="vx">Close</button><button class="btn ghost" id="vsave">Save changes</button>
     ${v.status !== 'approved' && v.status !== 'suspended' ? '<button class="btn" id="vok">Approve store</button>' : ''}${v.status === 'approved' ? '<button class="btn ghost" id="vsus">Pause store</button>' : ''}${v.status === 'suspended' ? '<button class="btn" id="vre">Reinstate</button>' : ''}${v.status === 'pending' ? '<button class="btn ghost" id="vrej">Reject</button>' : ''}</div>
-   <h3 style="margin-top:16px">Money</h3><p class="mu2">Delivered sales ${naira(v.gross)} · our commission ${naira(v.commission)} · paid out ${naira(v.paid)} · <b>we owe ${naira(v.balance)}</b> · on the way ${naira(v.in_progress)}</p>
+   <h3 style="margin-top:16px">Money</h3><p class="mu2">Delivered sales ${naira(v.gross)} · our commission ${naira(v.commission)}${v.adjustments ? ' · returns ' + naira(-v.adjustments) : ''} · paid out ${naira(v.paid)} · <b>we owe ${naira(v.balance)}</b> · on the way ${naira(v.in_progress)}</p>
+   ${(d.adjustment_rows || []).map((a) => `<div class="mu2">${new Date(a.created * 1000).toLocaleDateString('en-NG')} · −${naira(-a.amount)} · ${e(a.note)}</div>`).join('')}
    ${d.payouts.length ? d.payouts.map((p) => `<div class="mu2">${new Date(p.created * 1000).toLocaleDateString('en-NG')} · ${naira(p.amount)} · ${e(p.method)} ${e(p.reference)} · by ${e(p.created_by)}</div>`).join('') : ''}
    <h3 style="margin-top:16px">Recent orders with this store</h3>${d.orders.length ? d.orders.slice(0, 10).map((o) => `<div class="mu2">${e(o.ref)} · ${e(o.status)} · sales ${naira(o.gross)} · commission ${naira(o.commission)}</div>`).join('') : '<p class="mu2">None yet.</p>'}`, true);
   const depts = () => $$('.vdep').filter((c) => c.checked).map((c) => ({ store: c.value, commission_pct: ($$('.vdp').find((i) => i.dataset.s === c.value) || {}).value || '' }));
