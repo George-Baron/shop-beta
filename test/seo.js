@@ -61,8 +61,8 @@ const locs = (xml) => [...xml.matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => m[1].
   });
   await test('does not block pages that carry a noindex tag, so Google can read it', async () => {
     const r = (await call('GET', '/robots.txt')).t, lines = r.split('\n').filter((l) => /^Disallow:/.test(l)).map((l) => l.replace('Disallow:', '').trim());
-    assert.deepStrictEqual(lines, ['/api/'], 'only the JSON API is disallowed');
-    for (const p of ['/admin', '/account', '/checkout', '/order/X', '/login', '/wholesale', '/supplier', '/partner', '/rider']) assert.ok(!lines.some((d) => p.startsWith(d)), p + ' must stay crawlable');
+    assert.deepStrictEqual(lines, ['/admin', '/api/'], 'only the admin dashboard and the JSON API are disallowed');
+    for (const p of ['/account', '/checkout', '/order/X', '/login', '/wholesale', '/supplier', '/partner', '/rider']) assert.ok(!lines.some((d) => p.startsWith(d)), p + ' must stay crawlable');
     assert.ok(!lines.some((d) => '/uploads/x.jpg'.startsWith(d) || '/brand/velto-banner.jpg'.startsWith(d)), 'images stay crawlable');
   });
 

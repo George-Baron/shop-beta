@@ -266,7 +266,7 @@ async function test(name, fn) {
     assert.strictEqual((await guest.get('/d/nowhere')).status, 404); assert.strictEqual((await guest.get('/product/nope')).status, 404); assert.strictEqual((await guest.get('/admin')).status, 200);
     assert.match((await guest.get('/admin')).text, /noindex/); assert.strictEqual(page.headers.get('x-frame-options'), 'DENY');
     const sm = await guest.get('/sitemap.xml'); assert.match(sm.text, /\/d\/fashion/); assert.ok(!sm.text.includes('/product/' + plain.slug)); // hidden products are not listed
-    { const rb = (await guest.get('/robots.txt')).text; assert.match(rb, /Disallow: \/api\//); assert.ok(!/Disallow: \/admin/.test(rb), 'private pages stay crawlable so Google can read their noindex'); }
+    { const rb = (await guest.get('/robots.txt')).text; assert.match(rb, /Disallow: \/api\//); assert.match(rb, /Disallow: \/admin/); assert.ok(!/Disallow: \/(account|checkout|order)/.test(rb), 'other private pages stay crawlable so Google can read their noindex'); }
     assert.strictEqual((await guest.get('/api/nothing')).status, 404);
   });
   await test('login is rate limited', async () => {
