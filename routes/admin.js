@@ -334,6 +334,8 @@ router.put('/settings', ah(async (req, res) => {
   if ('free_shipping_threshold' in s) out.free_shipping_threshold = String(Math.max(0, int(s.free_shipping_threshold)));
   if ('pod_confirm_hours' in s) out.pod_confirm_hours = String(Math.min(168, Math.max(1, int(s.pod_confirm_hours, 24))));
   for (const [k, lo, hi, d] of [['max_distance_km', 1, 500, 60], ['per_km_fee', 0, 5000, 0], ['free_km', 0, 500, 0], ['prep_minutes', 0, 600, 20], ['open_hour', 0, 23, 8], ['cutoff_hour', 1, 24, 20]]) if (k in s) out[k] = String(Math.min(hi, Math.max(lo, int(s[k], d))));
+  if ('return_auto_refund' in s) out.return_auto_refund = String(s.return_auto_refund) === '0' || s.return_auto_refund === false ? '0' : '1';
+  if ('return_auto_approve_max' in s) out.return_auto_approve_max = String(Math.min(10000000, Math.max(0, int(s.return_auto_approve_max))));
   if ('return_days' in s) out.return_days = String(Math.min(365, Math.max(0, int(s.return_days))));
   if ('express_multiplier' in s) { const m = Number(s.express_multiplier); out.express_multiplier = String(Number.isFinite(m) ? Math.min(5, Math.max(1, m)) : 1.5); }
   if ('assistant_notes' in s) out.assistant_notes = str(s.assistant_notes, 1500);

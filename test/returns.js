@@ -31,6 +31,7 @@ const start = async (port, mail, fakePort) => {
   const { srv, call } = await start(port, true, fport);
   const owner = (await call('POST', '/api/auth/login', { email: 'owner@example.com', password: OWNER })).c;
   const A = (m, u, b, c) => call(m, '/api/admin' + u, b, c === undefined ? owner : c);
+  assert.strictEqual((await A('PUT', '/settings', { settings: { return_auto_refund: '0' } })).s, 200);   // the older tests below check manual settlement; automatic sending is tested in its own section
   const PW = 'Blue-Harbour-Lamp-2026-x', T = () => Math.floor(Date.now() / 1000);
   const reg = async (name, email) => { assert.strictEqual((await call('POST', '/api/auth/register', { name, email, phone: '0803' + String(Math.random()).slice(2, 9), password: PW })).s, 200); return { id: Number((await q('SELECT id FROM users WHERE email=$1', [email]))[0].id), c: (await call('POST', '/api/auth/login', { email, password: PW })).c, email, name }; };
   const ada = await reg('Ada Buyer', 'ada@buyer.com'), bob = await reg('Bob Other', 'bob@buyer.com');
@@ -205,6 +206,54 @@ const start = async (port, mail, fakePort) => {
     const unpaid = await order({ ps: 'unpaid' }); assert.strictEqual((await A('POST', '/returns/open', { ...b, order_ref: unpaid.ref, items: [{ item_id: unpaid.items[0].id, qty: 1 }] })).s, 400);
     const sh = await order({ status: 'shipped', deliveredAt: null }); assert.strictEqual((await A('POST', '/returns/open', { ...b, order_ref: sh.ref, items: [{ item_id: sh.items[0].id, qty: 1 }] })).s, 400);
     assert.strictEqual((await A('POST', '/returns/open', b, ada.c)).s !== 200, true, 'a shopper cannot use the staff route');
+  });
+  console.log('\nOwner approval and automatic refund');
+  const autoOn = async (v, max) => { const r = await A('PUT', '/settings', { settings: { return_auto_refund: v, return_auto_approve_max: String(max || 0) } }); assert.strictEqual(r.s, 200, r.t); };
+  let ops2, recd;
+  await test('a reviewer only recommends: the return waits for the owner, nothing is refunded, the customer sees no decision yet, the owner is told', async () => {
+    await autoOn('1'); ops2 = await emp('Ola Ops', 'ola@example.com', 'Operations Manager'); fake.calls.length = 0;
+    const d = await order({ ref: 'REC1' + tag.toUpperCase().slice(-3) }), rq = (await ask(d, {})).j;
+    const r = await A('POST', `/returns/${rq.id}/approve`, { amount: 6000, note: 'Faulty, photos look right.' }, ops2); assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.stage, 'recommended');
+    const x = await ret(rq.id); assert.strictEqual(x.status, 'recommended'); assert.strictEqual(x.approved_amount, null); assert.strictEqual(x.recommended_amount, 6000); assert.strictEqual(x.recommended_by_name, 'Ola Ops'); assert.strictEqual(fake.calls.length, 0, 'no money moved');
+    const v = await view(d); assert.strictEqual(v.returns[0].status_text, 'Waiting for review'); assert.strictEqual(v.returns[0].approved_amount, null, 'customer sees no amount yet'); assert.strictEqual(v.returns[0].can_cancel, false);
+    assert.ok((await q("SELECT 1 FROM notifications n JOIN users u ON u.id=n.user_id WHERE u.role='admin' AND n.title LIKE $1", ['%needs your approval%' + d.ref])).length >= 1, 'owner notified');
+    assert.strictEqual((await A('POST', `/returns/${rq.id}/approve`, {}, ops2)).s, 409, 'cannot recommend twice');
+    assert.strictEqual((await A('POST', `/returns/${rq.id}/reject`, { note: 'Not eligible' }, ops2)).s, 403, 'a reviewer cannot decline once it is with the owner');
+    assert.strictEqual((await A('POST', `/returns/${rq.id}/settle`, { method: 'original' })).s, 409, 'even the owner cannot settle before approving');
+    const det = (await A('GET', '/returns/' + rq.id, undefined, ops2)).j.return; assert.strictEqual(det.status, 'recommended'); assert.strictEqual(det.recommended_by, 'Ola Ops');
+    d.rq = rq; recd = d;
+  });
+  await test('the owner approves: Paystack is asked for the right amount automatically, the return is settled, the customer is told, nobody has to settle it', async () => {
+    const d = recd, rq = d.rq; fake.calls.length = 0;
+    const r = await A('POST', `/returns/${rq.id}/approve`, {}); assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.stage, 'approved'); assert.strictEqual(r.j.auto.ok, true);
+    const x = await ret(rq.id); assert.strictEqual(x.status, 'settled'); assert.strictEqual(x.approved_amount, 6000, 'defaults to what the reviewer recommended'); assert.strictEqual(x.approval, 'owner'); assert.strictEqual(x.auto_settle, 'done'); assert.strictEqual(Number(x.gateway_refunded), 600000);
+    assert.strictEqual(fake.calls.length, 1); assert.strictEqual(fake.calls[0].amount, 600000); assert.strictEqual(fake.calls[0].transaction, 'PSREF-' + d.ref);
+    assert.ok((await q("SELECT 1 FROM outbox WHERE to_email='ada@buyer.com' AND subject LIKE $1", ['%' + x.ref + '%'])).length >= 2, 'approval and refund emails');
+    assert.strictEqual((await A('POST', `/returns/${rq.id}/approve`, {})).s, 409, 'cannot approve twice, so never a second refund'); assert.strictEqual(fake.calls.length, 1);
+  });
+  await test('the owner can approve straight from "requested", change the amount with a note, and a refused Paystack refund leaves it approved and waiting, with finance alerted', async () => {
+    const d = await order({ ref: 'OWN1' + tag.toUpperCase().slice(-3) }), rq = (await ask(d, {})).j; fake.calls.length = 0; fake.fail = true;
+    assert.strictEqual((await A('POST', `/returns/${rq.id}/approve`, { amount: 5000 })).s, 400, 'a changed amount needs a note');
+    const r = await A('POST', `/returns/${rq.id}/approve`, { amount: 5000, note: 'Small handling fee.' }); fake.fail = false; assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.auto.ok, false); assert.ok(/reversed/.test(r.j.auto.error));
+    const x = await ret(rq.id); assert.strictEqual(x.status, 'awaiting_settlement'); assert.strictEqual(x.auto_settle, 'failed'); assert.strictEqual(x.approved_amount, 5000);
+    assert.ok((await q("SELECT 1 FROM notifications WHERE title LIKE $1", ['Automatic refund did not go through%' + d.ref])).length >= 1);
+    const again = await A('POST', `/returns/${rq.id}/settle`, { method: 'original' }); assert.strictEqual(again.s, 200, again.t); assert.strictEqual((await ret(rq.id)).status, 'settled');
+  });
+  await test('cash on delivery cannot be sent automatically: approved and left for Finance to settle by hand; switching automatic refunds off does the same for card orders', async () => {
+    const cod = await order({ ref: 'COD2' + tag.toUpperCase().slice(-3), pm: 'pod', pref: '' }), rq = (await ask(cod, {})).j; fake.calls.length = 0;
+    const r = await A('POST', `/returns/${rq.id}/approve`, {}); assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.auto.manual, true);
+    assert.strictEqual((await ret(rq.id)).status, 'awaiting_settlement'); assert.strictEqual((await ret(rq.id)).auto_settle, 'manual_needed'); assert.strictEqual(fake.calls.length, 0);
+    await autoOn('0'); const card = await order({ ref: 'OFF2' + tag.toUpperCase().slice(-3) }), r2 = (await ask(card, {})).j;
+    assert.strictEqual((await A('POST', `/returns/${r2.id}/approve`, {})).s, 200); assert.strictEqual((await ret(r2.id)).status, 'awaiting_settlement'); assert.strictEqual(fake.calls.length, 0, 'switched off');
+    await autoOn('1');
+  });
+  await test('small-amount rule (off by default): at or under the limit a request is approved and refunded by itself; above it, it waits as normal', async () => {
+    const off = await order({ ref: 'SM0' + tag.toUpperCase().slice(-3) }), r0 = (await ask(off, {})).j; assert.strictEqual((await ret(r0.id)).status, 'requested', 'off by default');
+    await autoOn('1', 2000); fake.calls.length = 0;
+    const small = await order({ ref: 'SM1' + tag.toUpperCase().slice(-3), lines: [[mug, 'Mug', 1000, 2]] }), rs = (await ask(small, { reason: 'faulty', items: [{ item_id: small.items[0].id, qty: 1 }] })).j;
+    const x = await ret(rs.id); assert.strictEqual(x.status, 'settled'); assert.strictEqual(x.approval, 'auto'); assert.strictEqual(x.approved_amount, 1000); assert.strictEqual(fake.calls.length, 1); assert.strictEqual(x.decided_by_name, 'Auto-approval (small amount)');
+    const big = await order({ ref: 'SM2' + tag.toUpperCase().slice(-3) }), rb = (await ask(big, {})).j; assert.strictEqual((await ret(rb.id)).status, 'requested', 'over the limit waits for people');
+    await autoOn('1', 0);
   });
   console.log('\nSafety');
   await test('every step is in the activity log, and the page for customers never shows staff names or gateway details', async () => {

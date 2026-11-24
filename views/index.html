@@ -2539,7 +2539,7 @@ async function route() {
   const v = views[page] || views.dashboard;
   const p = views[page] ? page : 'dashboard';
   await shell(p, '<div class="loading-page"></div>', unreadCount);
-  if (visible('returns')) api('/api/admin/returns/count').then((c) => { const n = c.requested + c.awaiting; if (n !== retWaiting) { retWaiting = n; const a = $('[data-nav="returns"]'); if (a) a.innerHTML = '↩️ Returns' + (n ? ` <span class="dot">${n}</span>` : ''); } }).catch(() => {});
+  if (visible('returns')) api('/api/admin/returns/count').then((c) => { const n = c.requested + (c.recommended || 0) + c.awaiting; if (n !== retWaiting) { retWaiting = n; const a = $('[data-nav="returns"]'); if (a) a.innerHTML = '↩️ Returns' + (n ? ` <span class="dot">${n}</span>` : ''); } }).catch(() => {});
   api('/api/notifications/count').then((c) => { const b = $('#nbadge'); if (b) { b.textContent = c.unread; b.classList.toggle('hide', !c.unread); } }).catch(() => {});
   try { await v(p); } catch (err) { if (err.status === 401) { me = null; return loginView('Your session expired. Please sign in again.'); } $('#mn').innerHTML = `<div class="panel"><h3>Something went wrong</h3><p class="mu">${e(err.message)}</p></div>`; }
 }
@@ -2571,9 +2571,9 @@ views.dashboard = async () => {
 const retstate = { status: '', q: '' }; let retTarget = null;
 views.returns = async () => {
   const d = await api('/api/admin/returns?' + new URLSearchParams({ ...(retstate.status ? { status: retstate.status } : {}), ...(retstate.q ? { q: retstate.q } : {}) }));
-  retWaiting = (d.counts.requested || 0) + (d.counts.awaiting_settlement || 0) + (d.counts.settling || 0);
-  const col = { requested: '#b45309', awaiting_settlement: '#1d4ed8', settling: '#1d4ed8', settled: '#15803d', rejected: '#b42318', cancelled: '#667085' };
-  mn(hd('Returns', `<span class="mu2">${d.counts.requested || 0} to review · ${(d.counts.awaiting_settlement || 0) + (d.counts.settling || 0)} awaiting settlement</span> <button class="btn sm" id="ropen">+ Open a return for a customer</button>`) + `<p class="mu2">Customers ask to return delivered items from their order page. Review each request, approve or decline it, then settle the approved refund: the money goes back to where the customer paid from.</p>
+  retWaiting = (d.counts.requested || 0) + (d.counts.recommended || 0) + (d.counts.awaiting_settlement || 0) + (d.counts.settling || 0);
+  const col = { requested: '#b45309', recommended: '#7c3aed', awaiting_settlement: '#1d4ed8', settling: '#1d4ed8', settled: '#15803d', rejected: '#b42318', cancelled: '#667085' };
+  mn(hd('Returns', `<span class="mu2">${d.counts.requested || 0} to review · ${d.counts.recommended || 0} waiting for the owner · ${(d.counts.awaiting_settlement || 0) + (d.counts.settling || 0)} awaiting settlement</span> <button class="btn sm" id="ropen">+ Open a return for a customer</button>`) + `<p class="mu2">Customers ask to return delivered items from their order page. Review each request, approve or decline it, then settle the approved refund: the money goes back to where the customer paid from.</p>
    <div class="tbar"><select id="rs"><option value="">All returns</option>${Object.entries(d.labels).map(([k, v]) => `<option value="${k}" ${retstate.status === k ? 'selected' : ''}>${e(v)}${d.counts[k] ? ' (' + d.counts[k] + ')' : ''}</option>`).join('')}</select><input id="rq" placeholder="Search order, return or customer" value="${e(retstate.q)}"></div>
    <div class="panel"><div class="tw"><table class="t"><tr><th>Return</th><th>Order</th><th>Customer</th><th>Items</th><th>Reason</th><th>Refund</th><th>Status</th><th>Asked</th></tr>${d.returns.map((r) => `<tr class="click" data-ret="${r.id}"><td><b>${e(r.ref)}</b></td><td>${e(r.order_ref)}</td><td>${e(r.customer)}</td><td>${r.items.map((i) => i.qty + ' × ' + e(i.name)).join(', ')}</td><td>${e(r.reason)}</td><td>${naira(r.approved_amount != null ? r.approved_amount : r.requested_amount)}</td><td style="font-weight:700;color:${col[r.status] || '#344054'}">${e(r.status_text)}</td><td>${dt(r.created)}</td></tr>`).join('') || '<tr><td colspan="8" class="mu2">No returns yet.</td></tr>'}</table></div></div>`);
   on('#rs', 'change', () => { retstate.status = $('#rs').value; return views.returns(); });
@@ -2609,7 +2609,7 @@ function openReturnForm() {
 }
 async function returnModal(id) {
   const d = await api('/api/admin/returns/' + id), r = d.return, o = d.order, P = d.plan;
-  const canFinance = me.role === 'admin' || can('finance', true), canOrders = me.role === 'admin' || can('orders', true);
+  const isOwner = me.role === 'admin', canFinance = isOwner || can('finance', true), canOrders = isOwner || can('orders', true);
   const row = (a, b) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid var(--border)"><span class="mu2">${a}</span><span style="text-align:right">${b}</span></div>`;
   openModal(`<h2>Return ${e(r.ref)} <span class="mu2" style="font-size:14px">· order ${e(r.order_ref)}</span></h2>
     <p style="margin:0 0 8px;font-weight:700">${e(r.status_text)}</p>
@@ -2618,10 +2618,12 @@ async function returnModal(id) {
     ${r.decided_by ? row('Decision', `${e(r.decided_by)} · ${dt(r.decided_at)}${r.decision_note ? '<br>' + e(r.decision_note) : ''}`) : ''}
     ${r.status === 'settled' ? row('Settled', `${e(r.settled_by)} · ${dt(r.settled_at)}<br>${r.wallet_refunded ? 'To VELTO wallet: ' + naira(r.wallet_refunded / 100) + '<br>' : ''}${r.gateway_refunded ? (r.settle_method === 'manual' ? 'Paid by hand: ' : 'Back to card/bank: ') + naira(r.gateway_refunded / 100) + (r.settle_reference ? ' (ref ' + e(r.settle_reference) + ')' : r.gateway_ref ? ' (Paystack ref ' + e(r.gateway_ref) + ', ' + e(r.gateway_status) + ')' : '') : ''}${r.restocked ? '<br>Items put back in stock' : ''}`) : ''}
     ${r.last_error ? `<div class="note" style="margin-top:8px"><b>The last settlement attempt failed:</b> ${e(r.last_error)} Nothing was refunded.</div>` : ''}
-    ${r.status === 'requested' && canOrders ? `<h3 style="margin:14px 0 6px">Your decision</h3>
-      <label class="f">Refund to approve (₦, at most ${naira(d.max_refund)})<input id="ra" type="number" min="1" max="${d.max_refund}" value="${Math.min(r.requested_amount, d.max_refund)}"></label>
+    ${r.recommended_by ? row('Reviewed by', `${e(r.recommended_by)}: recommends ${naira(r.recommended_amount)}${r.recommended_note ? '<br>' + e(r.recommended_note) : ''}`) : ''}${r.approval ? row('Approved by', r.approval === 'auto' ? 'Auto-approval rule (small amount)' : 'The owner') : ''}${r.auto_settle ? row('Refund sending', r.auto_settle === 'done' ? 'Sent automatically' : r.auto_settle === 'failed' ? '<b style="color:#b42318">Automatic refund failed: retry below</b>' : 'Cannot be sent automatically: settle by hand') : ''}
+    ${(r.status === 'requested' || (r.status === 'recommended' && isOwner)) && canOrders ? `<h3 style="margin:14px 0 6px">${isOwner ? 'Your decision' : 'Your review'}</h3>
+      ${isOwner ? '<p class="mu2" style="margin:0 0 6px">Approving sends the refund automatically where the payment allows it.</p>' : '<p class="mu2" style="margin:0 0 6px">You recommend; the owner makes the final approval and the refund is then sent.</p>'}
+      <label class="f">Refund to ${isOwner ? 'approve' : 'recommend'} (₦, at most ${naira(d.max_refund)})<input id="ra" type="number" min="1" max="${d.max_refund}" value="${Math.min(r.recommended_amount != null ? r.recommended_amount : r.requested_amount, d.max_refund)}"></label>
       <label class="f">Note to the customer (needed if you change the amount or decline)<textarea id="rn" rows="2" maxlength="500"></textarea></label>
-      <div class="acts"><button class="btn" id="rap">Approve</button><button class="btn danger" id="rrj">Decline</button><button class="btn ghost" id="rcl">Close</button></div>` : ''}
+      <div class="acts"><button class="btn" id="rap">${isOwner ? 'Approve and refund' : 'Recommend to owner'}</button><button class="btn danger" id="rrj">Decline</button><button class="btn ghost" id="rcl">Close</button></div>` : ''}
     ${r.status === 'awaiting_settlement' && canFinance && P ? `<h3 style="margin:14px 0 6px">Settle the refund: ${naira(r.approved_amount)}</h3>
       <p class="mu2" style="margin:0 0 6px">${P.wallet ? `${naira(P.wallet / 100)} goes back to the customer's VELTO wallet (that part was paid from the wallet). ` : ''}${P.card ? `${naira(P.card / 100)} ${P.cash_order ? 'was paid in cash on delivery, so it cannot go back to a card' : 'goes back to the card or bank account the customer paid with'}.` : ''}</p>
       <label class="f">How do you want to pay it back?<select id="rm"><option value="original" ${P.cash_order ? 'disabled' : ''}>Original payment${P.can_auto ? ' (Paystack sends it, automatically)' : ''}</option>${P.has_wallet ? '<option value="wallet">VELTO wallet (instant)</option>' : ''}<option value="manual">Paid manually (bank transfer or the payment dashboard)</option></select></label>
@@ -2630,11 +2632,12 @@ async function returnModal(id) {
       <label class="chk"><input type="checkbox" id="rst" ${['unopened', 'opened_unused'].some((c) => r.condition === ({ unopened: 'Unopened', opened_unused: 'Opened but unused' })[c]) ? 'checked' : ''}> Put the returned items back in stock</label>
       <div class="acts"><button class="btn" id="rsl">Settle refund</button><button class="btn ghost" id="rcl">Close</button></div>` : ''}
     ${r.status === 'awaiting_settlement' && !canFinance ? '<p class="mu2">This refund is waiting for someone with Finance access to settle it.</p>' : ''}
-    ${!['requested', 'awaiting_settlement'].includes(r.status) || (r.status === 'requested' && !canOrders) ? '<div class="acts"><button class="btn ghost" id="rcl">Close</button></div>' : ''}`, true);
+    ${r.status === 'recommended' && !isOwner ? '<p class="mu2">This return is waiting for the owner\'s final approval.</p>' : ''}
+    ${!['requested', 'awaiting_settlement'].includes(r.status) || (r.status === 'requested' && !canOrders) || (r.status === 'recommended' && isOwner && !canOrders) ? '<div class="acts"><button class="btn ghost" id="rcl">Close</button></div>' : ''}`, true);
   const mon = (sel, fn, ev = 'click') => { const x = $(sel, modal); if (x) x.addEventListener(ev, guard(fn)); };
   const send = (btn, url, body, msg) => async () => { const x = $(btn, modal); try { x.disabled = true; const r = await api(url, { body }); toast(typeof msg === 'function' ? msg(r) : msg); closeModal(); await views.returns(); } catch (er) { x.disabled = false; toast(er.message, 'bad'); } };
   mon('#rcl', closeModal);
-  mon('#rap', () => send('#rap', `/api/admin/returns/${id}/approve`, { amount: Number($('#ra', modal).value), note: $('#rn', modal).value }, 'Approved. The refund is now awaiting settlement.')());
+  mon('#rap', () => send('#rap', `/api/admin/returns/${id}/approve`, { amount: Number($('#ra', modal).value), note: $('#rn', modal).value }, (x) => x.stage === 'recommended' ? 'Sent to the owner for final approval.' : x.auto && x.auto.ok ? 'Approved and refunded automatically.' : x.auto && x.auto.error ? 'Approved, but the automatic refund failed: ' + x.auto.error : 'Approved. This refund must be settled by hand (no automatic route for this payment).')());
   mon('#rrj', () => send('#rrj', `/api/admin/returns/${id}/reject`, { note: $('#rn', modal).value }, 'Declined. The customer has been told.')());
   if ($('#rm', modal)) { const sync = () => $('#rrw', modal).classList.toggle('hide', $('#rm', modal).value !== 'manual'); $('#rm', modal).addEventListener('change', sync); if (P && P.cash_order) $('#rm', modal).value = P.has_wallet ? 'wallet' : 'manual'; sync(); }
   mon('#rsl', () => send('#rsl', `/api/admin/returns/${id}/settle`, { method: $('#rm', modal).value, reference: $('#rr', modal).value, restock: $('#rst', modal).checked, charge_vendor: $('#rcv', modal) ? $('#rcv', modal).checked : true }, (x) => 'Refund settled' + (x.gateway_status && x.card ? ` (Paystack: ${x.gateway_status})` : ''))());
@@ -3176,7 +3179,7 @@ views.marketing = async () => {
 };
 
 /* ---------------- settings ---------------- */
-const SF = [['store_name', 'Store name'], ['tagline', 'Tagline'], ['logo_url', 'Logo URL (https://…)'], ['announcement', 'Announcement bar'], ['contact_email', 'Contact email'], ['contact_phone', 'Contact phone'], ['whatsapp', 'WhatsApp number (digits, with country code)'], ['address', 'Address'], ['pickup_address', 'Store pickup address'], ['instagram', 'Instagram link'], ['facebook', 'Facebook link'], ['x_twitter', 'X / Twitter link'], ['tiktok', 'TikTok link'], ['free_shipping_threshold', 'Free delivery above (₦, 0 = off)'], ['express_multiplier', 'Express delivery price multiplier'], ['return_days', 'Return window (days)'], ['tax_note', 'Price / VAT note'], ['ga_id', 'Google Analytics ID (G-XXXX)'], ['meta_pixel_id', 'Meta Pixel ID']];
+const SF = [['store_name', 'Store name'], ['tagline', 'Tagline'], ['logo_url', 'Logo URL (https://…)'], ['announcement', 'Announcement bar'], ['contact_email', 'Contact email'], ['contact_phone', 'Contact phone'], ['whatsapp', 'WhatsApp number (digits, with country code)'], ['address', 'Address'], ['pickup_address', 'Store pickup address'], ['instagram', 'Instagram link'], ['facebook', 'Facebook link'], ['x_twitter', 'X / Twitter link'], ['tiktok', 'TikTok link'], ['free_shipping_threshold', 'Free delivery above (₦, 0 = off)'], ['express_multiplier', 'Express delivery price multiplier'], ['return_days', 'Return window (days)'], ['return_auto_refund', 'Send approved refunds automatically (1 = yes, 0 = Finance settles each one)'], ['return_auto_approve_max', 'Auto-approve and refund returns up to (₦, 0 = owner approves every return)'], ['tax_note', 'Price / VAT note'], ['ga_id', 'Google Analytics ID (G-XXXX)'], ['meta_pixel_id', 'Meta Pixel ID']];
 /* ---------------- deliveries ---------------- */
 views.deliveries = async () => {
   const [d, r] = await Promise.all([api('/api/admin/deliveries'), api('/api/admin/riders')]);

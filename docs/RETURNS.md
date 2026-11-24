@@ -24,3 +24,14 @@ When a return that includes a partner store's items is settled, the value of tho
 A new built-in role, **Operations Manager**, runs returns day to day (Orders, Customers and Delivery: Edit; most other areas view-only). Existing shops get the role from migration 041; new shops get it with the other default roles. Roles are still editable under Employees & roles.
 
 When a customer asks by phone, WhatsApp or in the shop, anyone with Orders: Edit uses **Returns → Open a return for a customer**: enter the order number, pick the items and quantities, record the customer's answers and an optional internal note. The customer gets the same email and order-page entry as an online request, and it enters the same review queue (one open return per order still applies). Staff can open a return after the window has closed; it is marked **late** for whoever approves it, and the customer still cannot do this themselves. Each return shows **Opened by** (the customer, or the staff member's name) in the queue detail and in the Activity log.
+
+## Owner approval and automatic refunds
+The flow is now: **request** (customer, or staff for the customer) → **review** by the Operations Manager (anyone with Orders: Edit) → **owner approval** → **refund sent automatically** → settled.
+
+- **Review = recommend.** When a non-owner staff member presses *Recommend to owner*, the return moves to **Reviewed, waiting for the owner to approve**. The owner gets a notification and an email. Nothing is refunded, and the customer still sees "Waiting for review" (no amount shown). A reviewer can't decline a return once it's with the owner.
+- **Owner approves.** *Approve and refund* (amount defaults to the reviewer's recommendation; changing it needs a note). The customer is told, and the refund is sent straight away: the wallet share goes to the VELTO wallet and the card share is refunded by Paystack on the original transaction. The owner can also approve a request directly, or decline it.
+- **No automatic route** (pay on delivery, non-Paystack payments, guests with no wallet): the return stays **approved, awaiting settlement** and Finance is notified to settle it by hand (wallet credit or *Paid manually*), exactly as before.
+- **If Paystack refuses**, nothing is recorded as paid, the return stays approved and Finance and the owner are alerted; settle it again from the return. A refund is never sent twice.
+- **Automatic sending defaults:** the refund is sent without the *put items back in stock* step and takes the partner's share off the partner's balance (the default). Use the settings below if you want Finance to handle each one.
+
+Shop settings (Settings page): `return_auto_refund` (1 = send approved refunds automatically, 0 = approval only queues them for Finance; default 1) and `return_auto_approve_max` (₦; a request at or under this amount is approved and refunded by itself; 0 = off, the default).
