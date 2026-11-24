@@ -257,6 +257,12 @@ app.use((err, req, res, next) => {
   if (err instanceof S.HttpError) return res.status(err.status).json({ error: err.message });
   if (err && err.type === 'entity.parse.failed') return res.status(400).json({ error: 'That request was not understood.' });
   if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'That upload is too large.' });
+  // Every database connection was busy for too long (a flood of orders): not a bug and not the customer's fault. Say "busy, try again" so the page retries by itself.
+  // Safe for checkout: a retry carries the same Idempotency-Key, so an order that did get created is returned, never doubled.
+  if (err && /timeout exceeded when trying to connect/.test(String(err.message))) {
+    log.warn('database connections exhausted', { id: req.id, method: req.method, path: String(req.originalUrl || '').split('?')[0] });
+    return res.status(503).set({ 'Retry-After': String(2 + Math.floor(Math.random() * 4)), 'Cache-Control': 'no-store' }).json({ error: 'We are very busy right now. Please try again in a few seconds.', code: 'busy', requestId: req.id });
+  }
   log.error('unhandled error', { id: req.id, method: req.method, path: String(req.originalUrl || '').split('?')[0], err });
   require('./lib/errors').record(err, { source: 'request', route: `${req.method} ${req.route && req.route.path ? req.baseUrl + req.route.path : String(req.path).replace(/\d+/g, ':n')}`, status: 500 });
   res.status(500).json({ error: 'Something went wrong on our side. Please try again.', requestId: req.id });
