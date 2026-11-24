@@ -259,14 +259,14 @@ async function test(name, fn) {
 
   console.log('\nPages');
   await test('server-rendered SEO: titles, product JSON-LD, 404s, sitemap, robots, security headers', async () => {
-    const home = await guest.get('/d/electronics'); assert.match(home.text, /<html lang="en" data-store="electronics">/); assert.match(home.text, /<title>VELTO-MART Electronics/);
+    const home = await guest.get('/d/electronics'); assert.match(home.text, /<html lang="en-NG" data-store="electronics">/); assert.match(home.text, /<title>VELTO-MART Electronics/);
     const prod = (await guest.get('/api/products?store=electronics')).json.products[0]; const page = await guest.get('/product/' + prod.slug);
     assert.match(page.text, /application\/ld\+json/); assert.match(page.text, /og:title/); assert.ok(!page.text.includes('<!--SEO-->') && !page.text.includes('<!--HTMLATTR-->') && !page.text.includes('<!--PRERENDER-->'));
     const nonce = /script nonce="([^"]+)"/.exec(page.text)[1]; assert.ok(page.headers.get('content-security-policy').includes(`'nonce-${nonce}'`));
     assert.strictEqual((await guest.get('/d/nowhere')).status, 404); assert.strictEqual((await guest.get('/product/nope')).status, 404); assert.strictEqual((await guest.get('/admin')).status, 200);
     assert.match((await guest.get('/admin')).text, /noindex/); assert.strictEqual(page.headers.get('x-frame-options'), 'DENY');
     const sm = await guest.get('/sitemap.xml'); assert.match(sm.text, /\/d\/fashion/); assert.ok(!sm.text.includes('/product/' + plain.slug)); // hidden products are not listed
-    assert.match((await guest.get('/robots.txt')).text, /Disallow: \/admin/);
+    { const rb = (await guest.get('/robots.txt')).text; assert.match(rb, /Disallow: \/api\//); assert.ok(!/Disallow: \/admin/.test(rb), 'private pages stay crawlable so Google can read their noindex'); }
     assert.strictEqual((await guest.get('/api/nothing')).status, 404);
   });
   await test('login is rate limited', async () => {
