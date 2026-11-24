@@ -409,8 +409,15 @@ function invoiceHtml(v) {
 async function api(path, opts = {}) {
   const o = { method: opts.method || 'GET', headers: {}, credentials: 'same-origin' };
   if (opts.body !== undefined) { o.method = opts.method || 'POST'; o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(opts.body); }
-  let r; try { r = await fetch(path, o); } catch { throw new Error('Network problem. Check your connection and try again.'); }
-  let d = {}; try { d = await r.json(); } catch { /* empty */ }
+  let r, d;
+  // When the shop is flooded the server answers 503 {code:'busy'} straight away, before touching anything (so retrying is always safe, even for checkout).
+  // Wait a few seconds (with a little randomness so thousands of phones do not all come back at the same instant) and try again, up to 4 times.
+  for (let attempt = 0; ; attempt++) {
+    try { r = await fetch(path, o); } catch { throw new Error('Network problem. Check your connection and try again.'); }
+    d = {}; try { d = await r.json(); } catch { /* empty */ }
+    if (r.status === 503 && d.code === 'busy' && attempt < 4) { await new Promise((ok) => setTimeout(ok, (Number(r.headers.get('Retry-After')) || 3) * 1000 + Math.random() * 2000)); continue; }
+    break;
+  }
   if (!r.ok || d.error) { const err = new Error(d.error || 'Something went wrong.'); err.status = r.status; throw err; }
   return d;
 }

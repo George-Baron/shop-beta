@@ -37,6 +37,7 @@ app.use((req, res, next) => { req.clientIp = require('./lib/clientip').clientIp(
 const INSTANCE = process.env.INSTANCE_ID || process.env.RENDER_INSTANCE_ID || require('os').hostname();
 app.use((req, res, next) => { res.setHeader('X-Instance', INSTANCE); next(); }); // lets tests and load balancers see which instance answered
 app.use(log.requestLogger); // request id on every response and one log line per request
+app.use(require('./lib/overload').middleware); // when far too busy, new browsing requests get a polite 503 instead of running the server out of memory
 
 /* ---------- first admin from environment variables (optional) ---------- */
 async function bootstrapAdmin() {
@@ -83,9 +84,10 @@ if (storage.DRIVER === 'local') {
 
 /* ---------- health (for uptime checks and the load balancer) ---------- */
 // Deliberately tiny and public: only "the app is up and can reach the database". Details (queue, backups) are in Admin > Status.
-app.get('/health', async (req, res) => {
-  try { await Promise.race([health(), new Promise((_, rej) => setTimeout(() => rej(new Error('database timeout')), 4000))]); res.set('Cache-Control', 'no-store').json({ ok: true }); }
-  catch (e) { log.error('health check failed', { err: e }); res.status(503).set('Cache-Control', 'no-store').json({ ok: false }); }
+const healthy = require('./lib/overload').healthProbe(health);   // the database is checked in the background, so this answer never waits behind customers
+app.get('/health', (req, res) => {
+  if (healthy()) return res.set('Cache-Control', 'no-store').json({ ok: true });
+  res.status(503).set('Cache-Control', 'no-store').json({ ok: false });
 });
 
 /* ---------- API ---------- */
@@ -274,6 +276,7 @@ let server;
   await bootstrapAdmin();
   cache.watch(); // notice edits made on other instances
   server = app.listen(PORT, process.env.HOST || '0.0.0.0', async () => {
+    require('./lib/overload').configureServer(server);
     console.log(`\nVELTO-MART is running at ${BASE_URL}`);
     const hasAdmin = await get("SELECT 1 x FROM users WHERE role='admin'").catch(() => null);
     console.log(`Admin dashboard:   ${BASE_URL}/admin${hasAdmin ? '' : '   (open it now to create your admin account)'}`);
