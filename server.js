@@ -114,6 +114,7 @@ app.use(['/api/admin/cards', '/api/mobile/v1/admin/cards'], require('./routes/ca
 app.use(['/api/admin/loyalty', '/api/mobile/v1/admin/loyalty'], require('./routes/loyalty').admin);
 app.use('/api/admin/pharmacy', require('./routes/pharmacy-admin'));
 app.use('/api/admin/rider-ops', require('./routes/rider-admin'));
+app.use('/api/admin/ops-ai', require('./routes/ops-ai'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/pharmacy', require('./routes/pharmacy'));
 app.use('/api/rider', require('./routes/rider'));
