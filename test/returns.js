@@ -16,10 +16,11 @@ const OWNER = 'Str0ng-Owner-Pass!';
 // Starts a server; mail=true gives it an email key (the send goes nowhere, the message is still stored in the outbox).
 const http = require('http');
 // A pretend Paystack: records refund requests; set fake.fail to make it refuse.
-const fake = { calls: [], fail: false };
-const fakeSrv = http.createServer((req, res) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { if (req.url === '/refund') { const j = JSON.parse(b || '{}'); fake.calls.push({ ...j, auth: req.headers.authorization }); res.setHeader('Content-Type', 'application/json'); if (fake.fail) { res.statusCode = 400; return res.end(JSON.stringify({ status: false, message: 'Transaction has already been fully reversed' })); } return res.end(JSON.stringify({ status: true, message: 'queued', data: { id: 9000 + fake.calls.length, status: 'pending', transaction: j.transaction } })); } res.statusCode = 404; res.end('{}'); }); });
+const fake = { calls: [], fail: false, stripe: [], stripeFail: false };
+const fakeSrv = http.createServer((req, res) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { if (req.url === '/refund') { const j = JSON.parse(b || '{}'); fake.calls.push({ ...j, auth: req.headers.authorization }); res.setHeader('Content-Type', 'application/json'); if (fake.fail) { res.statusCode = 400; return res.end(JSON.stringify({ status: false, message: 'Transaction has already been fully reversed' })); } return res.end(JSON.stringify({ status: true, message: 'queued', data: { id: 9000 + fake.calls.length, status: 'pending', transaction: j.transaction } })); } if (req.url === '/v1/refunds') { const f = new URLSearchParams(b); fake.stripe.push({ pi: f.get('payment_intent'), amount: Number(f.get('amount')), idem: req.headers['idempotency-key'], auth: req.headers.authorization }); res.setHeader('Content-Type', 'application/json'); if (fake.stripeFail) { res.statusCode = 400; return res.end(JSON.stringify({ error: { message: 'Charge ch_1 has already been refunded.' } })); } return res.end(JSON.stringify({ id: 're_' + fake.stripe.length, status: 'succeeded' })); }
+    res.statusCode = 404; res.end('{}'); }); });
 const start = async (port, mail, fakePort) => {
-  const srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(port), BASE_URL: 'http://127.0.0.1:' + port, DATABASE_URL: urlOf(DB), DATA_DIR: require('os').tmpdir() + '/sb-ret-' + tag, ADMIN_EMAIL: 'owner@example.com', ADMIN_PASSWORD: OWNER, RATE_LIMIT_MULTIPLIER: '50', RESEND_API_KEY: 're_test', RESEND_API_URL: 'http://127.0.0.1:9', WORKER_ENABLED: '0', PAYSTACK_SECRET_KEY: 'sk_test_fake', PAYSTACK_API_URL: 'http://127.0.0.1:' + fakePort } });
+  const srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(port), BASE_URL: 'http://127.0.0.1:' + port, DATABASE_URL: urlOf(DB), DATA_DIR: require('os').tmpdir() + '/sb-ret-' + tag, ADMIN_EMAIL: 'owner@example.com', ADMIN_PASSWORD: OWNER, RATE_LIMIT_MULTIPLIER: '50', RESEND_API_KEY: 're_test', RESEND_API_URL: 'http://127.0.0.1:9', WORKER_ENABLED: '0', PAYSTACK_SECRET_KEY: 'sk_test_fake', PAYSTACK_API_URL: 'http://127.0.0.1:' + fakePort, STRIPE_ENABLED: '1', STRIPE_SECRET_KEY: 'sk_test_stripe', STRIPE_API_URL: 'http://127.0.0.1:' + fakePort } });
   for (let i = 0; i < 200; i++) { try { await fetch(`http://127.0.0.1:${port}/health`); break; } catch { await sleep(100); } }
   const call = async (method, url, body, cookie) => { const r = await fetch(`http://127.0.0.1:${port}${url}`, { method, headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) }); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch { /* */ } const sc = r.headers.getSetCookie ? r.headers.getSetCookie() : []; return { s: r.status, j, t, c: (sc[0] || '').split(';')[0] }; };
   return { srv, call };
@@ -246,6 +247,21 @@ const start = async (port, mail, fakePort) => {
     await autoOn('0'); const card = await order({ ref: 'OFF2' + tag.toUpperCase().slice(-3) }), r2 = (await ask(card, {})).j;
     assert.strictEqual((await A('POST', `/returns/${r2.id}/approve`, {})).s, 200); assert.strictEqual((await ret(r2.id)).status, 'awaiting_settlement'); assert.strictEqual(fake.calls.length, 0, 'switched off');
     await autoOn('1');
+  });
+  await test('a Stripe payment is refunded through Stripe in its own currency, once, automatically after the owner approves', async () => {
+    const d = await order({ ref: 'STR1' + tag.toUpperCase().slice(-3), pref: 'pi_test_123' }); await q("UPDATE orders SET gateway='stripe', currency='USD', charge_amount=9500, fx_rate=1 WHERE id=$1", [d.id]);   // total 9500 naira = 9500 cents here, so the maths is easy to read
+    const rq = (await ask(d, {})).j; fake.stripe.length = 0;
+    const r = await A('POST', `/returns/${rq.id}/approve`, {}); assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.auto.ok, true, JSON.stringify(r.j));
+    assert.strictEqual(fake.stripe.length, 1); const c = fake.stripe[0]; assert.strictEqual(c.pi, 'pi_test_123'); assert.strictEqual(c.auth, 'Bearer sk_test_stripe'); assert.strictEqual(c.idem, 'shopbeta-return-' + rq.id);
+    const x = await ret(rq.id), expect = Math.round(9500 * (6000 * 100) / (9500 * 100)); assert.strictEqual(c.amount, expect, 'refund is the approved share of what was charged'); assert.strictEqual(x.status, 'settled'); assert.strictEqual(x.gateway_ref, 're_' + fake.stripe.length); assert.strictEqual(x.gateway_status, 'succeeded');
+    assert.strictEqual(fake.calls.length, 0, 'Paystack was not called'); assert.strictEqual((await A('POST', `/returns/${rq.id}/settle`, { method: 'original' })).s, 409); assert.strictEqual(fake.stripe.length, 1);
+  });
+  await test('if Stripe refuses, nothing is recorded as paid, Finance is alerted and the refund can be tried again', async () => {
+    const d = await order({ ref: 'STR2' + tag.toUpperCase().slice(-3), pref: 'pi_test_456' }); await q("UPDATE orders SET gateway='stripe', currency='USD', charge_amount=9500, fx_rate=1 WHERE id=$1", [d.id]);
+    const rq = (await ask(d, {})).j; fake.stripeFail = true;
+    const r = await A('POST', `/returns/${rq.id}/approve`, {}); fake.stripeFail = false; assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.auto.ok, false); assert.ok(/Stripe refused/.test(r.j.auto.error), r.j.auto.error);
+    const x = await ret(rq.id); assert.strictEqual(x.status, 'awaiting_settlement'); assert.strictEqual(x.gateway_ref, ''); assert.strictEqual(x.auto_settle, 'failed');
+    const again = await A('POST', `/returns/${rq.id}/settle`, { method: 'original' }); assert.strictEqual(again.s, 200, again.t); assert.strictEqual((await ret(rq.id)).status, 'settled');
   });
   await test('small-amount rule (off by default): at or under the limit a request is approved and refunded by itself; above it, it waits as normal', async () => {
     const off = await order({ ref: 'SM0' + tag.toUpperCase().slice(-3) }), r0 = (await ask(off, {})).j; assert.strictEqual((await ret(r0.id)).status, 'requested', 'off by default');

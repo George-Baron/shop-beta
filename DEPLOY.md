@@ -242,7 +242,7 @@ Use the Paystack **test** key and your `onrender.com` or real domain. Tick each 
 | `SUPPLIER_PORTAL_ENABLED` | off | `1` lets dropship suppliers sign in at `/supplier` to confirm purchase orders, add tracking and propose price or stock changes (admin approves). Create logins in Admin > Dropshipping > Supplier portal |
 | `DROPSHIP_ORDERS_ENABLED` | off | `1` lets customers order supplier items and starts the stuck-order check (every 6 hours). Turn it on only when someone will place the purchase orders: see docs/DROPSHIPPING.md section 9 |
 | `STRIPE_ENABLED` | off | `1` offers Stripe (international cards) to customers outside Nigeria. Needs `STRIPE_SECRET_KEY`. Leave off if you only use Paystack. |
-| `STRIPE_SECRET_KEY` | none | Your Stripe **secret** key (`sk_live_...` / `sk_test_...`). Never the publishable key. |
+| `STRIPE_SECRET_KEY` | none | Your Stripe **secret** key (`sk_live_...` / `sk_test_...`). Never the publishable key. | It must be allowed to create refunds, since approved returns are refunded through it automatically.
 | `STRIPE_WEBHOOK_SECRET` | none | Signing secret (`whsec_...`) of a webhook for `checkout.session.completed` to `https://YOUR-SITE/api/stripe/webhook`. |
 | `STRIPE_CURRENCIES` | USD,GBP,EUR,CAD,AUD,NZD,AED,SAR,INR,JPY,SGD,MYR,BRL,MXN,SEK,CHF,ZAR | Currencies your Stripe account can charge in. Trim it to what your account supports. |
 | `PAYSTACK_CURRENCIES` | NGN,GHS,ZAR,KES,USD | Currencies your Paystack account can charge in (Naira is always allowed). |

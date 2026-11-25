@@ -35,3 +35,10 @@ The flow is now: **request** (customer, or staff for the customer) → **review*
 - **Automatic sending defaults:** the refund is sent without the *put items back in stock* step and takes the partner's share off the partner's balance (the default). Use the settings below if you want Finance to handle each one.
 
 Shop settings (Settings page): `return_auto_refund` (1 = send approved refunds automatically, 0 = approval only queues them for Finance; default 1) and `return_auto_approve_max` (₦; a request at or under this amount is approved and refunded by itself; 0 = off, the default).
+
+## Stripe refunds
+Orders paid through Stripe (international card payments) are now refunded automatically just like Paystack ones: after the owner approves, the card share is sent back to the same card through Stripe, in the currency the customer paid in (the approved Naira amount is converted by the same share of the original charge, so the customer gets back the same proportion of what they were charged). The wallet share, if any, goes to the VELTO wallet.
+
+- Needs `STRIPE_ENABLED=1` and `STRIPE_SECRET_KEY` (a key that is allowed to create refunds). If Stripe is off or refuses, nothing is recorded as paid, Finance is alerted and the return waits to be settled again; "Paid manually" is still available.
+- Each return uses a Stripe idempotency key (`shopbeta-return-<id>`), so a retry after a timeout can never refund twice.
+- Stripe refunds usually reach the customer within 5 to 10 days; the return screen shows Stripe's status.
