@@ -271,6 +271,38 @@ const start = async (port, mail, fakePort) => {
     const big = await order({ ref: 'SM2' + tag.toUpperCase().slice(-3) }), rb = (await ask(big, {})).j; assert.strictEqual((await ret(rb.id)).status, 'requested', 'over the limit waits for people');
     await autoOn('1', 0);
   });
+  console.log('\nReturns in each sales channel');
+  const supplier = async (name, cc) => Number((await q("INSERT INTO suppliers (name,country,currency,created,updated) VALUES ($1,$2,$3,1,1) RETURNING id", [name, cc, cc === 'NG' ? 'NGN' : 'USD']))[0].id);
+  const dsLine = async (d, i, sup, status = 'delivered') => Number((await q("INSERT INTO dropship_lines (order_item_id,order_id,product_id,supplier_id,status,qty,sell_price,sent_at,created,updated,delivered_at) VALUES ($1,$2,$3,$4,$5,$6,$7,1,1,1,1) RETURNING id", [d.items[i].id, d.id, d.items[i].product_id, sup, status, d.items[i].qty, d.items[i].price]))[0].id);
+  await test('an imported dropship item is flagged for the approver, opens a supplier return when the owner approves, is not restocked, and is marked refunded once the customer is paid', async () => {
+    const sup = await supplier('Shenzhen Home Co', 'CN'), d = await order({ ref: 'DSI1' + tag.toUpperCase().slice(-3), lines: [[kettle, 'Kettle', 6000, 1]] }), line = await dsLine(d, 0, sup);
+    const rq = (await ask(d, {})).j, det = (await A('GET', '/returns/' + rq.id)).j; const c = det.channels[0];
+    assert.strictEqual(c.channel, 'imported'); assert.strictEqual(c.supplier, 'Shenzhen Home Co'); assert.ok(c.notes.some((n) => /duties/.test(n)) && c.notes.some((n) => /not put back on our shelf/.test(n)));
+    const stockBefore = await stock(kettle); fake.calls.length = 0;
+    const ops3 = await emp('Dee Ops', 'dee@example.com', 'Operations Manager'); await A('POST', `/returns/${rq.id}/approve`, {}, ops3);
+    assert.strictEqual((await q('SELECT status FROM dropship_lines WHERE id=$1', [line]))[0].status, 'delivered', 'a mere recommendation changes nothing at the supplier');
+    const r = await A('POST', `/returns/${rq.id}/approve`, {}); assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.auto.ok, true);
+    const l = (await q('SELECT status, refund_reference FROM dropship_lines WHERE id=$1', [line]))[0]; assert.strictEqual(l.status, 'refunded', 'customer refunded, so the line is refunded');
+    const sr = (await q('SELECT status, reason FROM dropship_returns WHERE line_id=$1', [line]))[0]; assert.ok(sr && sr.status === 'requested' && /Customer return/.test(sr.reason), 'supplier return opened');
+    assert.strictEqual((await q('SELECT amount_ngn FROM dropship_refunds WHERE line_id=$1', [line]))[0].amount_ngn, 6000);
+    assert.strictEqual(await stock(kettle), stockBefore, 'no own stock to put back');
+    const ex = await q("SELECT 1 FROM dropship_lines l LEFT JOIN dropship_returns r ON r.line_id=l.id WHERE l.id=$1 AND r.id IS NOT NULL", [line]); assert.strictEqual(ex.length, 1);
+  });
+  await test('a part-quantity return of a dropship line does not touch the supplier line, and tells the team to claim by hand; a Nigerian supplier is "dropship", not "imported"', async () => {
+    const sup = await supplier('Ikeja Wholesale Ltd', 'NG'), d = await order({ ref: 'DSP1' + tag.toUpperCase().slice(-3), lines: [[mug, 'Mug', 1000, 3]] }), line = await dsLine(d, 0, sup);
+    const rq = (await ask(d, { items: [{ item_id: d.items[0].id, qty: 1 }] })).j, det = (await A('GET', '/returns/' + rq.id)).j;
+    assert.strictEqual(det.channels[0].channel, 'dropship'); assert.ok(det.channels[0].notes.some((n) => /Only 1 of 3/.test(n)));
+    await A('POST', `/returns/${rq.id}/approve`, {});
+    assert.strictEqual((await q('SELECT status FROM dropship_lines WHERE id=$1', [line]))[0].status, 'delivered'); assert.strictEqual((await q('SELECT COUNT(*)::int n FROM dropship_returns WHERE line_id=$1', [line]))[0].n, 0);
+    assert.ok((await q("SELECT 1 FROM dropship_events WHERE line_id=$1 AND note LIKE 'Customer return%'", [line])).length >= 1, 'noted on the line');
+    assert.strictEqual((await ret(rq.id)).status, 'settled', 'the customer is still refunded');
+  });
+  await test('a partner store item shows what comes off the partner\'s balance, and plain own-stock items carry no notes', async () => {
+    const vid = Number((await q("INSERT INTO vendors (slug,name,status,commission_pct,created) VALUES ('shop-ch','Shop Ch','approved',10,1) RETURNING id"))[0].id);
+    const d = await order({ ref: 'PCH1' + tag.toUpperCase().slice(-3), lines: [[kettle, 'Kettle', 6000, 1], [fan, 'Fan', 4000, 1]] }); await q('UPDATE order_items SET vendor_id=$1, commission=600 WHERE id=$2', [vid, d.items[0].id]);
+    const rq = (await ask(d, { items: [{ item_id: d.items[0].id, qty: 1 }, { item_id: d.items[1].id, qty: 1 }] })).j, ch = (await A('GET', '/returns/' + rq.id)).j.channels;
+    assert.strictEqual(ch[0].channel, 'partner'); assert.ok(/5,400/.test(ch[0].notes[0]) && /Shop Ch/.test(ch[0].notes[0])); assert.strictEqual(ch[1].channel, 'own'); assert.strictEqual(ch[1].notes.length, 0);
+  });
   console.log('\nSafety');
   await test('every step is in the activity log, and the page for customers never shows staff names or gateway details', async () => {
     assert.ok((await q("SELECT 1 FROM audit_log WHERE path LIKE '/api/admin/returns/%/approve'")).length >= 1); assert.ok((await q("SELECT 1 FROM audit_log WHERE path LIKE '/api/admin/returns/%/settle'")).length >= 1);

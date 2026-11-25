@@ -42,3 +42,16 @@ Orders paid through Stripe (international card payments) are now refunded automa
 - Needs `STRIPE_ENABLED=1` and `STRIPE_SECRET_KEY` (a key that is allowed to create refunds). If Stripe is off or refuses, nothing is recorded as paid, Finance is alerted and the return waits to be settled again; "Paid manually" is still available.
 - Each return uses a Stripe idempotency key (`shopbeta-return-<id>`), so a retry after a timeout can never refund twice.
 - Stripe refunds usually reach the customer within 5 to 10 days; the return screen shows Stripe's status.
+
+## Returns in each sales channel
+The customer's refund is always the same flow (request → review → owner approval → refund). What happens behind it depends on where the item came from. The return screen shows a **Where these items came from** box with the notes below, so the approver sees them first (`lib/returns-channels.js`).
+
+| Channel | What happens |
+|---|---|
+| **Our own stock** | The goods can go back on the shelf (the *put items back in stock* option when settling). No notes. |
+| **Partner store** | The partner's share, after our commission, comes off their balance when the refund is settled (unticked if we cover it ourselves). The screen shows the exact amount. |
+| **Dropshipping** | We hold no stock, so the item is **never restocked**. When the owner approves, a **supplier return** (RMA) is opened on the dropship line (delivered → returned) and appears under Dropshipping → Money & reports → returns and *expecting refunds*, so nobody forgets to claim the money back from the supplier. When the customer has been refunded, the line is marked **refunded** and the refund is recorded for the profit report. If only part of a line comes back (for example 1 of 3 units), the line is left alone, a note is added to it and the owner is emailed, because a supplier return covers a whole line: claim that part by hand. |
+| **Imported** (supplier outside Nigeria) | As dropshipping, plus a warning: suppliers abroad rarely refund duties or international shipping, and sending the parcel back may cost more than the item is worth. Check their return terms before approving. |
+| **Wholesale quotes** | Not part of this flow. They are separate (bank or Paystack payment, bulk goods); see the wholesale returns section once added. |
+
+The customer is always refunded in full as approved, whatever the supplier decides; the supplier side never blocks a customer's refund.
