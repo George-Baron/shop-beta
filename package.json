@@ -30,6 +30,7 @@
     "test:fulfilment": "node --disable-warning=ExperimentalWarning test/fulfilment.js",
     "test:warehouse": "node --disable-warning=ExperimentalWarning test/warehouse.js",
     "test:wallet-ui": "node test/wallet-ui.js",
+    "test:returns-ui": "node test/returns-ui.js",
     "test:wallet": "node --disable-warning=ExperimentalWarning test/wallet.js",
     "test:loyalty": "node --disable-warning=ExperimentalWarning test/loyalty.js",
     "test:cards": "node --disable-warning=ExperimentalWarning test/cards.js",

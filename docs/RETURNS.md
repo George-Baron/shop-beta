@@ -52,6 +52,18 @@ The customer's refund is always the same flow (request → review → owner appr
 | **Partner store** | The partner's share, after our commission, comes off their balance when the refund is settled (unticked if we cover it ourselves). The screen shows the exact amount. |
 | **Dropshipping** | We hold no stock, so the item is **never restocked**. When the owner approves, a **supplier return** (RMA) is opened on the dropship line (delivered → returned) and appears under Dropshipping → Money & reports → returns and *expecting refunds*, so nobody forgets to claim the money back from the supplier. When the customer has been refunded, the line is marked **refunded** and the refund is recorded for the profit report. If only part of a line comes back (for example 1 of 3 units), the line is left alone, a note is added to it and the owner is emailed, because a supplier return covers a whole line: claim that part by hand. |
 | **Imported** (supplier outside Nigeria) | As dropshipping, plus a warning: suppliers abroad rarely refund duties or international shipping, and sending the parcel back may cost more than the item is worth. Check their return terms before approving. |
-| **Wholesale quotes** | Not part of this flow. They are separate (bank or Paystack payment, bulk goods); see the wholesale returns section once added. |
+| **Wholesale quotes** | Their own returns, below. |
 
 The customer is always refunded in full as approved, whatever the supplier decides; the supplier side never blocks a customer's refund.
+
+## Wholesale returns
+Wholesale quotes are not retail orders, so they have their own returns (`lib/wholesale-returns.js`, table `wholesale_returns`, refs `WR-…`) on the same road: **request → review → owner approval → refund**. They appear on the **Returns** page in a *Wholesale returns* section below the retail list, and count in the Returns badge.
+
+- **Who can ask:** an approved buyer, from their delivered order page (*Return goods*), within the window; or staff on the buyer's behalf (*Open one for a buyer*, Orders: Edit, so the Operations Manager can). Staff may open one after the window; it is flagged late. One open return per order; each product's returnable quantity goes down as returns are refunded.
+- **Only delivered orders** can be returned.
+- **What is refunded:** the goods value only (the approved amount can never exceed the goods value left on the order). Delivery and service fees are not refunded; the owner can agree something else by hand outside the system.
+- **Approval:** a reviewer recommends, the owner approves (same rules as retail: a changed amount needs a note; a reviewer cannot decline once it is with the owner).
+- **Refund:** paid through **Paystack** → refunded automatically to the same card or bank account after the owner approves (needs the Paystack key; honours the *Send approved refunds automatically* setting). Paid by **bank transfer** → approved, then Finance pays the buyer by transfer and records the reference (*I paid by bank transfer*); Finance gets a notification. A refused Paystack refund leaves it approved and waiting; it is never sent twice.
+- **Warehouse:** when settling, *Put the goods back in the warehouse* (off by default) receives the returned quantities back into wholesale stock, once. Retail stock is never touched.
+- **Setting:** `wholesale_return_days` (days after delivery, default 7).
+- The buyer is emailed at each step and sees a plain status; they see no amount until the owner has approved.

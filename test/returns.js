@@ -303,6 +303,60 @@ const start = async (port, mail, fakePort) => {
     const rq = (await ask(d, { items: [{ item_id: d.items[0].id, qty: 1 }, { item_id: d.items[1].id, qty: 1 }] })).j, ch = (await A('GET', '/returns/' + rq.id)).j.channels;
     assert.strictEqual(ch[0].channel, 'partner'); assert.ok(/5,400/.test(ch[0].notes[0]) && /Shop Ch/.test(ch[0].notes[0])); assert.strictEqual(ch[1].channel, 'own'); assert.strictEqual(ch[1].notes.length, 0);
   });
+  console.log('\nWholesale returns');
+  let wacct, wq, wopsC; const wn = tag.toUpperCase().slice(-3);
+  const wquote = async (ref, o = {}) => {
+    const id = Number((await q("INSERT INTO wholesale_quotes (ref,account_id,status,goods_total,logistics_fee,total,payment_method,payment_ref,order_no,created,delivered_at) VALUES ($1,$2,'delivered',$3,2000,$4,$5,$6,$7,1,$8) RETURNING id", [ref, wacct, 100000, 102000, o.pm || 'paystack', o.pref === undefined ? ref : o.pref, 'WO-' + ref, o.deliveredAt === undefined ? T() - 86400 : o.deliveredAt]))[0].id);
+    await q("INSERT INTO wholesale_quote_items (quote_id,product_id,name,qty,list_price,unit_price) VALUES ($1,$2,'Kettle',10,6000,5000),($1,$3,'Fan',10,5000,5000)", [id, kettle, fan]);
+    return { id, ref, items: (await q('SELECT id, product_id, qty, unit_price FROM wholesale_quote_items WHERE quote_id=$1 ORDER BY id', [id])).map((r) => ({ id: Number(r.id), product_id: Number(r.product_id), qty: Number(r.qty), unit_price: Number(r.unit_price) })) };
+  };
+  const wopen = (d, b, c = ada.c) => call('POST', `/api/wholesale/quotes/${d.ref}/return`, { reason: 'faulty', details: 'Four kettles arrived with cracked bases.', items: [{ item_id: d.items[0].id, qty: 4 }], ...b }, c);
+  await test('only an approved buyer on a delivered order can ask; the window applies to the buyer; one open return per order', async () => {
+    wacct = Number((await q("INSERT INTO wholesale_accounts (user_id,business_name,contact_name,email,status,evaluate_until,created) VALUES ($1,'Bright Traders','Ada Buyer','ada@buyer.com','approved',1,1) RETURNING id", [ada.id]))[0].id);
+    wq = await wquote('WQ-A' + wn); assert.strictEqual((await call('POST', `/api/wholesale/quotes/${wq.ref}/return`, {}, bob.c)).s, 404, 'not another buyer\'s order');
+    assert.strictEqual((await call('POST', `/api/wholesale/quotes/${wq.ref}/return`, {})).s, 401);
+    const info = (await call('GET', `/api/wholesale/quotes/${wq.ref}/return`, undefined, ada.c)).j; assert.strictEqual(info.can, true); assert.strictEqual(info.lines[0].returnable, 10);
+    const bad = await wopen(wq, { items: [{ item_id: wq.items[0].id, qty: 11 }] }); assert.strictEqual(bad.s, 400); assert.strictEqual((await wopen(wq, { details: 'bad' })).s, 400);
+    const old = await wquote('WQ-O' + wn, { deliveredAt: T() - 86400 * 20 }); assert.strictEqual((await wopen(old, {})).s, 400, 'window closed for the buyer');
+    const r = await wopen(wq, {}); assert.strictEqual(r.s, 200, r.t); assert.strictEqual((await wopen(wq, {})).s, 400, 'one open return per order');
+    const undelivered = await wquote('WQ-U' + wn); await q("UPDATE wholesale_quotes SET status='shipped' WHERE id=$1", [undelivered.id]); assert.strictEqual((await wopen(undelivered, {})).s, 400);
+    wq.rid = r.j.id;
+  });
+  await test('review, owner approval and an automatic Paystack refund of the goods only (never the delivery fee)', async () => {
+    wopsC = await emp('Wale Ops', 'wale@example.com', 'Operations Manager'); fake.calls.length = 0;
+    const lst = (await A('GET', '/returns/wholesale', undefined, wopsC)).j.returns; assert.ok(lst.some((x) => x.id === wq.rid && x.business === 'Bright Traders' && x.requested_amount === 20000));
+    const rv = await A('POST', `/returns/wholesale/${wq.rid}/approve`, { amount: 20000, note: 'Photos match.' }, wopsC); assert.strictEqual(rv.j.stage, 'recommended'); assert.strictEqual(fake.calls.length, 0);
+    const mine = (await call('GET', `/api/wholesale/quotes/${wq.ref}/return`, undefined, ada.c)).j.returns[0]; assert.strictEqual(mine.status_text, 'Waiting for review'); assert.strictEqual(mine.approved_amount, null);
+    assert.strictEqual((await A('POST', `/returns/wholesale/${wq.rid}/reject`, { note: 'No thanks.' }, wopsC)).s, 403); assert.strictEqual((await A('POST', `/returns/wholesale/${wq.rid}/settle`, { method: 'original' })).s, 409);
+    assert.strictEqual((await A('POST', `/returns/wholesale/${wq.rid}/approve`, { amount: 100001 })).s, 400, 'cannot exceed the goods value');
+    const ap = await A('POST', `/returns/wholesale/${wq.rid}/approve`, {}); assert.strictEqual(ap.s, 200, ap.t); assert.strictEqual(ap.j.auto.ok, true, JSON.stringify(ap.j));
+    assert.strictEqual(fake.calls.length, 1); assert.strictEqual(fake.calls[0].transaction, wq.ref); assert.strictEqual(fake.calls[0].amount, 2000000);
+    const x = (await A('GET', `/returns/wholesale/${wq.rid}`)).j; assert.strictEqual(x.return.status, 'settled'); assert.strictEqual(x.return.approved_amount, 20000); assert.strictEqual(x.return.approval, 'owner');
+    assert.strictEqual((await A('POST', `/returns/wholesale/${wq.rid}/approve`, {})).s, 409); assert.strictEqual(fake.calls.length, 1, 'never refunded twice');
+    const m = (await call('GET', `/api/wholesale/quotes/${wq.ref}/return`, undefined, ada.c)).j; assert.strictEqual(m.returns[0].status_text, 'Refunded'); assert.strictEqual(m.lines[0].returnable, 6, 'returnable quantity goes down'); assert.strictEqual(m.can, true);
+    assert.ok((await q("SELECT 1 FROM outbox WHERE to_email='ada@buyer.com' AND subject LIKE $1", ['%' + x.return.ref + '%'])).length >= 3, 'received, approved, refunded emails');
+  });
+  await test('bank-transfer orders wait for Finance, who records the transfer; restocking puts the goods back in the warehouse once', async () => {
+    const d = await wquote('WQ-B' + wn, { pm: 'transfer', pref: 'TRF-9' }), r = (await wopen(d, { items: [{ item_id: d.items[1].id, qty: 3 }] })).j; fake.calls.length = 0;
+    const ap = await A('POST', `/returns/wholesale/${r.id}/approve`, {}); assert.strictEqual(ap.j.auto.manual, true); assert.strictEqual(fake.calls.length, 0);
+    const fin2 = await emp('Femi Fin', 'femi@example.com', 'Finance Officer'); assert.strictEqual((await A('POST', `/returns/wholesale/${r.id}/settle`, { method: 'original' }, fin2)).s, 400, 'no card to refund');
+    assert.strictEqual((await A('POST', `/returns/wholesale/${r.id}/settle`, { method: 'manual' }, fin2)).s, 400, 'reference needed'); assert.strictEqual((await A('POST', `/returns/wholesale/${r.id}/settle`, { method: 'manual', reference: 'GTB-77' }, wopsC)).s, 403, 'paying out is Finance');
+    const before = Number((await q("SELECT COALESCE(SUM(on_hand),0)::int n FROM wholesale_stock_balances WHERE product_id=$1", [fan]))[0].n);
+    const st = await A('POST', `/returns/wholesale/${r.id}/settle`, { method: 'manual', reference: 'GTB-77', restock: true }, fin2); assert.strictEqual(st.s, 200, st.t); assert.strictEqual(st.j.restocked, true);
+    const x = (await A('GET', `/returns/wholesale/${r.id}`)).j.return; assert.strictEqual(x.status, 'settled'); assert.strictEqual(x.settle_reference, 'GTB-77'); assert.strictEqual(x.settled_by, 'Femi Fin');
+    assert.strictEqual(Number((await q("SELECT COALESCE(SUM(on_hand),0)::int n FROM wholesale_stock_balances WHERE product_id=$1", [fan]))[0].n), before + 3);
+    assert.strictEqual((await A('POST', `/returns/wholesale/${r.id}/settle`, { method: 'manual', reference: 'GTB-77', restock: true }, fin2)).s, 409);
+  });
+  await test('staff open a return for a buyer (flagged late), the buyer can cancel a request nobody has reviewed, and a decline tells the buyer why', async () => {
+    const old = await wquote('WQ-L' + wn, { deliveredAt: T() - 86400 * 30 }), b = { quote_ref: old.ref, reason: 'agreed', details: 'Agreed by phone with the account manager.', note: 'Call on Monday', items: [{ item_id: old.items[0].id, qty: 2 }] };
+    assert.strictEqual((await A('POST', '/returns/wholesale/open', b, finC)).s, 403, 'Finance cannot open one');
+    const l = (await A('GET', '/returns/wholesale/lookup?ref=' + old.ref, undefined, wopsC)).j; assert.strictEqual(l.can, true); assert.strictEqual(l.past_window, true);
+    const r = await A('POST', '/returns/wholesale/open', b, wopsC); assert.strictEqual(r.s, 200, r.t); const x = (await A('GET', `/returns/wholesale/${r.j.id}`)).j.return; assert.strictEqual(x.opened_by, 'staff'); assert.strictEqual(x.past_window, true);
+    assert.strictEqual((await A('POST', `/returns/wholesale/${r.j.id}/reject`, { note: 'x' })).s, 400); assert.strictEqual((await A('POST', `/returns/wholesale/${r.j.id}/reject`, { note: 'Outside our terms.' })).s, 200);
+    assert.ok((await q("SELECT 1 FROM outbox WHERE to_email='ada@buyer.com' AND body LIKE '%Outside our terms%'")).length >= 1);
+    const c = await wquote('WQ-C' + wn), rc = (await wopen(c, {})).j; assert.strictEqual((await call('POST', `/api/wholesale/returns/${rc.ref}/cancel`, {}, bob.c)).s, 404); assert.strictEqual((await call('POST', `/api/wholesale/returns/${rc.ref}/cancel`, {}, ada.c)).s, 200);
+    assert.strictEqual((await call('POST', `/api/wholesale/returns/${rc.ref}/cancel`, {}, ada.c)).s, 409);
+  });
   console.log('\nSafety');
   await test('every step is in the activity log, and the page for customers never shows staff names or gateway details', async () => {
     assert.ok((await q("SELECT 1 FROM audit_log WHERE path LIKE '/api/admin/returns/%/approve'")).length >= 1); assert.ok((await q("SELECT 1 FROM audit_log WHERE path LIKE '/api/admin/returns/%/settle'")).length >= 1);

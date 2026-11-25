@@ -2321,6 +2321,19 @@ async function wholesalePage(main) {
     draw(`<p class="noprint"><span class="pill">${e(WSTATUS[q.status] || q.status)}</span> <button class="btn ghost sm" onclick="window.print()">Print proforma</button></p>${proformaHtml(q, account.business_name)}<div class="card noprint" style="margin-top:14px">${act}</div>${tracker}
       <div class="card noprint" style="margin-top:14px"><h4 style="margin-top:0">Progress</h4>${q.events.map((x) => `<div style="font-size:13px;padding:2px 0"><span class="mu">${wdate(x.created)}</span> · ${e(x.note || x.status)}</div>`).join('')}</div>`);
     const after = () => wholesalePage(main);
+    if (q.status === 'delivered') {
+      const rt = await W(`/quotes/${q.ref}/return`).catch(() => null);
+      if (rt) {
+        const past = rt.returns.map((x) => `<div style="padding:6px 0;border-top:1px solid #eee"><b>${e(x.ref)}</b> · ${e(x.status_text)} · ${x.items.map((i) => i.qty + ' × ' + e(i.name)).join(', ')} · ${naira(x.approved_amount != null ? x.approved_amount : x.requested_amount)}${x.decision_note ? `<div class="mu">${e(x.decision_note)}</div>` : ''}${x.can_cancel ? ` <button class="btn ghost sm" data-wrc="${e(x.ref)}">Cancel request</button>` : ''}</div>`).join('');
+        main.insertAdjacentHTML('beforeend', `<div class="card noprint" style="margin-top:14px"><h4 style="margin-top:0">Return goods</h4>${past}
+          ${rt.can ? `<p class="mu">Something wrong with this delivery? Tell us what is coming back. You have ${rt.days} days from delivery. We review it, and once it is approved the goods value is refunded to you.</p>
+          ${rt.lines.filter((l) => l.returnable > 0).map((l) => `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:4px 0"><span>${e(l.name)}</span><span><input type="number" min="0" max="${l.returnable}" value="0" data-wrq="${l.item_id}" style="width:72px"> <span class="mu">of ${l.returnable}</span></span></div>`).join('')}
+          <label class="f">Why<select id="wrw">${Object.entries(rt.reasons).map(([k, v]) => `<option value="${k}">${e(v)}</option>`).join('')}</select></label>
+          <label class="f">What is wrong<textarea id="wrd" rows="3"></textarea></label><button class="btn" id="wrgo">Ask to return</button>` : `<p class="mu">${e(rt.reason || '')}</p>`}</div>`);
+        const go = $('#wrgo'); if (go) go.addEventListener('click', run(async () => { const items = [...main.querySelectorAll('[data-wrq]')].map((i) => ({ item_id: Number(i.dataset.wrq), qty: Number(i.value) })).filter((i) => i.qty > 0); await W(`/quotes/${q.ref}/return`, { body: { reason: $('#wrw').value, details: $('#wrd').value, items } }); toast('Return request sent. We will email you.'); after(); }));
+        main.querySelectorAll('[data-wrc]').forEach((b) => b.addEventListener('click', run(async () => { if (!confirm('Cancel this return request?')) return; await W(`/returns/${b.dataset.wrc}/cancel`, { body: {} }); after(); })));
+      }
+    }
     const inv = $('#winv'); if (inv) inv.addEventListener('click', run(async () => { const r = await W(`/quotes/${q.ref}/invoice`); printHtml('Invoice ' + q.invoice_no, invoiceHtml(r.invoice || r)); }));
     const acc = $('#wacc'); if (acc) acc.addEventListener('click', run(async () => { await W(`/quotes/${q.ref}/accept`, { body: {} }); toast('Approved'); after(); }));
     const dec = $('#wdec'); if (dec) dec.addEventListener('click', run(async () => { if (!confirm('Decline this quotation?')) return; await W(`/quotes/${q.ref}/decline`, { body: {} }); after(); }));
@@ -2539,7 +2552,7 @@ async function route() {
   const v = views[page] || views.dashboard;
   const p = views[page] ? page : 'dashboard';
   await shell(p, '<div class="loading-page"></div>', unreadCount);
-  if (visible('returns')) api('/api/admin/returns/count').then((c) => { const n = c.requested + (c.recommended || 0) + c.awaiting; if (n !== retWaiting) { retWaiting = n; const a = $('[data-nav="returns"]'); if (a) a.innerHTML = '↩️ Returns' + (n ? ` <span class="dot">${n}</span>` : ''); } }).catch(() => {});
+  if (visible('returns')) Promise.all([api('/api/admin/returns/count'), api('/api/admin/returns/wholesale/count').catch(() => ({}))]).then(([c, w]) => { const n = c.requested + (c.recommended || 0) + c.awaiting + (w.requested || 0) + (w.recommended || 0) + (w.awaiting || 0); if (n !== retWaiting) { retWaiting = n; const a = $('[data-nav="returns"]'); if (a) a.innerHTML = '↩️ Returns' + (n ? ` <span class="dot">${n}</span>` : ''); } }).catch(() => {});
   api('/api/notifications/count').then((c) => { const b = $('#nbadge'); if (b) { b.textContent = c.unread; b.classList.toggle('hide', !c.unread); } }).catch(() => {});
   try { await v(p); } catch (err) { if (err.status === 401) { me = null; return loginView('Your session expired. Please sign in again.'); } $('#mn').innerHTML = `<div class="panel"><h3>Something went wrong</h3><p class="mu">${e(err.message)}</p></div>`; }
 }
@@ -2580,9 +2593,69 @@ views.returns = async () => {
   on('#rq', 'keydown', (ev) => { if (ev.key === 'Enter') { retstate.q = ev.target.value; return views.returns(); } });
   onAll('[data-ret]', 'click', (el) => returnModal(el.dataset.ret));
   on('#ropen', 'click', openReturnForm);
+  await wholesaleReturns(col);
   if (retTarget) { const t = retTarget; retTarget = null; returnModal(t); }
 };
 // Staff opens a return for a customer who asked by phone, in the shop or on WhatsApp.
+// Wholesale returns: same screen, same two-step approval (Operations Manager recommends, owner approves), refunded by Paystack or recorded as a bank transfer.
+async function wholesaleReturns(col) {
+  let w; try { w = await api('/api/admin/returns/wholesale'); } catch { return; }
+  retWaiting += w.returns.filter((r) => ['requested', 'recommended', 'awaiting_settlement', 'settling'].includes(r.status)).length;
+  $('#mn').insertAdjacentHTML('beforeend', `<h3 style="margin:22px 0 8px">Wholesale returns <button class="btn sm ghost" id="wropen" style="margin-left:8px">+ Open one for a buyer</button></h3>
+    <div class="panel"><div class="tw"><table class="t"><tr><th>Return</th><th>Order</th><th>Buyer</th><th>Items</th><th>Reason</th><th>Refund</th><th>Status</th><th>Asked</th></tr>${w.returns.map((r) => `<tr class="click" data-wret="${r.id}"><td><b>${e(r.ref)}</b></td><td>${e(r.order_no || r.quote_ref)}</td><td>${e(r.business)}</td><td>${r.items.map((i) => i.qty + ' × ' + e(i.name)).join(', ')}</td><td>${e(r.reason)}</td><td>${naira(r.approved_amount != null ? r.approved_amount : r.requested_amount)}</td><td style="font-weight:700;color:${col[r.status] || '#344054'}">${e(r.status_text)}</td><td>${dt(r.created)}</td></tr>`).join('') || '<tr><td colspan="8" class="mu2">No wholesale returns yet.</td></tr>'}</table></div></div>`);
+  onAll('[data-wret]', 'click', (el) => wreturnModal(el.dataset.wret));
+  on('#wropen', 'click', openWholesaleReturnForm);
+}
+async function wreturnModal(id) {
+  const d = await api('/api/admin/returns/wholesale/' + id), r = d.return, owner = me.role === 'admin', canOrders = owner || can('orders', true), canFinance = owner || can('finance', true), P = d.plan;
+  const row = (k, v) => `<div style="display:flex;gap:10px;padding:3px 0"><span class="mu2" style="min-width:130px">${k}</span><span>${v}</span></div>`;
+  const send = (path, body, okMsg) => guard(async () => { const x = await api('/api/admin/returns/wholesale/' + id + path, { body }); toast(typeof okMsg === 'function' ? okMsg(x) : okMsg); closeModal(); await views.returns(); })();
+  openModal(`<h2>${e(r.ref)} · ${e(r.business)}</h2>
+    ${row('Order', e(r.order_no || r.quote_ref))}${row('Status', `<b>${e(r.status_text)}</b>`)}${row('Reason', e(r.reason))}${row('What happened', e(r.details))}
+    ${row('Items', r.items.map((i) => i.qty + ' × ' + e(i.name) + ' @ ' + naira(i.unit_price)).join('<br>'))}${row('Goods value', naira(r.requested_amount) + ` <span class="mu2">(most you can refund: ${naira(d.max_refund)}; delivery and service fees are not refunded)</span>`)}
+    ${row('Opened by', r.opened_by === 'staff' ? `${e(r.opened_by_name)} for the buyer${r.past_window ? ' <b style="color:#b45309">(after the return window)</b>' : ''}${r.open_note ? '<br><span class="mu2">' + e(r.open_note) + '</span>' : ''}` : 'The buyer')}
+    ${r.recommended_by ? row('Reviewed by', `${e(r.recommended_by)}: recommends ${naira(r.recommended_amount)}${r.recommended_note ? '<br>' + e(r.recommended_note) : ''}`) : ''}
+    ${r.approved_amount != null ? row('Approved', `${naira(r.approved_amount)} by ${e(r.decided_by)}${r.decision_note ? '<br>' + e(r.decision_note) : ''}`) : r.status === 'rejected' ? row('Declined', e(r.decision_note)) : ''}
+    ${r.auto_settle ? row('Refund sending', r.auto_settle === 'done' ? 'Sent automatically' : r.auto_settle === 'failed' ? '<b style="color:#b42318">Automatic refund failed: retry below</b>' : 'Pay by bank transfer, then record it below') : ''}${r.last_error ? row('Last error', `<span style="color:#b42318">${e(r.last_error)}</span>`) : ''}
+    ${r.status === 'settled' ? row('Settled', `${e(r.settled_by)} · ${dt(r.settled_at)}<br>${r.settle_method === 'manual' ? 'Bank transfer, ref ' + e(r.settle_reference) : 'Paystack refund ' + e(r.gateway_ref) + ' (' + e(r.gateway_status) + ')'}${r.restocked ? '<br>Goods put back in the warehouse' : ''}`) : ''}
+    ${r.status === 'recommended' && !owner ? '<p class="mu2">This return is waiting for the owner\'s final approval.</p>' : ''}
+    ${(r.status === 'requested' || (r.status === 'recommended' && owner)) && canOrders ? `<h3 style="margin:14px 0 6px">${owner ? 'Your decision' : 'Your review'}</h3>
+      <p class="mu2" style="margin:0 0 6px">${owner ? 'Approving refunds the buyer automatically when they paid through Paystack; bank-transfer buyers are paid by Finance.' : 'You recommend; the owner makes the final approval.'}</p>
+      <label class="f">Refund to ${owner ? 'approve' : 'recommend'} (₦, at most ${naira(d.max_refund)})<input id="wra" type="number" min="1" max="${d.max_refund}" value="${Math.min(r.recommended_amount != null ? r.recommended_amount : r.requested_amount, d.max_refund)}"></label>
+      <label class="f">Note (needed if you change the amount or decline)<input id="wrn" maxlength="500"></label>
+      <div class="acts"><button class="btn" id="wrap">${owner ? 'Approve and refund' : 'Recommend to owner'}</button><button class="btn ghost" id="wrrj">Decline</button></div>` : ''}
+    ${r.status === 'awaiting_settlement' && canFinance ? `<h3 style="margin:14px 0 6px">Pay the refund</h3>
+      <label class="f">How<select id="wrm">${P.can_auto ? '<option value="original">Refund through Paystack (automatic)</option>' : ''}<option value="manual">I paid by bank transfer</option></select></label>
+      <label class="f" id="wrrw">Bank transfer reference<input id="wrr" maxlength="120"></label>
+      <label class="f" style="flex-direction:row;gap:8px;align-items:center"><input type="checkbox" id="wrs"> Put the goods back in the warehouse (only if they came back and are sellable)</label>
+      <div class="acts"><button class="btn" id="wrsl">Refund now</button></div>` : ''}`);
+  const toggle = () => { const m = $('#wrm', modal); if (m) $('#wrrw', modal).classList.toggle('hide', m.value !== 'manual'); };
+  if ($('#wrm', modal)) { $('#wrm', modal).addEventListener('change', toggle); toggle(); }
+  const b = (sel, fn) => { const x = $(sel, modal); if (x) x.addEventListener('click', fn); };
+  b('#wrap', () => send('/approve', { amount: Number($('#wra', modal).value), note: $('#wrn', modal).value }, (x) => x.stage === 'recommended' ? 'Sent to the owner for final approval.' : x.auto && x.auto.ok ? 'Approved and refunded automatically.' : x.auto && x.auto.error ? 'Approved, but the automatic refund failed: ' + x.auto.error : 'Approved. Finance now pays it by bank transfer.'));
+  b('#wrrj', () => send('/reject', { note: $('#wrn', modal).value }, 'Declined. The buyer was emailed.'));
+  b('#wrsl', () => send('/settle', { method: $('#wrm', modal).value, reference: ($('#wrr', modal) || {}).value, restock: $('#wrs', modal).checked }, 'Refund recorded and the buyer was emailed.'));
+}
+function openWholesaleReturnForm() {
+  openModal(`<h2>Open a wholesale return for a buyer</h2><p class="mu2">Use this when the buyer asked you directly. It goes to review, then to the owner for approval.</p>
+    <div class="fld"><label>Order number (WQ-… or the order number)</label><input id="wo-ref" placeholder="e.g. WQ-AB12CD"></div><button class="btn sm" id="wo-find">Find order</button><div id="wo-body" style="margin-top:12px"></div>`);
+  $('#wo-find', modal).addEventListener('click', guard(async () => {
+    const box = $('#wo-body', modal); box.innerHTML = '';
+    try {
+      const x = await api('/api/admin/returns/wholesale/lookup?ref=' + encodeURIComponent($('#wo-ref', modal).value));
+      if (!x.can) { box.innerHTML = `<p style="color:#b42318">${e(x.reason || 'This order cannot be returned.')}</p>`; return; }
+      box.innerHTML = `<p><b>${e(x.quote.order_no || x.quote.ref)}</b> · ${e(x.quote.business)}</p>${x.past_window ? `<p style="color:#b45309">Past the ${x.days}-day window. You can still open it; the approver will see that it is late.</p>` : ''}
+        ${x.lines.map((l) => `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:4px 0"><span>${e(l.name)} · ${naira(l.unit_price)}</span><input type="number" min="0" max="${l.returnable}" value="0" data-woq="${l.item_id}" style="width:72px"> <span class="mu2">of ${l.returnable}</span></div>`).join('')}
+        <div class="fld"><label>Why</label><select id="wo-why">${Object.entries(x.reasons).map(([k, v]) => `<option value="${k}">${e(v)}</option>`).join('')}</select></div>
+        <div class="fld"><label>What happened</label><textarea id="wo-det" rows="3"></textarea></div>
+        <div class="fld"><label>Internal note (optional)</label><input id="wo-note"></div><button class="btn" id="wo-go">Open return</button>`;
+      $('#wo-go', modal).addEventListener('click', guard(async () => {
+        const items = [...modal.querySelectorAll('[data-woq]')].map((i) => ({ item_id: Number(i.dataset.woq), qty: Number(i.value) })).filter((i) => i.qty > 0);
+        await api('/api/admin/returns/wholesale/open', { body: { quote_ref: x.quote.ref, reason: $('#wo-why', modal).value, details: $('#wo-det', modal).value, note: $('#wo-note', modal).value, items } }); toast('Return opened. The buyer was emailed.'); closeModal(); await views.returns();
+      }));
+    } catch (er) { box.innerHTML = `<p style="color:#b42318">${e(er.message)}</p>`; }
+  }));
+}
 function openReturnForm() {
   const mon = (sel, fn) => { const x = $(sel, modal); if (x) x.addEventListener('click', guard(fn)); };
   openModal(`<h2>Open a return for a customer</h2><p class="mu2">Use this when the customer asked you directly. They get the same emails as if they had asked online, and the request goes to review and then to the owner for approval.</p>
@@ -3180,7 +3253,7 @@ views.marketing = async () => {
 };
 
 /* ---------------- settings ---------------- */
-const SF = [['store_name', 'Store name'], ['tagline', 'Tagline'], ['logo_url', 'Logo URL (https://…)'], ['announcement', 'Announcement bar'], ['contact_email', 'Contact email'], ['contact_phone', 'Contact phone'], ['whatsapp', 'WhatsApp number (digits, with country code)'], ['address', 'Address'], ['pickup_address', 'Store pickup address'], ['instagram', 'Instagram link'], ['facebook', 'Facebook link'], ['x_twitter', 'X / Twitter link'], ['tiktok', 'TikTok link'], ['free_shipping_threshold', 'Free delivery above (₦, 0 = off)'], ['express_multiplier', 'Express delivery price multiplier'], ['return_days', 'Return window (days)'], ['return_auto_refund', 'Send approved refunds automatically (1 = yes, 0 = Finance settles each one)'], ['return_auto_approve_max', 'Auto-approve and refund returns up to (₦, 0 = owner approves every return)'], ['tax_note', 'Price / VAT note'], ['ga_id', 'Google Analytics ID (G-XXXX)'], ['meta_pixel_id', 'Meta Pixel ID']];
+const SF = [['store_name', 'Store name'], ['tagline', 'Tagline'], ['logo_url', 'Logo URL (https://…)'], ['announcement', 'Announcement bar'], ['contact_email', 'Contact email'], ['contact_phone', 'Contact phone'], ['whatsapp', 'WhatsApp number (digits, with country code)'], ['address', 'Address'], ['pickup_address', 'Store pickup address'], ['instagram', 'Instagram link'], ['facebook', 'Facebook link'], ['x_twitter', 'X / Twitter link'], ['tiktok', 'TikTok link'], ['free_shipping_threshold', 'Free delivery above (₦, 0 = off)'], ['express_multiplier', 'Express delivery price multiplier'], ['return_days', 'Return window (days)'], ['wholesale_return_days', 'Wholesale return window (days after delivery)'], ['return_auto_refund', 'Send approved refunds automatically (1 = yes, 0 = Finance settles each one)'], ['return_auto_approve_max', 'Auto-approve and refund returns up to (₦, 0 = owner approves every return)'], ['tax_note', 'Price / VAT note'], ['ga_id', 'Google Analytics ID (G-XXXX)'], ['meta_pixel_id', 'Meta Pixel ID']];
 /* ---------------- deliveries ---------------- */
 views.deliveries = async () => {
   const [d, r] = await Promise.all([api('/api/admin/deliveries'), api('/api/admin/riders')]);
