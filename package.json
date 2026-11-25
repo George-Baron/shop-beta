@@ -56,13 +56,10 @@
     "test:staff-invite": "node --disable-warning=ExperimentalWarning test/staff-invite.js",
     "test:photos-audit": "node --disable-warning=ExperimentalWarning test/photos-audit.js",
     "test:report-schedule": "node --disable-warning=ExperimentalWarning test/report-schedule.js",
-<<<<<<< HEAD
     "test:ops-ai:unit": "node test/ops-ai-unit.js",
     "test:ops-ai": "node --disable-warning=ExperimentalWarning test/ops-ai.js",
-=======
     "test:return-photos": "node --disable-warning=ExperimentalWarning test/return-photos.js",
     "test:returns": "node --disable-warning=ExperimentalWarning test/returns.js",
->>>>>>> origin/main
     "test:roles": "node --disable-warning=ExperimentalWarning test/roles.js",
     "test:catalog": "node --disable-warning=ExperimentalWarning test/catalog-io.js",
     "test:riders": "node --disable-warning=ExperimentalWarning test/riders.js",
