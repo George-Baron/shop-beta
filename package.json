@@ -67,6 +67,7 @@
     "test:trade-docs": "node --disable-warning=ExperimentalWarning test/trade-docs.js",
     "test:dropship-money:unit": "node --disable-warning=ExperimentalWarning test/dropship-money-unit.js",
     "test:dropship-money": "node --disable-warning=ExperimentalWarning test/dropship-money.js",
+    "test:seo": "node --disable-warning=ExperimentalWarning test/seo.js",
     "test:supplier-portal": "node --disable-warning=ExperimentalWarning test/supplier-portal.js"
   },
   "dependencies": {

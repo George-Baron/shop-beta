@@ -130,6 +130,9 @@ Check: `https://www.yourshop.com/health` answers `{"ok":true}` and the padlock s
 
 ---
 
+### Being found on Google
+Set `BASE_URL=https://velto-mart.com.ng` on Render (Part 5) before you ask Google to look at the shop: every canonical link and sitemap address comes from it. After the domain works, follow **docs/SEO.md** (Search Console verification, submitting `/sitemap.xml`, checking pages). Admin > SEO shows whether the setup is healthy. Deploying the code does not mean Google has indexed anything; that is shown only in Search Console and takes days to weeks.
+
 ## Part 8. Moving an existing shop (optional, one time)
 
 Only if you have the old SQLite database (`data/shop.db`) and uploaded photos.

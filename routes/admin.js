@@ -72,6 +72,8 @@ router.get('/audit', ah(async (req, res) => {
 }));
 
 /* ---------- dashboard ---------- */
+// SEO health check: owner only, read-only. It reports what this server can verify about its own pages, sitemap and feed. It cannot know what Google has indexed.
+router.get('/seo', A.requireAdmin, ah(async (req, res) => res.json(await require('../lib/seo').audit())));
 router.get('/dashboard', ah(async (req, res) => {
   // Every employee may open the dashboard, but sees only the parts their role allows: money needs Finance or Reports, orders and top products need Orders,
   // the customer count and unread messages need Customers, low stock needs Catalogue. The owner sees everything.
