@@ -22,6 +22,16 @@ router.post('/quotes/:ref/decline', ah(async (req, res) => { await W.decline(req
 router.post('/quotes/:ref/pay', A.limiter('wholesale-pay', 20, 600000), ah(async (req, res) => res.json(await W.startPayment(req.user, req.params.ref))));
 router.post('/quotes/:ref/pay/demo', A.limiter('wholesale-demo', 20, 600000), ah(async (req, res) => { await W.demoPay(req.user, req.params.ref); res.json({ ok: true }); }));
 
+/* ---------- returns of delivered orders ---------- */
+const WR = require('../lib/wholesale-returns');
+const acct = async (user) => { const a = await W.accountOf(user); if (!a) S.fail(404, 'No wholesale account.'); return a; };
+router.get('/quotes/:ref/return', ah(async (req, res) => res.json(await WR.forBuyer(await acct(req.user), req.params.ref))));
+router.post('/quotes/:ref/return', A.limiter('wholesale-return', 10, 3600000), ah(async (req, res) => {
+  const a = await acct(req.user), { get } = require('../lib/db'), q = await get('SELECT * FROM wholesale_quotes WHERE ref=? AND account_id=?', S.str(req.params.ref, 20).toUpperCase(), a.id); if (!q) S.fail(404, 'Quote not found.');
+  res.json({ ok: true, ...(await WR.request(q, req.body || {})) });
+}));
+router.post('/returns/:ref/cancel', ah(async (req, res) => { await WR.cancel(await acct(req.user), req.params.ref); res.json({ ok: true }); }));
+
 /* ---------- requests for quotation ---------- */
 const rjson = express.json({ limit: '8mb' }), rraw = express.raw({ type: () => true, limit: '9mb' });
 const sendBuf = (res, buf, name, type) => { res.set({ 'Content-Type': type, 'Content-Disposition': `attachment; filename="${String(name).replace(/[^\w.\- ()]/g, '_')}"`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' }); res.send(Buffer.from(buf)); };

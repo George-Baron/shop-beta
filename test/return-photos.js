@@ -33,6 +33,7 @@ const start = async (port, mail, fakePort) => {
   const { srv, call } = await start(port, true, fport);
   const owner = (await call('POST', '/api/auth/login', { email: 'owner@example.com', password: OWNER })).c;
   const A = (m, u, b, c) => call(m, '/api/admin' + u, b, c === undefined ? owner : c);
+  assert.strictEqual((await A('PUT', '/settings', { settings: { return_auto_refund: '0' } })).s, 200);   // these tests settle by hand
   const PW = 'Blue-Harbour-Lamp-2026-x', T = () => Math.floor(Date.now() / 1000);
   const reg = async (name, email) => { assert.strictEqual((await call('POST', '/api/auth/register', { name, email, phone: '0803' + String(Math.random()).slice(2, 9), password: PW })).s, 200); return { id: Number((await q('SELECT id FROM users WHERE email=$1', [email]))[0].id), c: (await call('POST', '/api/auth/login', { email, password: PW })).c, email, name }; };
   const ada = await reg('Ada Buyer', 'ada@buyer.com'), bob = await reg('Bob Other', 'bob@buyer.com');
