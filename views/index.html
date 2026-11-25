@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"<!--HTMLATTR-->>
+<html lang="en-NG"<!--HTMLATTR-->>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -33,6 +33,7 @@
 [data-mode=dark]:not([data-store=electronics]){--bg:#0a1226;--surface:#111b33;--surface-2:#0d1730;--text:#eef0f4;--muted:#98a2b3;--border:#22304f;--head-bg:#0b1b3a;--head-ink:#eef0f4;--hero-ink:#eef0f4;--hero-muted:#a8b0bd;--hero-bg:linear-gradient(120deg,#1b1f27,#12151a);--accent-soft:#2a1d14;--shadow:0 8px 24px rgba(0,0,0,.45)}
 [data-mode=dark][data-store=supermarket]{--head-bg:#06301b}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
+.seo-static{max-width:900px;margin:0 auto;padding:8px 16px 40px;font-size:15px}.seo-static ul{padding-left:18px}.seo-static a{text-decoration:underline}
 body{margin:0;font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased;transition:background .2s}
 img{max-width:100%;display:block}a{color:inherit;text-decoration:none}button,input,select,textarea{font:inherit;color:inherit}
 h1,h2,h3{font-family:var(--display);line-height:1.2;margin:0 0 .5em}h1{font-size:clamp(28px,4vw,46px);letter-spacing:-.02em}h2{font-size:clamp(20px,2.4vw,26px)}h3{font-size:18px}
@@ -362,7 +363,7 @@ body.is-rider .ann,body.is-rider .head,body.is-rider .foot,body.is-rider .cookie
 </head>
 <body>
 <div id="adm"></div>
-<div id="shell"><div class="loading-page"></div></div>
+<div id="shell"><div class="loading-page"></div><!--SEOBODY--></div>
 <div class="scrim" id="scrim"></div>
 <aside class="drawer" id="drawer" aria-label="Shopping cart" aria-hidden="true"></aside>
 <div class="modal" id="modal" role="dialog" aria-modal="true"></div>
@@ -739,7 +740,7 @@ function reviewsHtml(p) {
     ${store.user ? '' : '<label class="f">Your name<input name="name" required maxlength="60"></label>'}<label class="f">Title<input name="title" maxlength="80"></label><label class="f">Your review<textarea name="body" rows="3" maxlength="1000" required></textarea></label><button class="btn">Submit review</button></form></div>`;
 }
 function ldjson(p, cfg) {
-  const old = document.getElementById('ldp'); if (old) old.remove();
+  const old = document.getElementById('ldp'); if (old && old.dataset.path === location.pathname) return; /* the server already wrote the full version for this address */ if (old) old.remove();
   const s = document.createElement('script'); s.type = 'application/ld+json'; s.id = 'ldp';
   s.textContent = JSON.stringify({ '@context': 'https://schema.org', '@type': 'Product', name: p.name, description: p.description, sku: p.sku, brand: { '@type': 'Brand', name: p.brand }, offers: { '@type': 'Offer', priceCurrency: 'NGN', price: p.price, availability: p.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: location.href }, ...(p.rating_n ? { aggregateRating: { '@type': 'AggregateRating', ratingValue: p.rating, reviewCount: p.rating_n } } : {}) });
   document.head.appendChild(s);
@@ -889,7 +890,7 @@ async function home(main, slug) {
 }
 
 /* ===== account.js ===== */
-const STATUS = { pending: 'Order placed', paid: 'Paid', confirmed: 'Confirmed', processing: 'Being prepared', shipped: 'Shipped', delivered: 'Delivered', cancelled: 'Cancelled' };
+const STATUS = { return: 'Return', refunded: 'Refunded', pending: 'Order placed', paid: 'Paid', confirmed: 'Confirmed', processing: 'Being prepared', shipped: 'Shipped', delivered: 'Delivered', cancelled: 'Cancelled' };
 const FLOW = ['pending', 'paid', 'processing', 'shipped', 'delivered'];
 const flowFor = (o) => (o.payment_method === 'pod' ? ['pending', 'confirmed', 'processing', 'shipped', 'delivered'] : FLOW);
 const fmt = (t) => new Date(t * 1000).toLocaleString('en-NG', { dateStyle: 'medium', timeStyle: 'short' });
@@ -1121,6 +1122,7 @@ async function orderPage(main, ref, u, cfg) {
    ${order.masked ? '<div class="card" style="margin-bottom:16px;font-size:14px">For your privacy, your phone number and address are hidden here. Open the link in your order email, or sign in, to see everything, including your delivery code.</div>' : ''}
    ${!['cancelled', 'refunded'].includes(order.status) ? `<div class="card" style="margin-bottom:16px"><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;text-align:center;font-size:12px">${flow.map((s, i) => `<div><div style="height:6px;border-radius:3px;background:${i <= stepIdx ? 'var(--accent)' : 'var(--border)'};margin-bottom:6px"></div><span class="${i <= stepIdx ? '' : 'mu'}" style="font-weight:${i === stepIdx ? 800 : 500}">${STATUS[s]}</span></div>`).join('')}</div></div>` : ''}
    ${deliveryCard(order)}
+   ${returnCard(order)}
    ${shipmentsCard(order, ref, email, token)}
    <div class="row c2" style="align-items:start"><div class="card"><h3>Items</h3>${(() => { const gs = byStore(order.items, (i) => i.store || ''); return gs.map((g) => groupHead(g.name, gs) + g.lines.map((i) => `<div class="line" style="grid-template-columns:48px 1fr auto"><div class="lt" style="width:48px;height:48px">${tile({ id: i.product_id, emoji: i.emoji, image: i.image, name: i.name })}</div><div style="font-size:14px"><b>${e(i.name)}</b><br><span class="mu">${e(i.variant_label)} × ${i.qty}</span></div><b>${naira(i.price * i.qty)}</b></div>`).join('')).join(''); })()}
      <div class="sum"><span>Subtotal</span><span>${naira(order.subtotal)}</span></div>${order.discount ? `<div class="sum"><span>Discount ${e(order.coupon || '')}</span><span>−${naira(order.discount)}</span></div>` : ''}<div class="sum"><span>Delivery</span><span>${order.delivery_fee ? naira(order.delivery_fee) : 'Free'}</span></div>${order.tax ? `<div class="sum"><span>${e(order.tax_label)}</span><span>${naira(order.tax)}</span></div>` : ''}<div class="sum total"><span>${order.currency !== 'NGN' && order.charge_amount != null ? (order.payment_status === 'paid' ? 'Total paid' : 'Total to pay') : 'Total'}</span><span>${order.currency !== 'NGN' && order.charge_amount != null ? e(fmtMinor(order.charge_amount, order.currency)) : naira(order.total)}</span></div></div>
@@ -1146,6 +1148,25 @@ async function orderPage(main, ref, u, cfg) {
   const dp = $('#demopay'); if (dp) dp.addEventListener('click', async () => { try { await api('/api/pay/demo/' + ref, { body: { outcome: 'ok' } }); cart.clear(); cart.setCoupon(''); toast('Payment received (demo)'); go('/order/' + ref + '?new=1', true); } catch (er) { toast(er.message, 'bad'); } });
   const df = $('#demofail'); if (df) df.addEventListener('click', async () => { await api('/api/pay/demo/' + ref, { body: { outcome: 'fail' } }); toast('Payment failed. The order was cancelled.', 'bad'); rerender(); });
   const rc = $('#recheck'); if (rc) rc.addEventListener('click', async () => { await api('/api/paystack/verify?reference=' + encodeURIComponent(ref)).catch(() => {}); rerender(); });
+  const retc = $('#retcard');
+  if (retc) {
+    const op = $('#retopen', retc); if (op) op.addEventListener('click', () => { $('#retform', retc).classList.toggle('hide'); });
+    const go2 = $('#retgo2', retc); if (go2) go2.addEventListener('click', async () => {
+      const items = $$('[data-ritem]', retc).filter((c) => c.checked).map((c) => { const q = $(`[data-rqty="${c.dataset.ritem}"]`, retc); return { item_id: Number(c.dataset.ritem), qty: q ? Number(q.value) : 1 }; });
+      try {
+        go2.disabled = true;
+        const files = Array.from(($('#rphotos', retc) || {}).files || []).slice(0, 5);
+        if (($('#rphotos', retc) || {}).files && $('#rphotos', retc).files.length > 5) throw new Error('Please choose at most 5 photos.');
+        const shots = []; for (const f of files) shots.push(await shrinkPhoto(f));   // a bad file stops us before anything is sent
+        const made = await api(`/api/orders/${encodeURIComponent(ref)}/return`, { body: { email, token, items, reason: $('#rreason', retc).value, condition: $('#rcond', retc).value, packaging: $('#rpack', retc).value, details: $('#rdet', retc).value } });
+        let lost = 0; for (const data of shots) { try { await api(`/api/orders/${encodeURIComponent(ref)}/return/${made.id}/photos`, { body: { email, token, data } }); } catch { lost++; } }
+        toast(lost ? `Return request sent, but ${lost} photo${lost === 1 ? '' : 's'} could not be uploaded. You can email them to us.` : 'Return request sent. We will email you the decision.', lost ? 'bad' : undefined); rerender();
+      }
+      catch (er) { go2.disabled = false; toast(er.message, 'bad'); }
+    });
+    $$('[data-retphoto]', retc).forEach(async (img) => { try { const [rid, pid] = img.dataset.retphoto.split(':'); const r = await fetch(`/api/orders/${encodeURIComponent(ref)}/return/${rid}/photos/${pid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ email, token }) }); if (r.ok) img.src = await readAsData(await r.blob()); } catch { /* the picture just stays blank */ } });
+    $$('[data-retcancel]', retc).forEach((b) => b.addEventListener('click', async () => { if (!confirm('Cancel this return request?')) return; try { await api(`/api/orders/${encodeURIComponent(ref)}/return/${b.dataset.retcancel}/cancel`, { body: { email, token } }); toast('Return request cancelled'); rerender(); } catch (er) { toast(er.message, 'bad'); } }));
+  }
   const rt = $('#ratebox');
   if (rt) {
     let stars = 0; const paintStars = () => $$('[data-star]', rt).forEach((b) => { b.textContent = Number(b.dataset.star) <= stars ? '★' : '☆'; });
@@ -1170,6 +1191,45 @@ function shipmentsCard(order, ref, email, token, rerender) {
    ${x.needs_choice ? `<div class="note" style="margin-top:8px"><b>We need your decision.</b> ${e(x.issue)}<div style="font-size:13px;margin-top:4px">${x.alternative ? 'We found an alternative: <b>' + e(x.alternative.name) + '</b>, at the same price you paid.' : 'You can have a full refund for this item.'}</div>
     ${token ? `<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">${x.alternative ? `<button class="btn sm" data-choose="${x.id}:alternative">Take the alternative</button>` : ''}<button class="btn ghost sm" data-choose="${x.id}:refund">Full refund</button></div>` : '<div class="mu" style="font-size:12px;margin-top:6px">Open this page from the link in your email, or sign in, to choose.</div>'}</div>` : ''}
    ${x.refund_due ? `<div style="font-size:13px">Refund due to you: <b>${naira(x.refund_due)}</b></div>` : ''}</div>`).join('')}</div>`;
+}
+
+// Shrinks a phone photo in the browser (longest side 1600 px, JPEG) so it uploads quickly and stays under the size limit.
+const readAsData = (blob) => new Promise((resolve, reject) => { const fr = new FileReader(); fr.onload = () => resolve(fr.result); fr.onerror = () => reject(new Error('That file could not be read.')); fr.readAsDataURL(blob); });
+async function shrinkPhoto(file) {   // data: links only: the site's security policy does not allow blob: images
+  const src = await readAsData(file);
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => { const k = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); resolve(c.toDataURL('image/jpeg', 0.82)); };
+    img.onerror = () => reject(new Error('That file is not a photo we can read.'));
+    img.src = src;
+  });
+}
+function returnCard(order) {
+  const ri = order.return_info, rs = order.returns || []; if (!ri && !rs.length) return '';
+  const col = { requested: '#b45309', awaiting_settlement: '#1d4ed8', settling: '#1d4ed8', settled: '#15803d', rejected: '#b42318', cancelled: '#667085' };
+  const list = rs.map((r) => `<div style="border:1px solid var(--line,#e5e7eb);border-radius:10px;padding:10px;margin-bottom:8px;font-size:14px"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${e(r.ref)}</b><span style="font-weight:700;color:${col[r.status] || '#344054'}">${e(r.status_text)}</span></div>
+    <div class="mu">${r.items.map((i) => `${i.qty} × ${e(i.name)}`).join(', ')} · ${e(r.reason)} · asked ${fmt(r.created)}</div>
+    ${r.approved_amount != null ? `<div>Refund: <b>${naira(r.approved_amount)}</b></div>` : `<div class="mu">Expected refund: up to ${naira(r.requested_amount)}, once approved</div>`}
+    ${r.status === 'awaiting_settlement' ? '<div class="mu">Your return was approved. The refund goes back to the account your payment came from once it is settled; we will tell you when it is sent.</div>' : ''}
+    ${r.refunded_to ? `<div style="color:#15803d">Refunded: ${e(r.refunded_to)}.</div>` : ''}
+    ${r.note ? `<div class="mu">Note from our team: ${e(r.note)}</div>` : ''}
+    ${(r.photos || []).length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${r.photos.map((p) => `<img data-retphoto="${r.id}:${p}" alt="Return photo" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--line,#e5e7eb)">`).join('')}</div>` : ''}
+    ${r.can_cancel ? `<button class="btn ghost sm" data-retcancel="${r.id}" style="margin-top:6px">Cancel this request</button>` : ''}</div>`).join('');
+  let form = '';
+  if (ri && ri.can) {
+    form = `<button class="btn" id="retopen">Return items</button><div id="retform" class="hide" style="margin-top:12px">
+      <p class="mu" style="margin:0 0 8px">You can return items until <b>${ri.deadline ? new Date(ri.deadline * 1000).toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' }) : ri.days + ' days after delivery'}</b>. Tell us a little and our team will review it.</p>
+      <div style="display:grid;gap:8px;margin-bottom:10px">${ri.lines.map((l) => `<label style="display:flex;gap:8px;align-items:center;font-size:14px"><input type="checkbox" data-ritem="${l.item_id}"> <span style="flex:1">${e(l.name)} <span class="mu">${naira(l.price)} each</span></span>${l.qty > 1 ? `<select data-rqty="${l.item_id}">${Array.from({ length: l.qty }, (_, k) => `<option value="${k + 1}" ${k + 1 === l.qty ? 'selected' : ''}>${k + 1}</option>`).join('')}</select>` : '<span class="mu">1</span>'}</label>`).join('')}</div>
+      <label class="f">1. Why are you returning it?<select id="rreason"><option value="">Choose…</option>${Object.entries(ri.reasons).map(([k, v]) => `<option value="${k}">${e(v)}</option>`).join('')}</select></label>
+      <label class="f">2. What condition is it in?<select id="rcond"><option value="">Choose…</option>${Object.entries(ri.conditions).map(([k, v]) => `<option value="${k}">${e(v)}</option>`).join('')}</select></label>
+      <label class="f">3. Do you still have the original packaging?<select id="rpack"><option value="">Choose…</option><option value="original">Yes</option><option value="no">No</option></select></label>
+      <label class="f">4. Tell us what happened<textarea id="rdet" rows="3" maxlength="1000" placeholder="For example: the zip is broken, or the colour is different from the photo"></textarea></label>
+      <label class="f">5. Photos (optional, up to 5)<input type="file" id="rphotos" accept="image/png,image/jpeg,image/webp" multiple></label>
+      <div class="mu" style="margin:-4px 0 6px;font-size:12px">A photo of the problem helps us decide faster.</div>
+      <div class="mu" style="margin:6px 0">If approved, your refund goes back to where your payment came from (card or wallet).</div>
+      <button class="btn" id="retgo2">Send return request</button></div>`;
+  } else if (ri && ri.reason && !rs.some((r) => ['requested', 'awaiting_settlement', 'settling'].includes(r.status))) form = `<div class="mu">${e(ri.reason)}</div>`;
+  return `<div class="card" id="retcard" style="margin-bottom:16px"><h3 style="margin-top:0">Returns and refunds</h3>${list}${form}</div>`;
 }
 
 function deliveryCard(order) {
@@ -2076,7 +2136,8 @@ async function partnerPortal(main) {
     }
     if (tab === 'earnings') {
       const r = await P('/earnings');
-      wrap(`<div class="row c2"><div class="card"><div class="mu">Owed to you now</div><h2 style="margin:4px 0">${naira(r.balance)}</h2><div class="mu" style="font-size:12px">Delivered sales ${naira(r.gross)} − our commission ${naira(r.commission)} − paid out ${naira(r.paid)}</div></div><div class="card"><div class="mu">On the way (not delivered yet)</div><h2 style="margin:4px 0">${naira(r.in_progress)}</h2><div class="mu" style="font-size:12px">Counted once the customer receives the order.</div></div></div>
+      wrap(`<div class="row c2"><div class="card"><div class="mu">Owed to you now</div><h2 style="margin:4px 0">${naira(r.balance)}</h2><div class="mu" style="font-size:12px">Delivered sales ${naira(r.gross)} − our commission ${naira(r.commission)}${r.adjustments ? ' − returns ' + naira(-r.adjustments) : ''} − paid out ${naira(r.paid)}</div></div><div class="card"><div class="mu">On the way (not delivered yet)</div><h2 style="margin:4px 0">${naira(r.in_progress)}</h2><div class="mu" style="font-size:12px">Counted once the customer receives the order.</div></div></div>
+        ${(r.adjustment_rows || []).length ? `<div class="card" style="margin-top:12px"><h3>Returns taken off your balance</h3><p class="mu" style="margin-top:0;font-size:13px">When a customer returns your item and is refunded, the value of those items (after our commission) is taken off what we owe you.</p>${r.adjustment_rows.map((a) => `<div style="display:flex;justify-content:space-between;padding:4px 0"><span>${fmt(a.created)} · order ${e(a.order_ref)} · ${e(a.note)}</span><b>−${naira(-a.amount)}</b></div>`).join('')}</div>` : ''}
         <div class="card" style="margin-top:12px"><h3>Payments we made to you</h3>${r.payouts.length ? r.payouts.map((p) => `<div style="display:flex;justify-content:space-between;padding:4px 0"><span>${fmt(p.created)} · ${e(p.method)} ${e(p.reference)}</span><b>${naira(p.amount)}</b></div>`).join('') : '<p class="mu">None yet.</p>'}</div>`);
       wire(); return;
     }
@@ -2460,18 +2521,18 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['commercial', '🧭', 'Commercial operations'], ['orders', '🧾', 'Orders'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['riders', '📍', 'Riders live'], ['opsai', '🤖', 'AI Operations'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['activity', '🕵️', 'Activity log'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['dropship', '🚚', 'Dropshipping'], ['staff', '👤', 'Employees & roles'], ['wallet', '👛', 'Wallet & rewards'], ['cards', '💳', 'VELTO-MART CARD'], ['notifications', '🔔', 'Notifications']];
-const NAVMOD = { dashboard: 'any', notifications: 'any', orders: 'orders', products: 'catalog', catalogio: 'catalog', categories: 'catalog', reviews: 'catalog', customers: 'customers', messages: 'customers', coupons: 'marketing', marketing: 'marketing', deliveries: 'delivery', riders: 'delivery', opsai: 'ops', partners: 'delivery', vendors: 'partners', wholesale: 'wholesale', warehouse: 'warehouse', rfq: 'rfq' };
+const NAV = [['dashboard', '📊', 'Dashboard'], ['commercial', '🧭', 'Commercial operations'], ['orders', '🧾', 'Orders'], ['returns', '↩️', 'Returns'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['seo', '🔎', 'SEO'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['riders', '📍', 'Riders live'], ['opsai', '🤖', 'AI Operations'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['activity', '🕵️', 'Activity log'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['dropship', '🚚', 'Dropshipping'], ['staff', '👤', 'Employees & roles'], ['wallet', '👛', 'Wallet & rewards'], ['cards', '💳', 'VELTO-MART CARD'], ['notifications', '🔔', 'Notifications']];
+const NAVMOD = { returns: 'orders', dashboard: 'any', notifications: 'any', orders: 'orders', products: 'catalog', catalogio: 'catalog', categories: 'catalog', reviews: 'catalog', customers: 'customers', messages: 'customers', coupons: 'marketing', marketing: 'marketing', deliveries: 'delivery', riders: 'delivery', opsai: 'ops', partners: 'delivery', vendors: 'partners', wholesale: 'wholesale', warehouse: 'warehouse', rfq: 'rfq' };
 const can = (m, w) => { const p = (me && me.perms) || []; return p.includes('*') || p.includes(m + (w ? ':edit' : ':view')); };
 const visible = (k) => k === 'commercial' ? !!(me && (me.role === 'admin' || can('partners') || can('rfq') || can('reports') || can('finance'))) : (me && me.role === 'admin') || (NAVMOD[k] === 'any') || (NAVMOD[k] && can(NAVMOD[k], false));
 async function shell(page, body, unread) {
   root.innerHTML = `<div class="adm"><aside class="side"><div class="side-top"><div><b>🛠 VELTO-MART</b><div class="who">${e(me.email)}${me.staff_role && me.role === 'staff' ? ' · ' + e(me.staff_role) : ''}</div></div><div><a class="btn ghost sm" href="/" target="_blank" rel="noopener">View store</a> <button class="btn ghost sm" id="lo">Sign out</button></div></div>
-  <nav>${NAV.filter(([k]) => visible(k)).map(([k, ic, t]) => `<a data-nav="${k}" class="${page === k ? 'on' : ''}">${ic} ${t}${k === 'messages' && unread ? ` <span class="dot">${unread}</span>` : ''}${k === 'notifications' ? ' <span class="dot hide" id="nbadge"></span>' : ''}</a>`).join('')}</nav></aside><main class="main" id="mn">${body}</main></div>`;
+  <nav>${NAV.filter(([k]) => visible(k)).map(([k, ic, t]) => `<a data-nav="${k}" class="${page === k ? 'on' : ''}">${ic} ${t}${k === 'messages' && unread ? ` <span class="dot">${unread}</span>` : ''}${k === 'notifications' ? ' <span class="dot hide" id="nbadge"></span>' : ''}${k === 'returns' && retWaiting ? ` <span class="dot">${retWaiting}</span>` : ''}</a>`).join('')}</nav></aside><main class="main" id="mn">${body}</main></div>`;
   $('#lo').addEventListener('click', async () => { await api('/api/auth/logout', { body: {} }); me = null; loginView(); });
 }
 root.addEventListener('click', (ev) => { const n = ev.target.closest('[data-nav]'); if (n) location.hash = '#/' + n.dataset.nav; });
 
-let unreadCount = 0;
+let unreadCount = 0, retWaiting = 0;
 const views = {};
 async function route() {
   if (!me) return;
@@ -2479,6 +2540,7 @@ async function route() {
   const v = views[page] || views.dashboard;
   const p = views[page] ? page : 'dashboard';
   await shell(p, '<div class="loading-page"></div>', unreadCount);
+  if (visible('returns')) api('/api/admin/returns/count').then((c) => { const n = c.requested + c.awaiting; if (n !== retWaiting) { retWaiting = n; const a = $('[data-nav="returns"]'); if (a) a.innerHTML = '↩️ Returns' + (n ? ` <span class="dot">${n}</span>` : ''); } }).catch(() => {});
   api('/api/notifications/count').then((c) => { const b = $('#nbadge'); if (b) { b.textContent = c.unread; b.classList.toggle('hide', !c.unread); } }).catch(() => {});
   try { await v(p); } catch (err) { if (err.status === 401) { me = null; return loginView('Your session expired. Please sign in again.'); } $('#mn').innerHTML = `<div class="panel"><h3>Something went wrong</h3><p class="mu">${e(err.message)}</p></div>`; }
 }
@@ -2494,15 +2556,64 @@ views.dashboard = async () => {
   const max = Math.max(1, ...d.days.map((x) => x.rev));
   const stat = (l, x) => `<div class="stat"><div class="l">${l}</div><div class="v">${x.rev == null ? '—' : naira(x.rev)}</div><div class="s">${x.n == null ? '' : x.n + ' order' + (x.n === 1 ? '' : 's')}</div></div>`;
   const by = Object.fromEntries(d.byStatus.map((s) => [s.status, s.n]));
-  await shell('dashboard', hd('Dashboard') + `<div class="grid4">${stat('Today', d.today)}${stat('Last 7 days', d.week)}${stat('Last 30 days', d.month)}${stat('All time', d.all)}
+  const rt = d.returns || { requested: 0, awaiting: 0, recent: [] }, retBox = rt.recent.length ? `<div class="panel" style="border-left:4px solid #b45309;margin-bottom:14px"><h3 style="margin-top:0">↩️ Returns need you <span class="mu2">· ${rt.requested} to review · ${rt.awaiting} awaiting settlement</span></h3>${rt.recent.map((r) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><span>Order <b>${e(r.order_ref)}</b> is to be returned <span class="mu2">· ${e(r.customer)}</span></span><a href="#/returns" data-retopen="${r.id}">${r.status === 'requested' ? 'Review' : 'Settle refund'}</a></div>`).join('')}</div>` : '';
+  await shell('dashboard', hd('Dashboard') + retBox + `<div class="grid4">${stat('Today', d.today)}${stat('Last 7 days', d.week)}${stat('Last 30 days', d.month)}${stat('All time', d.all)}
    <div class="stat"><div class="l">Customers</div><div class="v">${d.customers == null ? '—' : d.customers}</div><div class="s">${by.pending || 0} pending · ${by.paid || 0} to process</div></div></div>
    <div class="cols"><div><div class="panel"><h3>Revenue, last 14 days</h3><div class="rbar">${d.days.map((x) => `<i style="height:${Math.round((x.rev / max) * 100)}%" title="${dshort(x.t)}: ${naira(x.rev)}"></i>`).join('')}</div><div class="barx">${d.days.map((x, i) => `<span>${i % 2 === 0 ? dshort(x.t).split(' ')[0] : ''}</span>`).join('')}</div></div>
    <div class="panel"><h3>Recent orders</h3><div class="tw"><table class="t"><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th>When</th></tr>${d.recent.map((o) => `<tr class="click" data-order="${o.id}"><td><b>${e(o.ref)}</b></td><td>${e(o.name)}</td><td>${o.total == null ? '' : naira(o.total)}</td><td>${pill(o.status)}</td><td class="mu2">${dt(o.created)}</td></tr>`).join('') || '<tr><td colspan="5" class="mu">No orders yet.</td></tr>'}</table></div></div></div>
    <div><div class="panel"><h3>Top products</h3>${d.top.map((t) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><span>${e(t.name)}</span><span class="mu2">${t.qty} sold · ${t.rev == null ? '' : naira(t.rev)}</span></div>`).join('') || '<p class="mu">Sales will appear here.</p>'}</div>
    <div class="panel"><h3>Low stock</h3>${d.low.map((p) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><a href="#/products" data-edit="${p.id}" style="cursor:pointer">${e(p.name)}</a><span class="pill low">${p.stock} left</span></div>`).join('') || '<p class="mu">All products are well stocked.</p>'}</div></div></div>`, d.unread);
+  onAll('[data-retopen]', 'click', (el, ev) => { ev.preventDefault(); retTarget = el.dataset.retopen; location.hash = '#/returns'; });
   onAll('[data-order]', 'click', (el) => orderModal(el.dataset.order));
   onAll('[data-edit]', 'click', (el, ev) => { ev.preventDefault(); location.hash = '#/products'; setTimeout(() => productForm(el.dataset.edit), 400); });
 };
+
+/* ---------------- returns ---------------- */
+const retstate = { status: '', q: '' }; let retTarget = null;
+views.returns = async () => {
+  const d = await api('/api/admin/returns?' + new URLSearchParams({ ...(retstate.status ? { status: retstate.status } : {}), ...(retstate.q ? { q: retstate.q } : {}) }));
+  retWaiting = (d.counts.requested || 0) + (d.counts.awaiting_settlement || 0) + (d.counts.settling || 0);
+  const col = { requested: '#b45309', awaiting_settlement: '#1d4ed8', settling: '#1d4ed8', settled: '#15803d', rejected: '#b42318', cancelled: '#667085' };
+  mn(hd('Returns', `<span class="mu2">${d.counts.requested || 0} to review · ${(d.counts.awaiting_settlement || 0) + (d.counts.settling || 0)} awaiting settlement</span>`) + `<p class="mu2">Customers ask to return delivered items from their order page. Review each request, approve or decline it, then settle the approved refund: the money goes back to where the customer paid from.</p>
+   <div class="tbar"><select id="rs"><option value="">All returns</option>${Object.entries(d.labels).map(([k, v]) => `<option value="${k}" ${retstate.status === k ? 'selected' : ''}>${e(v)}${d.counts[k] ? ' (' + d.counts[k] + ')' : ''}</option>`).join('')}</select><input id="rq" placeholder="Search order, return or customer" value="${e(retstate.q)}"></div>
+   <div class="panel"><div class="tw"><table class="t"><tr><th>Return</th><th>Order</th><th>Customer</th><th>Items</th><th>Reason</th><th>Refund</th><th>Status</th><th>Asked</th></tr>${d.returns.map((r) => `<tr class="click" data-ret="${r.id}"><td><b>${e(r.ref)}</b></td><td>${e(r.order_ref)}</td><td>${e(r.customer)}</td><td>${r.items.map((i) => i.qty + ' × ' + e(i.name)).join(', ')}</td><td>${e(r.reason)}</td><td>${naira(r.approved_amount != null ? r.approved_amount : r.requested_amount)}</td><td style="font-weight:700;color:${col[r.status] || '#344054'}">${e(r.status_text)}</td><td>${dt(r.created)}</td></tr>`).join('') || '<tr><td colspan="8" class="mu2">No returns yet.</td></tr>'}</table></div></div>`);
+  on('#rs', 'change', () => { retstate.status = $('#rs').value; return views.returns(); });
+  on('#rq', 'keydown', (ev) => { if (ev.key === 'Enter') { retstate.q = ev.target.value; return views.returns(); } });
+  onAll('[data-ret]', 'click', (el) => returnModal(el.dataset.ret));
+  if (retTarget) { const t = retTarget; retTarget = null; returnModal(t); }
+};
+async function returnModal(id) {
+  const d = await api('/api/admin/returns/' + id), r = d.return, o = d.order, P = d.plan;
+  const canFinance = me.role === 'admin' || can('finance', true), canOrders = me.role === 'admin' || can('orders', true);
+  const row = (a, b) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid var(--border)"><span class="mu2">${a}</span><span style="text-align:right">${b}</span></div>`;
+  openModal(`<h2>Return ${e(r.ref)} <span class="mu2" style="font-size:14px">· order ${e(r.order_ref)}</span></h2>
+    <p style="margin:0 0 8px;font-weight:700">${e(r.status_text)}</p>
+    ${row('Customer', `${e(r.customer)} · ${e(r.email)}${o.phone ? ' · ' + e(o.phone) : ''}`)}${row('Items to return', r.items.map((i) => i.qty + ' × ' + e(i.name) + ' (' + naira(i.price) + ')').join('<br>'))}${row('Reason', e(r.reason))}${row('Condition', e(r.condition))}${row('Original packaging', r.packaging === 'original' ? 'Yes' : 'No')}${row('What happened', e(r.details) || '<span class="mu2">—</span>')}${row('Customer photos', (d.photos || []).length ? `<span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${d.photos.map((p) => `<a href="/api/admin/returns/${r.id}/photos/${p}" target="_blank" rel="noopener"><img src="/api/admin/returns/${r.id}/photos/${p}" alt="Return photo" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--border)"></a>`).join('')}</span>` : '<span class="mu2">None attached</span>')}
+    ${row('Order paid with', e(o.payment_method) + (o.wallet_amount ? ' + wallet ' + naira(o.wallet_amount / 100) : ''))}${row('Order total', naira(o.total))}${row('Refund the rules suggest', naira(r.requested_amount))}
+    ${r.decided_by ? row('Decision', `${e(r.decided_by)} · ${dt(r.decided_at)}${r.decision_note ? '<br>' + e(r.decision_note) : ''}`) : ''}
+    ${r.status === 'settled' ? row('Settled', `${e(r.settled_by)} · ${dt(r.settled_at)}<br>${r.wallet_refunded ? 'To VELTO wallet: ' + naira(r.wallet_refunded / 100) + '<br>' : ''}${r.gateway_refunded ? (r.settle_method === 'manual' ? 'Paid by hand: ' : 'Back to card/bank: ') + naira(r.gateway_refunded / 100) + (r.settle_reference ? ' (ref ' + e(r.settle_reference) + ')' : r.gateway_ref ? ' (Paystack ref ' + e(r.gateway_ref) + ', ' + e(r.gateway_status) + ')' : '') : ''}${r.restocked ? '<br>Items put back in stock' : ''}`) : ''}
+    ${r.last_error ? `<div class="note" style="margin-top:8px"><b>The last settlement attempt failed:</b> ${e(r.last_error)} Nothing was refunded.</div>` : ''}
+    ${r.status === 'requested' && canOrders ? `<h3 style="margin:14px 0 6px">Your decision</h3>
+      <label class="f">Refund to approve (₦, at most ${naira(d.max_refund)})<input id="ra" type="number" min="1" max="${d.max_refund}" value="${Math.min(r.requested_amount, d.max_refund)}"></label>
+      <label class="f">Note to the customer (needed if you change the amount or decline)<textarea id="rn" rows="2" maxlength="500"></textarea></label>
+      <div class="acts"><button class="btn" id="rap">Approve</button><button class="btn danger" id="rrj">Decline</button><button class="btn ghost" id="rcl">Close</button></div>` : ''}
+    ${r.status === 'awaiting_settlement' && canFinance && P ? `<h3 style="margin:14px 0 6px">Settle the refund: ${naira(r.approved_amount)}</h3>
+      <p class="mu2" style="margin:0 0 6px">${P.wallet ? `${naira(P.wallet / 100)} goes back to the customer's VELTO wallet (that part was paid from the wallet). ` : ''}${P.card ? `${naira(P.card / 100)} ${P.cash_order ? 'was paid in cash on delivery, so it cannot go back to a card' : 'goes back to the card or bank account the customer paid with'}.` : ''}</p>
+      <label class="f">How do you want to pay it back?<select id="rm"><option value="original" ${P.cash_order ? 'disabled' : ''}>Original payment${P.can_auto ? ' (Paystack sends it, automatically)' : ''}</option>${P.has_wallet ? '<option value="wallet">VELTO wallet (instant)</option>' : ''}<option value="manual">Paid manually (bank transfer or the payment dashboard)</option></select></label>
+      <label class="f hide" id="rrw">Reference of the refund you paid<input id="rr" maxlength="120" placeholder="Bank or Paystack reference"></label>
+      ${(d.vendor_shares || []).length ? `<label class="chk"><input type="checkbox" id="rcv" checked> Take it off the partner's balance: ${d.vendor_shares.map((v) => e(v.name || 'Partner') + ' ' + naira(v.amount)).join(', ')}</label><p class="mu2" style="margin:0 0 6px;font-size:12px">Untick if we cover this one (for example a delivery mistake). Not applied when the whole order is refunded: that order simply drops out of the partner's earnings.</p>` : ''}
+      <label class="chk"><input type="checkbox" id="rst" ${['unopened', 'opened_unused'].some((c) => r.condition === ({ unopened: 'Unopened', opened_unused: 'Opened but unused' })[c]) ? 'checked' : ''}> Put the returned items back in stock</label>
+      <div class="acts"><button class="btn" id="rsl">Settle refund</button><button class="btn ghost" id="rcl">Close</button></div>` : ''}
+    ${r.status === 'awaiting_settlement' && !canFinance ? '<p class="mu2">This refund is waiting for someone with Finance access to settle it.</p>' : ''}
+    ${!['requested', 'awaiting_settlement'].includes(r.status) || (r.status === 'requested' && !canOrders) ? '<div class="acts"><button class="btn ghost" id="rcl">Close</button></div>' : ''}`, true);
+  const mon = (sel, fn, ev = 'click') => { const x = $(sel, modal); if (x) x.addEventListener(ev, guard(fn)); };
+  const send = (btn, url, body, msg) => async () => { const x = $(btn, modal); try { x.disabled = true; const r = await api(url, { body }); toast(typeof msg === 'function' ? msg(r) : msg); closeModal(); await views.returns(); } catch (er) { x.disabled = false; toast(er.message, 'bad'); } };
+  mon('#rcl', closeModal);
+  mon('#rap', () => send('#rap', `/api/admin/returns/${id}/approve`, { amount: Number($('#ra', modal).value), note: $('#rn', modal).value }, 'Approved. The refund is now awaiting settlement.')());
+  mon('#rrj', () => send('#rrj', `/api/admin/returns/${id}/reject`, { note: $('#rn', modal).value }, 'Declined. The customer has been told.')());
+  if ($('#rm', modal)) { const sync = () => $('#rrw', modal).classList.toggle('hide', $('#rm', modal).value !== 'manual'); $('#rm', modal).addEventListener('change', sync); if (P && P.cash_order) $('#rm', modal).value = P.has_wallet ? 'wallet' : 'manual'; sync(); }
+  mon('#rsl', () => send('#rsl', `/api/admin/returns/${id}/settle`, { method: $('#rm', modal).value, reference: $('#rr', modal).value, restock: $('#rst', modal).checked, charge_vendor: $('#rcv', modal) ? $('#rcv', modal).checked : true }, (x) => 'Refund settled' + (x.gateway_status && x.card ? ` (Paystack: ${x.gateway_status})` : ''))());
+}
 
 /* ---------------- orders ---------------- */
 const ostate = { status: '', q: '', page: 1 };
@@ -3017,6 +3128,19 @@ views.reviews = async () => {
   mn(hd('Reviews') + `<div class="panel"><div class="tw"><table class="t"><tr><th>Product</th><th>Rating</th><th>Review</th><th>By</th><th></th></tr>${d.reviews.map((r) => `<tr><td>${e(r.product)}</td><td>${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</td><td>${e(r.title)}<div class="mu2">${e(r.body)}</div></td><td>${e(r.name)}<div class="mu2">${dt(r.created)}</div></td><td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" data-ar="${r.id}" data-v="${r.approved ? 0 : 1}">${r.approved ? 'Hide' : 'Approve'}</button> <button class="btn ghost sm" data-dr="${r.id}">Delete</button></td></tr>`).join('') || '<tr><td colspan="5" class="mu">No reviews yet.</td></tr>'}</table></div></div>`);
   onAll('[data-ar]', 'click', async (el) => { await api('/api/admin/reviews/' + el.dataset.ar, { method: 'PUT', body: { approved: el.dataset.v === '1' } }); route(); });
   onAll('[data-dr]', 'click', async (el) => { if (!confirm('Delete this review?')) return; await api('/api/admin/reviews/' + el.dataset.dr, { method: 'DELETE' }); route(); });
+};
+
+/* ---------------- SEO status (owner only; read-only) ---------------- */
+views.seo = async () => {
+  const d = await api('/api/admin/seo');
+  const row = (k, v) => `<tr><td>${e(k)}</td><td>${v}</td></tr>`, ok = (b) => (b ? '✅' : '⚠️');
+  const grp = (label, g) => `<tr><td>${e(label)}</td><td><b>${g.count}</b>${g.count ? `<details><summary class="mu">Show ${Math.min(g.count, g.sample.length)}</summary>${g.sample.map((x) => `<div><a href="/product/${e(x.slug)}" target="_blank" rel="noopener">${e(x.name)}</a></div>`).join('')}</details>` : ''}</td></tr>`;
+  const warn = d.canonical_warnings.length ? d.canonical_warnings.map((w) => `<div class="note" style="margin:6px 0">⚠️ ${e(w)}</div>`).join('') : '<p>✅ No canonical address problems found.</p>';
+  mn(hd('SEO status') + `<div class="panel"><h3>Domain</h3><table class="t">${row('BASE_URL (used in every canonical link and sitemap address)', `${ok(d.domain.matches_production)} ${e(d.domain.base_url)}`)}${row('Production domain', e(d.domain.production_origin))}${row('Sitemap', `<a href="${e(d.urls.sitemap)}" target="_blank" rel="noopener">${e(d.urls.sitemap)}</a>`)}${row('robots.txt', `<a href="${e(d.urls.robots)}" target="_blank" rel="noopener">${e(d.urls.robots)}</a>`)}${row('Merchant Center feed', `<a href="${e(d.urls.merchant_feed)}" target="_blank" rel="noopener">${e(d.urls.merchant_feed)}</a>`)}</table>${warn}</div>
+  <div class="panel"><h3>What is public</h3><table class="t">${row('Public products', d.counts.public_products)}${row('Public departments', d.counts.public_departments)}${row('Partner stores', d.counts.partner_stores)}${row('Pages in the sitemap', d.counts.sitemap_urls)}${row('Products in the Merchant feed', `${d.merchant_feed.included} (left out: ${d.merchant_feed.excluded}: no price ${d.merchant_feed.excluded_reasons.price}, no photo ${d.merchant_feed.excluded_reasons.image}, no description ${d.merchant_feed.excluded_reasons.description})`)}</table></div>
+  <div class="panel"><h3>Product data to fix</h3><table class="t">${grp('Missing description', d.products.missing_description)}${grp('Very short description (under 40 characters)', d.products.short_description)}${grp('Missing photos', d.products.missing_images)}${grp('Missing brand', d.products.missing_brand)}${grp('No SKU and no valid barcode', d.products.missing_identifiers)}${row('Without a valid GTIN barcode (fine if the product has none)', d.products.no_valid_gtin.count)}${grp('Duplicate or unusual addresses (slugs)', d.products.bad_or_duplicate_slugs)}${grp('Price is zero', d.products.zero_price)}</table></div>
+  <div class="panel"><h3>Page details</h3><table class="t">${row('Departments with no description', d.metadata.departments_missing_description.length ? e(d.metadata.departments_missing_description.join(', ')) : '✅ none')}${row('Partner stores with no description', d.metadata.partner_stores_missing_description.length ? e(d.metadata.partner_stores_missing_description.join(', ')) : '✅ none')}${row('Products using their name as the description', d.metadata.products_without_own_description)}${row('Logo set (Settings)', ok(d.metadata.logo_configured))}${row('Social profiles used in structured data', d.metadata.social_profiles_configured.length ? e(d.metadata.social_profiles_configured.join(', ')) : 'none set')}</table></div>
+  <div class="panel"><h3>Google Search Console</h3><table class="t">${row('Verification meta tag (GOOGLE_SITE_VERIFICATION)', ok(d.search_console.meta_tag_configured))}${row('Verification file (GOOGLE_VERIFICATION_FILE)', ok(d.search_console.html_file_configured))}</table><p class="mu">${e(d.search_console.note)}</p></div>`);
 };
 
 /* ---------------- messages ---------------- */
@@ -3589,7 +3713,8 @@ async function vendorForm(id) {
    <label class="f full">Note to the store (shown to them; required when rejecting)<input id="vnote" value="${e(v.status_note)}" maxlength="300"></label></div>
    <div class="acts" style="flex-wrap:wrap"><button class="btn ghost" id="vx">Close</button><button class="btn ghost" id="vsave">Save changes</button>
     ${v.status !== 'approved' && v.status !== 'suspended' ? '<button class="btn" id="vok">Approve store</button>' : ''}${v.status === 'approved' ? '<button class="btn ghost" id="vsus">Pause store</button>' : ''}${v.status === 'suspended' ? '<button class="btn" id="vre">Reinstate</button>' : ''}${v.status === 'pending' ? '<button class="btn ghost" id="vrej">Reject</button>' : ''}</div>
-   <h3 style="margin-top:16px">Money</h3><p class="mu2">Delivered sales ${naira(v.gross)} · our commission ${naira(v.commission)} · paid out ${naira(v.paid)} · <b>we owe ${naira(v.balance)}</b> · on the way ${naira(v.in_progress)}</p>
+   <h3 style="margin-top:16px">Money</h3><p class="mu2">Delivered sales ${naira(v.gross)} · our commission ${naira(v.commission)}${v.adjustments ? ' · returns ' + naira(-v.adjustments) : ''} · paid out ${naira(v.paid)} · <b>we owe ${naira(v.balance)}</b> · on the way ${naira(v.in_progress)}</p>
+   ${(d.adjustment_rows || []).map((a) => `<div class="mu2">${new Date(a.created * 1000).toLocaleDateString('en-NG')} · −${naira(-a.amount)} · ${e(a.note)}</div>`).join('')}
    ${d.payouts.length ? d.payouts.map((p) => `<div class="mu2">${new Date(p.created * 1000).toLocaleDateString('en-NG')} · ${naira(p.amount)} · ${e(p.method)} ${e(p.reference)} · by ${e(p.created_by)}</div>`).join('') : ''}
    <h3 style="margin-top:16px">Recent orders with this store</h3>${d.orders.length ? d.orders.slice(0, 10).map((o) => `<div class="mu2">${e(o.ref)} · ${e(o.status)} · sales ${naira(o.gross)} · commission ${naira(o.commission)}</div>`).join('') : '<p class="mu2">None yet.</p>'}`, true);
   const depts = () => $$('.vdep').filter((c) => c.checked).map((c) => ({ store: c.value, commission_pct: ($$('.vdp').find((i) => i.dataset.s === c.value) || {}).value || '' }));

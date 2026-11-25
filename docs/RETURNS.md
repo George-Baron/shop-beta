@@ -1,0 +1,21 @@
+# Returns and refunds after delivery
+
+**Customer:** once an order is delivered and paid, its page shows "Returns and refunds" with a **Return items** button (signed in, or via the private link in the order email). They pick the items and quantities and answer four short questions: why, what condition, original packaging, and what happened. The window is the shop setting `return_days` (7 by default), counted from delivery. Medicine orders are excluded (they go through the pharmacy team). One return can be open per order; the customer can cancel it until staff review it. They see every step on the order page and get an email and an in-app notice at each one.
+
+**Staff:** a new request puts **"Order X is to be returned"** on the Dashboard, adds a count badge on **Returns** in the menu, and notifies everyone with Orders: Edit. In **Returns**, open a request to see the customer's answers, then **Approve** (amount defaults to what the items were worth after discounts, plus the delivery fee when we got it wrong and the whole order comes back; you can lower it with a short note, never above what is left on the order) or **Decline** (a reason is required and is sent to the customer). Needs Orders: Edit.
+
+**Settlement:** an approved return shows as **Approved, refund awaiting settlement**, and Finance is notified. Someone with Finance: Edit (or the owner) settles it:
+- *Original payment*: the part the customer paid from their VELTO wallet goes back to the wallet; the card part is refunded by Paystack on the original transaction (the amount is sent to Paystack and the money reaches the customer's bank in a few days, so "accepted by Paystack" is not "arrived").
+- *VELTO wallet*: the whole refund as wallet credit (instant). Use for cash-on-delivery orders when the customer agrees.
+- *Paid manually*: you refunded by bank transfer or in the Paystack/Stripe dashboard; enter its reference.
+Optionally put the returned items back in stock. If every item came back and the whole order value was refunded, the order becomes *Refunded* (points used go back to the customer). Part returns leave the order as Delivered.
+
+**Safety:** only one person can settle a return (it is claimed first); a Paystack refund that was accepted is remembered, so a retry never refunds twice; if Paystack refuses, nothing is recorded as paid and the reason is shown; each step is written to the Activity log.
+
+**Limits:** Stripe payments cannot be refunded from here yet (refund in Stripe, then use "Paid manually"); loyalty points earned on a part return are not clawed back; partner adjustment is not applied when the whole order is refunded (that order simply leaves the partner's earnings, so "we cover it" cannot be honoured there); photos can be added only while submitting the request (the customer can remove them until it is reviewed); replacements/exchanges are not handled (refund only). Test: `npm run test:returns`.
+
+## Photos
+When asking for a return the customer can attach up to 5 photos (PNG, JPG or WEBP; the page shrinks big phone photos first, the server refuses anything over 4 MB or that is not really an image). They are stored in a **private** bucket (`return-photos`, or `SUPABASE_RETURNS_BUCKET`), never a public link; the customer sees them only when signed in or using their private order link, and staff see them inside the return (Orders access). The health check (preflight) warns if that bucket is missing or public. Without Supabase (local development) they go to `DATA_DIR/return-photos`.
+
+## Partner payout adjustment
+When a return that includes a partner store's items is settled, the value of those items **after our commission** (scaled down if staff approved less than requested) is taken off that partner's balance, once (recorded in `vendor_adjustments`, shown on the partner's Earnings page, the partner report, and the staff partner page; the partner is notified). In the Settle box staff can untick **"Take it off the partner's balance"** when we cover the return ourselves. A partner can never be paid more than the balance after adjustments (the payout check uses it). If the whole order is refunded, the order becomes Refunded and drops out of the partner's delivered figures by itself, so nothing is deducted twice.

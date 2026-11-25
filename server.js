@@ -22,6 +22,7 @@ const { seed } = require('./lib/seed');
 const S = require('./lib/shop');
 const PC = require('./lib/pharmacy-core');
 const A = require('./lib/auth');
+const SEO = require('./lib/seo');
 const worker = require('./lib/worker');
 
 const { esc, BASE_URL, getSettings, parseImages, naira } = S;
@@ -91,7 +92,7 @@ app.get('/health', async (req, res) => {
 /* ---------- API ---------- */
 // Request bodies are small by default. The photo upload is the one exception, and it reads its larger body only AFTER the admin check (see routes/admin.js).
 const smallJson = express.json({ limit: '100kb', verify: (req, res, buf) => { req.rawBody = buf; } });
-app.use('/api', (req, res, next) => (req.path === '/admin/upload' || req.path === '/partner/upload' || req.path === '/rider/photo' || req.path === '/admin/rider-ops/upload' || req.path === '/partner/photos' || (req.method === 'POST' && /^\/(admin|partner)\/catalog\/(parse|validate|commit)$/.test(req.path)) || /^\/(wholesale|admin)\/rfq\/(parse|[A-Z0-9-]+\/files)$/.test(req.path) || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) || /^\/admin\/dropship\/(suppliers\/\d+\/documents|trade\/shipments\/\d+\/files|import\/(preview|commit))$/.test(req.path) ? next() : smallJson(req, res, next)));
+app.use('/api', (req, res, next) => (req.path === '/admin/upload' || req.path === '/partner/upload' || req.path === '/rider/photo' || req.path === '/admin/rider-ops/upload' || req.path === '/partner/photos' || /^\/orders\/[A-Za-z0-9-]+\/return\/\d+\/photos$/.test(req.path) || (req.method === 'POST' && /^\/(admin|partner)\/catalog\/(parse|validate|commit)$/.test(req.path)) || /^\/(wholesale|admin)\/rfq\/(parse|[A-Z0-9-]+\/files)$/.test(req.path) || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) || /^\/admin\/dropship\/(suppliers\/\d+\/documents|trade\/shipments\/\d+\/files|import\/(preview|commit))$/.test(req.path) ? next() : smallJson(req, res, next)));
 app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin) {
@@ -126,24 +127,17 @@ app.use('/api/mobile/v1', require('./routes/public')); // the same shop endpoint
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
 /* ---------- robots & sitemap ---------- */
-app.get('/robots.txt', (req, res) => {
-  res.type('text/plain').send(`User-agent: *\nDisallow: /admin\nDisallow: /rider\nDisallow: /pharmacist\nDisallow: /partner\nDisallow: /supplier\nDisallow: /wholesale\nDisallow: /api/\nDisallow: /checkout\nDisallow: /account\nDisallow: /order/\nDisallow: /login\nDisallow: /register\n\nSitemap: ${BASE_URL}/sitemap.xml\n`);
-});
-app.get('/sitemap.xml', ah(async (req, res) => {
-  const urls = [BASE_URL + '/'];
-  for (const s of await all(`SELECT slug FROM stores s WHERE active=1 AND ${PC.storeVisibleSql('s')} ORDER BY sort`)) urls.push(`${BASE_URL}/d/${s.slug}`);
-  urls.push(BASE_URL + '/stores', BASE_URL + '/dropshipping');
-  for (const v of await all("SELECT slug FROM vendors WHERE status='approved' ORDER BY name LIMIT 2000")) urls.push(`${BASE_URL}/store/${v.slug}`);
-  for (const p of ['about', 'faq', 'shipping', 'contact', 'privacy', 'terms']) urls.push(`${BASE_URL}/page/${p}`);
-  for (const p of await all(`SELECT p.slug FROM products p JOIN stores s ON s.slug=p.store WHERE p.active=1 AND s.active=1 AND ${PC.visibleSql('p')} AND ${PC.storeVisibleSql('s')} ORDER BY p.id DESC LIMIT 5000`)) urls.push(`${BASE_URL}/product/${p.slug}`);
-  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((u) => `<url><loc>${esc(u)}</loc></url>`).join('\n')}\n</urlset>\n`);
-}));
+// robots.txt, sitemaps, the Merchant Center feed and Search Console file verification live in lib/seo.js.
+app.get('/robots.txt', (req, res) => res.set('Cache-Control', 'public, max-age=3600').type('text/plain').send(SEO.robotsTxt()));
+app.get('/sitemap.xml', ah(SEO.sitemapHandler));
+app.get(/^\/sitemap-(\d+)\.xml$/, ah(SEO.sitemapPartHandler));          // only exists once the catalogue is too big for one sitemap (then /sitemap.xml is an index)
+app.get('/feed/google-merchant.xml', ah(SEO.feedHandler));
+app.get(/^\/(google[a-z0-9]+\.html)$/, SEO.verificationFile);           // Search Console HTML-file check; answers only for the file named in GOOGLE_VERIFICATION_FILE
 
 /* ---------- pages (one HTML shell, filled in per URL for search engines and link previews) ---------- */
 const TEMPLATE = fs.readFileSync(path.join(__dirname, 'views', 'index.html'), 'utf8');
 const PAGES = { about: 'About us', faq: 'Frequently asked questions', shipping: 'Shipping & Returns', privacy: 'Privacy policy', terms: 'Terms of service', contact: 'Contact us' };
 const NOINDEX = new Set(['rider', 'pharmacist', 'partner', 'supplier', 'wholesale', 'import-export', 'checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
-const clip = (s, n) => { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s; };
 const absUrl = (u) => (!u ? '' : /^https?:\/\//.test(u) ? u : BASE_URL + u);
 
 function pixelSnippet(id, nonce) {
@@ -152,63 +146,93 @@ function pixelSnippet(id, nonce) {
 
 async function describe(req) {
   const S0 = await getSettings(), p = req.path.replace(/\/+$/, '') || '/', seg = p.split('/').filter(Boolean);
-  const out = { status: 200, store: '', title: S0.store_name, desc: S0.tagline, canonical: BASE_URL + p, image: '', type: 'website', jsonld: null, noindex: false, body: '', S: S0 };
-  const stores = await all(`SELECT slug, name, tab_label FROM stores s WHERE active=1 AND ${PC.storeVisibleSql('s')} ORDER BY sort`);
-  const nav = `<nav>${stores.map((s) => `<a href="/d/${esc(s.slug)}">${esc(s.name)}</a>`).join(' ')}</nav>`;
+  const out = { status: 200, path: p, store: '', title: S0.store_name, desc: S0.tagline, canonical: BASE_URL + p, image: '', type: 'website', jsonld: null, noindex: false, robots: '', body: '', S: S0 };
+  const stores = await all(`SELECT slug, name, tab_label, hero_sub FROM stores s WHERE active=1 AND ${PC.storeVisibleSql('s')} ORDER BY sort`);
+  const nav = `<nav aria-label="Departments">${stores.map((s) => `<a href="/d/${esc(s.slug)}">${esc(s.name)}</a>`).join(' ')}</nav>`;
   const productLinks = (rows) => `<ul>${rows.map((r) => `<li><a href="/product/${esc(r.slug)}">${esc(r.name)}</a> ${naira(r.price)}</li>`).join('')}</ul>`;
+  const hide = (why) => { out.noindex = true; out.robots = why || 'noindex,nofollow'; };
   out.body = `<h1>${esc(S0.store_name)}</h1><p>${esc(S0.tagline)}</p>${nav}<p>Please enable JavaScript to shop.</p>`;
 
-  if (NOINDEX.has(seg[0])) { out.noindex = true; out.title = seg[0] === 'admin' ? 'Admin · ' + S0.store_name : S0.store_name; if (seg[0] === 'admin') out.store = ''; return out; }
+  // Private and internal pages: always a noindex tag. robots.txt does not block them, so Google can read it.
+  if (NOINDEX.has(seg[0])) { hide(); out.title = seg[0] === 'admin' ? 'Admin · ' + S0.store_name : S0.store_name; if (seg[0] === 'admin') out.store = ''; return out; }
   if (seg[0] === 'd' && seg[1]) {
     const s = await get(`SELECT * FROM stores s WHERE slug=? AND active=1 AND ${PC.storeVisibleSql('s')}`, seg[1]);
-    if (!s) { out.status = 404; out.noindex = true; return out; }
-    out.store = s.slug; out.title = `${s.name} · ${S0.store_name}`; out.desc = clip(s.hero_sub || s.tagline, 160);
+    if (!s) { out.status = 404; hide(); return out; }
+    out.store = s.slug; out.title = `${s.name} · ${S0.store_name}`; out.desc = SEO.clip(s.hero_sub || s.tagline, 160) || `Shop ${s.name} at ${S0.store_name}.`;
     out.canonical = `${BASE_URL}/d/${s.slug}`;
-    out.body = `<h1>${esc(s.name)}</h1><p>${esc(s.hero_sub)}</p>${nav}${productLinks(await all(`SELECT slug, name, price FROM products p WHERE store=? AND active=1 AND ${PC.visibleSql('p')} ORDER BY featured DESC, id DESC LIMIT 30`, s.slug))}`;
+    const cats = await all('SELECT slug, name FROM categories WHERE store=? ORDER BY sort, id LIMIT 40', s.slug);
+    out.body = `<h1>${esc(s.name)}</h1><p>${esc(s.hero_sub)}</p>${nav}${cats.length ? `<h2>Categories</h2><ul>${cats.map((c) => `<li><a href="/shop?store=${esc(s.slug)}&amp;category=${esc(c.slug)}">${esc(c.name)}</a></li>`).join('')}</ul>` : ''}<h2>Products</h2>${productLinks(await all(`SELECT slug, name, price FROM products p WHERE store=? AND active=1 AND ${PC.visibleSql('p')} ORDER BY featured DESC, id DESC LIMIT 30`, s.slug))}<p><a href="/shop?store=${esc(s.slug)}">See all ${esc(s.name)} products</a></p>`;
     return out;
   }
   if (seg[0] === 'store' && seg[1]) {
     const v = await get("SELECT name, tagline, about, logo FROM vendors WHERE slug=? AND status='approved'", String(seg[1]).slice(0, 80));
-    if (!v) { out.status = 404; out.noindex = true; return out; }
-    out.title = `${v.name} · ${S0.store_name}`; out.desc = clip(v.about || v.tagline || v.name, 160); out.canonical = `${BASE_URL}/store/${seg[1]}`; if (v.logo) out.image = absUrl(v.logo);
+    if (!v) { out.status = 404; hide(); return out; }
+    out.title = `${v.name} · ${S0.store_name}`; out.desc = SEO.clip(v.about || v.tagline, 160) || `${v.name} is a partner store on ${S0.store_name}.`; out.canonical = `${BASE_URL}/store/${seg[1]}`; if (v.logo) out.image = absUrl(v.logo);
     out.body = `<h1>${esc(v.name)}</h1><p>${esc(v.about)}</p>${nav}`;
     return out;
   }
-  if (seg[0] === 'shop') {
+  if (seg[0] === 'stores' && seg.length === 1) {
+    const vs = await all("SELECT slug, name, tagline FROM vendors WHERE status='approved' ORDER BY name LIMIT 200");
+    out.title = `Partner stores · ${S0.store_name}`; out.desc = `Browse the approved partner stores that sell on ${S0.store_name}, each checked by our team before it opens.`; out.canonical = `${BASE_URL}/stores`;
+    out.body = `<h1>Partner stores</h1><p>${esc(out.desc)}</p>${nav}<ul>${vs.map((v) => `<li><a href="/store/${esc(v.slug)}">${esc(v.name)}</a> ${esc(v.tagline)}</li>`).join('')}</ul>`;
+    return out;
+  }
+  if (seg[0] === 'shop' && seg.length === 1) {
     const s = req.query.store ? await get(`SELECT * FROM stores s WHERE slug=? AND active=1 AND ${PC.storeVisibleSql('s')}`, String(req.query.store).slice(0, 40)) : null;
-    out.store = s ? s.slug : ''; out.title = (s ? s.name : 'Shop') + ' · ' + S0.store_name; out.desc = clip(s ? s.hero_sub : S0.tagline, 160);
-    out.canonical = BASE_URL + '/shop' + (s ? '?store=' + s.slug : '');
-    out.noindex = !!(req.query.q || req.query.page || req.query.sort || req.query.min || req.query.max || req.query.size || req.query.color || req.query.rating || req.query.instock || req.query.flag);
-    out.body = `<h1>${esc(s ? s.name : 'Shop')}</h1>${nav}${productLinks(await all(`SELECT slug, name, price FROM products p WHERE active=1 AND ${PC.visibleSql('p')} ${s ? 'AND store=?' : ''} ORDER BY id DESC LIMIT 40`, ...(s ? [s.slug] : [])))}`;
+    const pageNo = Math.min(200, Math.max(1, parseInt(req.query.page, 10) || 1)), PER = 40;
+    out.store = s ? s.slug : ''; out.title = (s ? s.name : 'Shop') + ' · ' + S0.store_name;
+    out.desc = SEO.clip(s ? s.hero_sub : '', 160) || (s ? `Shop ${s.name} products at ${S0.store_name}.` : `Browse every department at ${S0.store_name}: fashion, groceries, beauty, electronics and more, delivered across Nigeria.`);
+    out.canonical = BASE_URL + '/shop' + (s ? '?store=' + s.slug : '');   // filtered, sorted, searched and paged views all point back to this one address
+    // A filtered or paged list is useful to follow (it leads to products) but is not a page to rank: noindex,follow. Unknown parameters such as utm_source only get the canonical.
+    if (FILTERED(req.query)) hide('noindex,follow');
+    const rows = await all(`SELECT slug, name, price FROM products p WHERE active=1 AND ${PC.visibleSql('p')} ${s ? 'AND store=?' : ''} ORDER BY id DESC LIMIT ${PER + 1} OFFSET ${(pageNo - 1) * PER}`, ...(s ? [s.slug] : []));
+    const more = rows.length > PER, q = (n) => `/shop?${s ? 'store=' + esc(s.slug) + '&amp;' : ''}page=${n}`;
+    out.body = `<h1>${esc(s ? s.name : 'Shop')}</h1>${nav}${productLinks(rows.slice(0, PER))}<p>${pageNo > 1 ? `<a rel="prev" href="${pageNo === 2 ? '/shop' + (s ? '?store=' + esc(s.slug) : '') : q(pageNo - 1)}">Previous page</a> ` : ''}${more ? `<a rel="next" href="${q(pageNo + 1)}">Next page</a>` : ''}</p>`;
     return out;
   }
-  if (seg[0] === 'product' && seg[1]) {
-    const pr = await get(`SELECT p.*, c.name category, (SELECT AVG(rating) FROM reviews r WHERE r.product_id=p.id AND r.approved=1) rating, (SELECT COUNT(*) FROM reviews r WHERE r.product_id=p.id AND r.approved=1) rn FROM products p LEFT JOIN categories c ON c.id=p.category_id JOIN stores s ON s.slug=p.store AND s.active=1 WHERE p.active=1 AND p.slug=? AND ${PC.visibleSql('p')} AND ${PC.storeVisibleSql('s')}`, seg[1].slice(0, 120));
-    if (!pr) { out.status = 404; out.noindex = true; return out; }
+  if (seg[0] === 'product' && seg[1] && seg.length === 2) {
+    const pr = await get(`SELECT p.*, c.name category, (SELECT AVG(rating) FROM reviews r WHERE r.product_id=p.id AND r.approved=1) rating, (SELECT COUNT(*) FROM reviews r WHERE r.product_id=p.id AND r.approved=1) rn, s.name store_name FROM products p LEFT JOIN categories c ON c.id=p.category_id JOIN stores s ON s.slug=p.store AND s.active=1 WHERE p.active=1 AND p.slug=? AND ${PC.visibleSql('p')} AND ${PC.storeVisibleSql('s')}`, seg[1].slice(0, 120));
+    if (!pr) { out.status = 404; hide(); return out; }
     const img = absUrl(parseImages(pr.images)[0]);
-    out.store = pr.store; out.title = `${pr.name} · ${S0.store_name}`; out.desc = clip(pr.description, 160) || pr.name; out.canonical = `${BASE_URL}/product/${pr.slug}`; out.image = img; out.type = 'product';
-    out.jsonld = { '@context': 'https://schema.org', '@type': 'Product', name: pr.name, description: clip(pr.description, 500), sku: pr.sku, brand: { '@type': 'Brand', name: pr.brand }, ...(img ? { image: [img] } : {}),
-      offers: { '@type': 'Offer', priceCurrency: 'NGN', price: pr.price, availability: pr.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: out.canonical },
-      ...(pr.rn ? { aggregateRating: { '@type': 'AggregateRating', ratingValue: Math.round(pr.rating * 10) / 10, reviewCount: pr.rn } } : {}) };
-    out.body = `<h1>${esc(pr.name)}</h1><p>${esc(pr.brand)} · ${naira(pr.price)}</p><p>${esc(pr.description)}</p>${nav}`;
+    out.store = pr.store; out.title = `${pr.name} · ${S0.store_name}`; out.canonical = `${BASE_URL}/product/${pr.slug}`; out.image = img; out.type = 'product';
+    out.desc = SEO.clip(pr.description, 160) || `${pr.name}${pr.brand ? ' by ' + pr.brand : ''} for ${naira(pr.price)} at ${S0.store_name}.`;
+    const reviews = pr.rn ? await all('SELECT name, rating, title, body, created FROM reviews WHERE product_id=? AND approved=1 ORDER BY id DESC LIMIT 5', pr.id) : [];
+    out.jsonld = SEO.productJsonLd(pr, reviews, out.canonical);
+    const related = await all(`SELECT slug, name, price FROM products p WHERE store=? AND active=1 AND id<>? AND ${PC.visibleSql('p')} ORDER BY featured DESC, id DESC LIMIT 8`, pr.store, pr.id);
+    out.body = `<nav aria-label="Breadcrumb"><a href="/">Home</a> › <a href="/d/${esc(pr.store)}">${esc(pr.store_name)}</a></nav><h1>${esc(pr.name)}</h1><p>${esc(pr.brand)} · ${naira(pr.price)}</p><p>${esc(pr.description)}</p>${related.length ? `<h2>More from ${esc(pr.store_name)}</h2>${productLinks(related)}` : ''}${nav}`;
     return out;
   }
-  if (seg[0] === 'page' && seg[1]) {
-    if (!PAGES[seg[1]]) { out.status = 404; out.noindex = true; return out; }
-    out.title = `${PAGES[seg[1]]} · ${S0.store_name}`; out.canonical = `${BASE_URL}/page/${seg[1]}`; return out;
+  if (seg[0] === 'page' && seg[1] && seg.length === 2) {
+    if (!PAGES[seg[1]]) { out.status = 404; hide(); return out; }
+    out.title = `${PAGES[seg[1]]} · ${S0.store_name}`; out.canonical = `${BASE_URL}/page/${seg[1]}`; out.desc = SEO.PAGE_DESC(S0.store_name)[seg[1]];
+    out.body = `<h1>${esc(PAGES[seg[1]])}</h1><p>${esc(out.desc)}</p>${nav}`; return out;
   }
   if (seg[0] === 'dropshipping' && seg.length === 1) {
     out.title = `Dropshipping: more products, shipped straight to you · ${S0.store_name}`; out.desc = 'Shop items shipped directly from our partner suppliers, with honest delivery times, tracking and a refund or alternative if a supplier cannot deliver.'; out.canonical = `${BASE_URL}/dropshipping`;
     out.body = `<h1>Dropshipping</h1><p>${esc(out.desc)}</p>${nav}`; return out;
   }
-  if (p === '/') return out;
-  out.status = 404; out.noindex = true; out.title = 'Page not found · ' + S0.store_name;
+  if (p === '/') {
+    const m = SEO.homeMeta(S0, stores);
+    out.title = m.title; out.desc = m.desc; out.canonical = BASE_URL + '/'; out.jsonld = SEO.homeJsonLd(S0, stores);
+    const feat = await all(`SELECT slug, name, price FROM products p WHERE active=1 AND ${PC.visibleSql('p')} AND store IN (${stores.length ? stores.map(() => '?').join(',') : "''"}) ORDER BY featured DESC, id DESC LIMIT 24`, ...stores.map((s) => s.slug));
+    const mail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(S0.contact_email || '') && !/\.example$/i.test(S0.contact_email) ? S0.contact_email : '';
+    out.body = `<h1>${esc(S0.store_name)}</h1><p>${esc(out.desc)}</p>`
+      + `<h2>Shop by department</h2><ul>${stores.map((s) => `<li><a href="/d/${esc(s.slug)}">${esc(s.name)}</a>${s.hero_sub ? ' – ' + esc(s.hero_sub) : ''}</li>`).join('')}</ul>`
+      + `<h2>More ways to shop</h2><ul><li><a href="/shop">All products</a></li><li><a href="/stores">Partner stores</a></li><li><a href="/dropshipping">Dropshipping</a></li></ul>`
+      + (feat.length ? `<h2>Featured products</h2>${productLinks(feat)}` : '')
+      + `<h2>Delivery</h2><p>We deliver across Nigeria. Delivery cost and timing depend on your state. Read <a href="/page/shipping">Shipping &amp; Returns</a> before you order.</p>`
+      + `<h2>Customer service</h2><p>Questions about an order? See the <a href="/page/faq">FAQ</a> or <a href="/page/contact">contact us</a>${mail ? ' at ' + esc(mail) : ''}. <a href="/page/about">About ${esc(S0.store_name)}</a>.</p>`;
+    return out;
+  }
+  out.status = 404; hide(); out.title = 'Page not found · ' + S0.store_name;
   return out;
 }
 
 // The page head (title, description, structured data, plain-text body for search engines) is the same for everyone, so it is kept for 30 seconds.
 // Only successful pages are kept, so a flood of made-up addresses cannot fill the cache with 404s. The per-request nonce below is never cached.
-const DESCRIBE_KEYS = ['store', 'q', 'category', 'page', 'sort', 'min', 'max', 'size', 'color', 'rating', 'instock', 'flag'];
+// Only the parameters that change the page are part of the key, so tracking parameters (utm_source...) cannot multiply cache entries.
+const DESCRIBE_KEYS = ['store', ...SEO.FILTER_KEYS];
+const FILTERED = (query) => SEO.FILTER_KEYS.some((k) => query[k] !== undefined && String(query[k]) !== '');
 const describeCached = (req) => {
   const q = DESCRIBE_KEYS.map((k) => (req.query[k] === undefined ? '' : k + '=' + String(req.query[k]).slice(0, 60))).join('&');
   const key = 'page:' + req.path.slice(0, 200) + '?' + q;
@@ -218,19 +242,14 @@ const describeCached = (req) => {
 app.get(/^\/(?!api\/|uploads\/|health).*/, ah(async (req, res) => {
   const d = await describeCached(req);
   const nonce = crypto.randomBytes(16).toString('base64');
-  const tags = [
-    `<title>${esc(d.title)}</title>`, `<meta name="description" content="${esc(d.desc)}">`, `<link rel="canonical" href="${esc(d.canonical)}">`,
-    d.noindex ? '<meta name="robots" content="noindex,nofollow">' : '',
-    `<meta property="og:site_name" content="${esc(d.S.store_name)}"><meta property="og:title" content="${esc(d.title)}"><meta property="og:description" content="${esc(d.desc)}"><meta property="og:type" content="${d.type}"><meta property="og:url" content="${esc(d.canonical)}">`,
-    d.image ? `<meta property="og:image" content="${esc(d.image)}"><meta name="twitter:card" content="summary_large_image">` : '<meta name="twitter:card" content="summary">',
-    d.jsonld ? `<script type="application/ld+json" id="ldp">${JSON.stringify(d.jsonld).replace(/</g, '\\u003c')}</script>` : '',
-    d.S.meta_pixel_id && /^[A-Za-z0-9_-]+$/.test(d.S.meta_pixel_id) ? pixelSnippet(d.S.meta_pixel_id, nonce) : '',
-  ].join('\n');
+  if (!d.noindex && SEO.onTemporaryHost(req)) { d.noindex = true; d.robots = 'noindex,nofollow'; } // the temporary Render address must not compete with the real domain
+  const tags = [SEO.headTags(d), d.S.meta_pixel_id && /^[A-Za-z0-9_-]+$/.test(d.S.meta_pixel_id) ? pixelSnippet(d.S.meta_pixel_id, nonce) : ''].join('\n');
+  // Public pages carry their text links inside the page itself (the script replaces them when it starts); private pages keep theirs in <noscript> only.
   const html = TEMPLATE.replace(/<script>/g, `<script nonce="${nonce}">`)
     .replace('<!--HTMLATTR-->', d.store && /^[a-z0-9-]+$/.test(d.store) ? ` data-store="${d.store}"` : '')
-    .replace('<!--SEO-->', () => tags).replace('<!--PRERENDER-->', () => d.body);
+    .replace('<!--SEO-->', () => tags).replace('<!--SEOBODY-->', () => (d.noindex ? '' : `<div class="seo-static">${d.body}</div>`)).replace('<!--PRERENDER-->', () => (d.noindex ? d.body : ''));
   res.status(d.status).set({
-    'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache',
+    'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache', ...(d.noindex ? { 'X-Robots-Tag': d.robots || 'noindex,nofollow' } : {}),
     'Content-Security-Policy': [
       "default-src 'self'", `script-src 'nonce-${nonce}' https://www.googletagmanager.com https://connect.facebook.net`,
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", 'font-src https://fonts.gstatic.com', "img-src 'self' data: https:",
