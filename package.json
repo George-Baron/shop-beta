@@ -62,6 +62,8 @@
     "test:ops-procure:unit": "node test/ops-procure-unit.js",
     "test:ops-orders:unit": "node test/ops-orders-unit.js",
     "test:ops-orders": "node --disable-warning=ExperimentalWarning test/ops-orders.js",
+    "test:ops-logistics:unit": "node test/ops-logistics-unit.js",
+    "test:ops-logistics": "node --disable-warning=ExperimentalWarning test/ops-logistics.js",
     "test:ops-assistant": "node --disable-warning=ExperimentalWarning test/ops-assistant.js",
     "test:ops-ai:unit": "node test/ops-ai-unit.js",
     "test:ops-procurement": "node --disable-warning=ExperimentalWarning test/ops-procurement.js",

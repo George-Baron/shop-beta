@@ -28,6 +28,22 @@ router.get('/orders', ah(async (req, res) => res.json(await OR.board({ channel: 
 router.post('/orders/sweep', ah(async (req, res) => res.json(await OR.sweep())));
 router.get('/orders/:kind/:id', ah(async (req, res) => { if (!['order', 'wholesale'].includes(req.params.kind)) return res.status(404).json({ error: 'Unknown order type.' }); const t = await OR.timeline(req.params.kind, req.params.id); if (!t) return res.status(404).json({ error: 'That order is not being watched yet.' }); res.json(t); }));
 
+/* ---- logistics: providers, recorded rates, comparison, shipments ---- */
+const LG = require('../lib/ops/logistics');
+const ownerOnly = (req, res) => { if (req.user.role !== 'admin') { res.status(403).json({ error: 'Only the owner can approve or suspend a delivery provider.' }); return true; } return false; };
+router.get('/logistics/providers', ah(async (req, res) => res.json({ providers: await LG.listProviders(), kinds: LG.KINDS })));
+router.post('/logistics/providers', ah(async (req, res) => res.json({ id: await LG.createProvider(req.user, req.body || {}) })));
+router.post('/logistics/providers/:id/status', ah(async (req, res) => { if (ownerOnly(req, res)) return; const b = req.body || {}; res.json(await LG.setProviderStatus(req.user, req.params.id, str(b.status, 20), b.reason)); }));
+router.post('/logistics/providers/:id/rates', ah(async (req, res) => res.json({ id: await LG.addRate(req.user, req.params.id, req.body || {}) })));
+router.get('/logistics/compare', ah(async (req, res) => res.json(await LG.compareForOrder(req.query.order_id, { weight_kg: req.query.weight_kg }))));
+router.post('/logistics/shipments', ah(async (req, res) => { const b = req.body || {}; res.json(await LG.requestBooking({ agent: 'logistics', user: req.user, requestedByUser: true }, { order_id: b.order_id, rate_id: b.rate_id, weight_kg: b.weight_kg, justification: b.justification })); }));
+router.get('/logistics/shipments', ah(async (req, res) => res.json({ shipments: await LG.listShipments({ status: String(req.query.status || ''), open: req.query.open === '1' }) })));
+router.get('/logistics/shipments/:id', ah(async (req, res) => { const s = await LG.getShipment(req.params.id); if (!s) return res.status(404).json({ error: 'Shipment not found.' }); res.json(s); }));
+router.post('/logistics/shipments/:id/booking', ah(async (req, res) => res.json(await LG.recordBooking(req.user, req.params.id, req.body || {}))));
+router.post('/logistics/shipments/:id/events', ah(async (req, res) => res.json(await LG.addEvent(req.user, req.params.id, req.body || {}))));
+router.post('/logistics/shipments/:id/cancel', ah(async (req, res) => res.json(await LG.cancelShipment(req.user, req.params.id, str((req.body || {}).reason, 300)))));
+router.get('/logistics/scorecards', ah(async (req, res) => res.json({ scorecards: await LG.scorecards() })));
+
 /* ---- audit log, exceptions, tasks ---- */
 router.get('/actions', ah(async (req, res) => res.json({ actions: await St.listActions(req.query) })));
 router.get('/exceptions', ah(async (req, res) => res.json({ exceptions: await St.listExceptions(req.query) })));
@@ -107,9 +123,9 @@ router.get('/integrations', ah(async (req, res) => {
     { key: 'llm', name: 'AI model (assistant)', status: As.enabled() ? 'configured' : 'not_configured', detail: As.enabled() ? 'API key present. Not live-tested here.' : 'Set ANTHROPIC_API_KEY to switch on natural-language instructions.' },
     { key: 'riders', name: 'Rider dispatch and GPS', status: 'connected', detail: 'Existing rider engine; its own manual/recommend/auto setting is respected.' },
     { key: 'fx', name: 'Exchange rates', status: env('FX_FEED_URL') || env('FX_API_KEY') ? 'configured' : 'manual', detail: 'Foreign amounts without a recorded rate are treated as unknown value (highest approval level).' },
-    { key: 'dhl', name: 'DHL', status: 'not_connected', detail: 'No API credentials or test yet (planned: logistics phase).' },
-    { key: 'ups', name: 'UPS', status: 'not_connected', detail: 'Planned: logistics phase.' },
-    { key: 'fedex', name: 'FedEx', status: 'not_connected', detail: 'Planned: logistics phase.' },
+    { key: 'dhl', name: 'DHL', status: 'not_connected', detail: 'No courier API is connected. Rates and tracking updates are recorded by staff (Logistics tab). Not claimed as connected until credentials are tested.' },
+    { key: 'ups', name: 'UPS', status: 'not_connected', detail: 'No courier API is connected. Staff record rates and tracking.' },
+    { key: 'fedex', name: 'FedEx', status: 'not_connected', detail: 'No courier API is connected. Staff record rates and tracking.' },
     { key: 'email', name: 'Supplier email', status: 'not_connected', detail: 'AI does not email suppliers yet (planned: procurement phase).' },
   ] });
 }));

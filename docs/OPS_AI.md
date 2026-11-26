@@ -1,4 +1,4 @@
-# VELTO AI Operations Manager (Phase 1: Command Centre, Phase 2: Procurement, Phase 3: Global order management)
+# VELTO AI Operations Manager (Phase 1: Command Centre, Phase 2: Procurement, Phase 3: Global order management, Phase 4: Logistics)
 
 Open **Admin > AI Operations** (`/admin#/opsai`). Staff need the new **AI Operations** permission (role "Operations Supervisor" has it); the owner always does.
 
@@ -34,8 +34,18 @@ Open **Admin > AI Operations** (`/admin#/opsai`). Staff need the new **AI Operat
 - The sweep reads and writes only its own tables; it never edits an order, stock or money. Settings: `orders_follow_up` (nudges on/off), `order_sla`, the Order Management Agent switch.
 - Limits: the store does not record web vs app, so both show as retail; partner fulfilment confirmation and stock shortage per order are not tracked by the store, so those stages are not claimed.
 
+## Phase 4: logistics (AI Operations > Logistics)
+- **Providers** (courier, third party, freight, cargo, independent rider) start "under review"; only the owner approves or suspends, with a reason. Nothing is approved by being added.
+- **Rates** are only what a person recorded from a real quotation, contract or published rate card, with a reference and optional expiry. Expired, wrong-destination, overweight, unapproved and unconvertible (no verified exchange rate) options are listed with the reason and never compared.
+- **Comparison** (`/logistics/compare`, assistant tool `courier_compare`): scores reliability, speed, cost and safety with weights you can set (`delivery_weights`). Reliability and safety come from your own finished shipments and need 5 before they count. Providers with missing data are ranked down so an unknown cannot beat a proven provider. The explanation says what was and was not known. Own riders are not priced here; rider dispatch handles them.
+- **Booking** goes through the gateway (`courier.book_local`, level 1 by amount; `courier.book_intl`, level 3). Because no courier API is connected, the AI only creates a booking REQUEST and a task; a person books with the courier and enters the tracking reference, which is when it becomes "booked". An order cannot have two open shipments, and a rate that changed after approval voids the approval.
+- **Tracking** is what staff record from the courier. Moves must follow a sensible order. "Delivered" needs proof (courier confirmation, OTP, signature, photo or customer confirmation with a reference); without it the shipment is only "delivered claimed" and an exception is raised.
+- **Watch** raises exceptions for unbooked requests, uncollected parcels, no tracking update for 24 h, past ETA, failed deliveries and unproven deliveries.
+- **Track record** per provider (delivered %, on time %, average hours and cost) with a plain verdict; an underperformer is flagged for a person to decide.
+- DHL, UPS and FedEx still show as **not connected**; they will only be marked connected after credentials and a test succeed.
+
 ## Not built yet (later phases)
-Supplier discovery, vendor email, courier integrations (DHL/UPS/FedEx show as *not connected*), import/export agent actions, split / multi-location fulfilment, returns and refund orchestration, demand forecasting, performance dashboards.
+Supplier discovery, vendor email, live courier APIs (DHL/UPS/FedEx show as *not connected*, so booking and tracking are done by staff), import/export agent actions, split / multi-location fulfilment, returns and refund orchestration, demand forecasting, performance dashboards.
 
 ## Tests
-`npm run test:ops-ai:unit`, `npm run test:ops-procure:unit` (rules and scoring, no DB); `npm run test:ops-ai` and `npm run test:ops-procurement` `npm run test:ops-orders:unit` and `npm run test:ops-orders` (order stages and the sweep); (database: gateway, approvals, audit, monitor, vendors, quotations, purchase orders).
+`npm run test:ops-ai:unit`, `npm run test:ops-procure:unit` (rules and scoring, no DB); `npm run test:ops-ai` and `npm run test:ops-procurement` `npm run test:ops-logistics:unit` and `npm run test:ops-logistics` (providers, rates, comparison, booking, tracking); `npm run test:ops-orders:unit` and `npm run test:ops-orders` (order stages and the sweep); (database: gateway, approvals, audit, monitor, vendors, quotations, purchase orders).
