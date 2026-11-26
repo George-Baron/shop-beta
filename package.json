@@ -60,6 +60,8 @@
     "test:photos-audit": "node --disable-warning=ExperimentalWarning test/photos-audit.js",
     "test:report-schedule": "node --disable-warning=ExperimentalWarning test/report-schedule.js",
     "test:ops-procure:unit": "node test/ops-procure-unit.js",
+    "test:ops-orders:unit": "node test/ops-orders-unit.js",
+    "test:ops-orders": "node --disable-warning=ExperimentalWarning test/ops-orders.js",
     "test:ops-assistant": "node --disable-warning=ExperimentalWarning test/ops-assistant.js",
     "test:ops-ai:unit": "node test/ops-ai-unit.js",
     "test:ops-procurement": "node --disable-warning=ExperimentalWarning test/ops-procurement.js",

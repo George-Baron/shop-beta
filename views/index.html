@@ -4684,7 +4684,7 @@ async function importWizard() {
 }
 
 /* ---------------- VELTO AI Operations Command Centre (/admin#/opsai) ---------------- */
-const OPS = { tab: 'centre', ptab: 'requests', cmp: null, chat: null, msgs: [], f: { channel: '' }, sev: 'active', ast: '' };
+const OPS = { tab: 'centre', ptab: 'requests', cmp: null, chat: null, msgs: [], f: { channel: '' }, sev: 'active', ast: '', of: { channel: '', late: '' }, ow: null };
 const OPSBASE = '/api/admin/ops-ai';
 const opsT = (t) => (t ? new Date(t * 1000).toLocaleString('en-GB', { timeZone: 'Africa/Lagos', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
 const opsStatus = { done: ['Done', 'ok'], recommended: ['Recommended (nothing changed)', ''], pending_approval: ['Waiting for approval', 'pending'], blocked: ['Blocked', 'bad'], failed: ['Failed', 'bad'], read: ['Looked up', ''] };
@@ -4694,7 +4694,7 @@ const opsStat = (l, v, s = '') => `<div class="stat"><div class="l">${e(l)}</div
 const opsSev = { critical: 'bad', high: 'bad', medium: 'pending', low: '', info: '' };
 
 views.opsai = async () => {
-  const tabs = [['centre', 'Command Centre'], ['assistant', 'Assistant'], ['procurement', 'Procurement'], ['approvals', 'Approvals'], ['exceptions', 'Exceptions'], ['audit', 'Audit log'], ['settings', 'Settings & agents']];
+  const tabs = [['centre', 'Command Centre'], ['assistant', 'Assistant'], ['orders', 'Orders'], ['procurement', 'Procurement'], ['approvals', 'Approvals'], ['exceptions', 'Exceptions'], ['audit', 'Audit log'], ['settings', 'Settings & agents']];
   const meOps = await api(OPSBASE + '/me');
   let body = '';
   if (OPS.tab === 'centre') {
@@ -4712,6 +4712,15 @@ views.opsai = async () => {
     body = `<div class="panel"><p class="mu" style="margin-top:0">Ask for analysis or ask it to act. The coloured tags below each reply come from the system, not from the AI's wording. ${meOps.assistant.enabled ? '' : '<b>The AI model key is not set, so you will only get a live summary.</b>'}</p>
     <div id="oc" style="max-height:52vh;overflow:auto;display:grid;gap:10px;margin-bottom:12px">${OPS.msgs.map((m) => `<div style="${m.role === 'user' ? 'justify-self:end;background:var(--surface-2)' : 'background:var(--surface);border:1px solid var(--border)'};padding:10px 14px;border-radius:12px;max-width:90%;white-space:pre-wrap">${e(m.content)}${(m.actions || []).map((a) => `<div style="margin-top:8px">${opsPill(a.status)} <span class="mu">${e(a.type)}${a.approval ? ' · ' + e(a.approval) : ''}${a.summary ? ' — ' + e(a.summary) : ''}</span></div>`).join('')}</div>`).join('') || '<p class="mu">Try: "Which products need replenishment?" or "Which orders are delayed?"</p>'}</div>
     <form id="ocf" style="display:flex;gap:8px"><input id="oci" style="flex:1" maxlength="2000" placeholder="Give an instruction…" autocomplete="off"><button class="btn" id="ocb">Send</button> <button type="button" class="btn ghost" id="ocn">New chat</button></form></div>`;
+  } else if (OPS.tab === 'orders') {
+    const d = await api(OPSBASE + '/orders?channel=' + encodeURIComponent(OPS.of.channel) + (OPS.of.late ? '&late=1' : ''));
+    const tl = OPS.ow ? await api(OPSBASE + '/orders/' + OPS.ow).catch(() => null) : null;
+    body = `<p class="mu">Every order and wholesale order is picked up as soon as it appears and followed until the store records it delivered. A late stage raises an exception; routine nudges are logged in the audit log. Orders waiting on the customer are shown but never counted as late.</p>
+    <div class="grid4">${opsStat('Open orders', d.open)}${opsStat('Late', d.late)}${opsStat('Delivered, last 7 days', d.last7d.delivered, d.last7d.delivered_unproven ? d.last7d.delivered_unproven + ' without proof' : 'all with proof')}${opsStat('Ended otherwise, 7 days', d.last7d.ended_other)}</div>
+    <div class="tbar"><select id="oof-ch">${[['', 'All channels'], ['retail', 'Retail'], ['partner', 'Partner'], ['dropshipping', 'Dropshipping'], ['international', 'International'], ['wholesale', 'Wholesale']].map(([k, t]) => `<option value="${k}" ${OPS.of.channel === k ? 'selected' : ''}>${t}</option>`).join('')}</select> <label><input type="checkbox" id="oof-late" ${OPS.of.late ? 'checked' : ''}> Late only</label></div>
+    <div class="panel"><b>By stage</b><div class="tw"><table class="t"><tr><th>Stage</th><th>Orders</th><th>Late</th></tr>${d.stages.map((x) => `<tr><td>${e(x.label)}</td><td>${x.count}</td><td>${x.late ? `<span class="pill bad">${x.late}</span>` : '—'}</td></tr>`).join('') || '<tr><td colspan="3" class="mu">Nothing open. The first sweep runs within two minutes of an order being placed.</td></tr>'}</table></div></div>
+    <div class="panel"><div class="tw"><table class="t"><tr><th>Order</th><th>Channel</th><th>Stage</th><th>Waiting on</th><th>In stage</th><th>Status</th></tr>${d.orders.map((x) => `<tr><td><a href="#" data-ow="${x.kind}/${x.id}"><b>${e(x.ref)}</b></a></td><td>${e(x.channel)}</td><td>${e(x.stage_label)}</td><td>${e(x.owner || '—')}</td><td>${x.minutes_in_stage} min</td><td>${x.waiting_on_customer ? '<span class="pill">Customer</span>' : x.late ? `<span class="pill ${opsSev[x.severity] || ''}">${e(x.severity)} · ${x.overdue_min} min over</span>` : '<span class="pill ok">On time</span>'}${x.attempts ? ` <span class="mu">AI tried ${x.attempts}×</span>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="mu">No orders match.</td></tr>'}</table></div></div>
+    ${tl ? `<div class="panel"><b>${e(tl.watch.ref)}</b> — ${e(tl.watch.stage_label)} <h4>Stage history</h4>${tl.events.map((v) => `<div>${opsT(Number(v.detected))} · ${e(v.from_stage || 'new')} → <b>${e(v.to_stage)}</b> <span class="mu">${e(v.note)}</span></div>`).join('')}<h4>AI actions</h4>${tl.actions.map((v) => `<div>${opsT(Number(v.created))} · ${e(v.description)} ${opsPill(v.status)}</div>`).join('') || '<div class="mu">None yet.</div>'}<h4>Exceptions</h4>${tl.exceptions.map((v) => `<div>${e(v.ref)} · ${e(v.severity)} · ${e(v.title)} <span class="mu">${e(v.status)}</span></div>`).join('') || '<div class="mu">None.</div>'}</div>` : ''}`;
   } else if (OPS.tab === 'procurement') {
     const sub = OPS.ptab || 'requests', ptabs = [['requests', 'Requests & quotes'], ['orders', 'Purchase orders'], ['vendors', 'Vendors']];
     const nf = (x) => (x == null ? 'unknown' : Number(x).toLocaleString('en-NG', { maximumFractionDigits: 0 }));
@@ -4770,6 +4779,9 @@ views.opsai = async () => {
   }
   mn(hd('🤖 VELTO AI Operations Command Centre') + `<div class="tbar">${tabs.map(([k, t]) => `<button class="btn ${OPS.tab === k ? '' : 'ghost'} sm" data-ot="${k}">${t}</button>`).join(' ')}</div>` + body);
   onAll('[data-ot]', 'click', (el) => { OPS.tab = el.dataset.ot; route(); });
+  const ofc = document.getElementById('oof-ch'); if (ofc) ofc.onchange = () => { OPS.of.channel = ofc.value; route(); };
+  const ofl = document.getElementById('oof-late'); if (ofl) ofl.onchange = () => { OPS.of.late = ofl.checked ? '1' : ''; route(); };
+  onAll('[data-ow]', 'click', (el, ev) => { if (ev && ev.preventDefault) ev.preventDefault(); OPS.ow = el.dataset.ow; route(); });
   on('#och', 'change', (ev) => { OPS.f.channel = ev.target.value; route(); });
   on('#oes', 'change', (ev) => { OPS.sev = ev.target.value; route(); });
   on('#oas', 'change', (ev) => { OPS.ast = ev.target.value; route(); });

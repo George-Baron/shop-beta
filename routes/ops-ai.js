@@ -22,6 +22,12 @@ const who = (req) => req.user.name || req.user.email;
 router.get('/overview', ah(async (req, res) => res.json(await D.overview(req.query))));
 router.get('/me', ah(async (req, res) => { const ap = await AP.approverOf(req.user); const cfg = await St.getConfig(); res.json({ approver: ap, assistant: { enabled: As.enabled(), model: As.enabled() ? (cfg.assistant_model || As.MODEL) : null }, mode: cfg.mode, owner: req.user.role === 'admin' }); }));
 
+/* ---- every order, followed until it ends ---- */
+const OR = require('../lib/ops/orders');
+router.get('/orders', ah(async (req, res) => res.json(await OR.board({ channel: String(req.query.channel || ''), stage: String(req.query.stage || ''), late: req.query.late === '1' }))));
+router.post('/orders/sweep', ah(async (req, res) => res.json(await OR.sweep())));
+router.get('/orders/:kind/:id', ah(async (req, res) => { if (!['order', 'wholesale'].includes(req.params.kind)) return res.status(404).json({ error: 'Unknown order type.' }); const t = await OR.timeline(req.params.kind, req.params.id); if (!t) return res.status(404).json({ error: 'That order is not being watched yet.' }); res.json(t); }));
+
 /* ---- audit log, exceptions, tasks ---- */
 router.get('/actions', ah(async (req, res) => res.json({ actions: await St.listActions(req.query) })));
 router.get('/exceptions', ah(async (req, res) => res.json({ exceptions: await St.listExceptions(req.query) })));

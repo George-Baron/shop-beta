@@ -1,4 +1,4 @@
-# VELTO AI Operations Manager (Phase 1: Command Centre, Phase 2: Procurement)
+# VELTO AI Operations Manager (Phase 1: Command Centre, Phase 2: Procurement, Phase 3: Global order management)
 
 Open **Admin > AI Operations** (`/admin#/opsai`). Staff need the new **AI Operations** permission (role "Operations Supervisor" has it); the owner always does.
 
@@ -25,8 +25,17 @@ Open **Admin > AI Operations** (`/admin#/opsai`). Staff need the new **AI Operat
 - **Purchase orders**: drafting commits nothing. "Request approval" goes through the normal rules (level by value, split detection, two-person, requester cannot approve). The approval is bound to the PO's exact terms; any change after submission makes it fail. PDF export. A person records "sent" and "goods received" (the AI cannot); late or short deliveries feed the vendor's delivery score and raise an exception. Recording receipt does **not** change stock: receive it in the warehouse as usual.
 - Still not connected: supplier **discovery** (no research source is wired, so the AI says so instead of inventing vendors), emailing vendors, courier APIs.
 
+## Phase 3: every order, followed until it ends (AI Operations > Orders)
+- A sweep runs every 2 minutes (`cron.opsOrders`) and registers every open retail, partner, dropshipping, international and wholesale order the first time it appears (`ops_order_watch`, history in `ops_order_stage_events`).
+- Each order is placed in a stage from the store's own records (paid, awaiting dispatch, rider offered, out for delivery, awaiting supplier, wholesale picking/packed/dispatched, failed, under investigation) with the party who must act next.
+- When a stage runs past its allowance (configurable, `order_sla`) one exception is raised with the recommended action. Orders waiting on the customer (payment, pickup) are shown but never counted late.
+- Routine follow-up goes through the gateway so it is logged and obeys modes and permissions: an unassigned ready order is offered to the best rider (`rider.assign`), other late orders get a drafted customer update. Retries back off (15 min, doubling) and stop after 5; the exception is then raised to high and says the AI has stopped.
+- An order closes only when the store itself records delivery, cancellation or refund. Delivery is labelled **verified** (OTP, photo or recipient confirmation; wholesale signer), **pickup**, **supplier reported** or **unproven**; unproven deliveries raise an exception for a person. Estimates and unverified messages never close an order.
+- The sweep reads and writes only its own tables; it never edits an order, stock or money. Settings: `orders_follow_up` (nudges on/off), `order_sla`, the Order Management Agent switch.
+- Limits: the store does not record web vs app, so both show as retail; partner fulfilment confirmation and stock shortage per order are not tracked by the store, so those stages are not claimed.
+
 ## Not built yet (later phases)
-Supplier discovery, vendor email, courier integrations (DHL/UPS/FedEx show as *not connected*), import/export agent actions, global order orchestration, demand forecasting, performance dashboards.
+Supplier discovery, vendor email, courier integrations (DHL/UPS/FedEx show as *not connected*), import/export agent actions, split / multi-location fulfilment, returns and refund orchestration, demand forecasting, performance dashboards.
 
 ## Tests
-`npm run test:ops-ai:unit`, `npm run test:ops-procure:unit` (rules and scoring, no DB); `npm run test:ops-ai` and `npm run test:ops-procurement` (database: gateway, approvals, audit, monitor, vendors, quotations, purchase orders).
+`npm run test:ops-ai:unit`, `npm run test:ops-procure:unit` (rules and scoring, no DB); `npm run test:ops-ai` and `npm run test:ops-procurement` `npm run test:ops-orders:unit` and `npm run test:ops-orders` (order stages and the sweep); (database: gateway, approvals, audit, monitor, vendors, quotations, purchase orders).
