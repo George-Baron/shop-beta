@@ -1,4 +1,4 @@
-# VELTO AI Operations Manager (Phase 1: Command Centre, Phase 2: Procurement, Phase 3: Global order management, Phase 4: Logistics, Phase 5: Import / export)
+# VELTO AI Operations Manager (Phase 1: Command Centre, Phase 2: Procurement, Phase 3: Global order management, Phase 4: Logistics, Phase 5: Import / export, Phase 6: Insights and reports)
 
 Open **Admin > AI Operations** (`/admin#/opsai`). Staff need the new **AI Operations** permission (role "Operations Supervisor" has it); the owner always does.
 
@@ -53,8 +53,18 @@ Open **Admin > AI Operations** (`/admin#/opsai`). Staff need the new **AI Operat
 - **Watch**: compliance review needed, unmet requirements once booked, no update for 7 days, incomplete landed cost after arrival. Customs holds and late ETAs are still raised by the main monitor.
 - Limits: freight quotations and clearing-agent fees are not yet recorded as quotations (only entered on the shipment); no customs or shipping API is connected; HS classification and duty rates are not looked up.
 
+## Phase 6: advanced intelligence (AI Operations > Insights, Reports)
+Everything is computed by code from recorded data. No model writes a figure.
+- **Demand forecast** (`lib/ops/forecast.js`): per-product daily rate from real retail sales (dropship excluded, wholesale never mixed in), trend, days of stock, stock-out before restock (counting incoming purchase orders), and a suggested order quantity. With under 14 days of history there is no forecast; with few sales confidence is low and no quantity is suggested. It **measures its own accuracy** by forecasting the last 4 weeks from earlier data and comparing with what sold (needs 56+ days).
+- **At-risk open orders**: compares how long an order has sat in a stage with how long past orders took in that stage (p75/p90). A stage with fewer than 10 past orders is not predicted.
+- **Supplier scorecards**: purchasing suppliers (fill rate, on-time, cancellations from receipts) and dropship suppliers (delivery success, cancel and issue rates, reply and ship hours). Too little history is not scored; poor results are flagged for a person to decide. Product quality, invoice accuracy and disputes are not recorded anywhere yet and are listed as not tracked.
+- **Profitability**: per order from recorded figures only (catalogue cost, supplier cost, commission, courier cost). An order missing any product cost is left out and counted as unknown, never treated as zero cost. Catalogue cost is a standard cost, not necessarily what was paid. Rider pay is not recorded, so delivery cost counts only where a courier shipment recorded it.
+- **AI performance**: orders watched and delivered, on-time and proof rates, issues resolved, approval response time, action success (executed vs failed) and human-intervention rate. **Verified** savings (a received purchase priced below the previous received price for the same product) are kept apart from **estimated** opportunity (dearest vs chosen quotation), per currency, never added across currencies.
+- **Reports**: daily, weekly and monthly reports are written automatically (the worker checks hourly) once a Lagos-time period has ended, stored unchanged (`ops_reports`) with a plain headline and the full figures, and logged. Make-now buttons exist for the latest of each kind.
+- Limits: forecasts ignore seasonality until there is more than a year of history; lead time is assumed 7 days; no rider cost; profitability depends on product costs being filled in.
+
 ## Not built yet (later phases)
 Supplier discovery, vendor email, live courier APIs (DHL/UPS/FedEx show as *not connected*, so booking and tracking are done by staff), import/export agent actions, split / multi-location fulfilment, returns and refund orchestration, demand forecasting, performance dashboards.
 
 ## Tests
-`npm run test:ops-ai:unit`, `npm run test:ops-procure:unit` (rules and scoring, no DB); `npm run test:ops-ai` and `npm run test:ops-procurement` `npm run test:ops-trade:unit` and `npm run test:ops-trade` (consignment readiness, compliance, links, drafting); `npm run test:ops-logistics:unit` and `npm run test:ops-logistics` (providers, rates, comparison, booking, tracking); `npm run test:ops-orders:unit` and `npm run test:ops-orders` (order stages and the sweep); (database: gateway, approvals, audit, monitor, vendors, quotations, purchase orders).
+`npm run test:ops-ai:unit`, `npm run test:ops-procure:unit` (rules and scoring, no DB); `npm run test:ops-ai` and `npm run test:ops-procurement` `npm run test:ops-intel:unit` and `npm run test:ops-intel` (forecast, scorecards, profitability, at-risk, performance, reports); `npm run test:ops-trade:unit` and `npm run test:ops-trade` (consignment readiness, compliance, links, drafting); `npm run test:ops-logistics:unit` and `npm run test:ops-logistics` (providers, rates, comparison, booking, tracking); `npm run test:ops-orders:unit` and `npm run test:ops-orders` (order stages and the sweep); (database: gateway, approvals, audit, monitor, vendors, quotations, purchase orders).

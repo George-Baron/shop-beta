@@ -68,6 +68,8 @@
     "test:ops-logistics": "node --disable-warning=ExperimentalWarning test/ops-logistics.js",
     "test:ops-trade:unit": "node test/ops-trade-unit.js",
     "test:ops-trade": "node --disable-warning=ExperimentalWarning test/ops-trade.js",
+    "test:ops-intel:unit": "node test/ops-intel-unit.js",
+    "test:ops-intel": "node --disable-warning=ExperimentalWarning test/ops-intel.js",
     "test:ops-assistant": "node --disable-warning=ExperimentalWarning test/ops-assistant.js",
     "test:ops-ai:unit": "node test/ops-ai-unit.js",
     "test:ops-procurement": "node --disable-warning=ExperimentalWarning test/ops-procurement.js",

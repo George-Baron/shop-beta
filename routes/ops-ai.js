@@ -52,6 +52,17 @@ router.post('/trade/consignments/:id/links', ah(async (req, res) => { const b = 
 router.delete('/trade/consignments/:id/links/:kind/:ref', ah(async (req, res) => res.json(await TO.unlink(req.user, req.params.id, req.params.kind, req.params.ref))));
 router.post('/trade/draft-from-po', ah(async (req, res) => res.json(await require('../lib/ops/gateway').perform({ agent: 'trade', user: req.user, requestedByUser: true }, 'consignment.draft', { summary: 'Draft an import consignment from a purchase order', related_type: 'purchase_order', related_id: String((req.body || {}).po_id), payload: { po_id: int((req.body || {}).po_id) } }))));
 
+/* ---- advanced intelligence and reports ---- */
+const IN = require('../lib/ops/intel'), RP = require('../lib/ops/reports');
+router.get('/intel/forecast', ah(async (req, res) => res.json(await IN.demandForecast({ limit: int(req.query.limit) || 40 }))));
+router.get('/intel/suppliers', ah(async (req, res) => res.json(await IN.supplierScorecards({ days: Math.min(365, int(req.query.days) || 90) }))));
+router.get('/intel/profitability', ah(async (req, res) => res.json(await IN.profitability({ from: req.query.from, to: req.query.to }))));
+router.get('/intel/at-risk', ah(async (req, res) => res.json(await IN.atRisk())));
+router.get('/intel/performance', ah(async (req, res) => res.json(await IN.performance({ days: Math.min(365, int(req.query.days) || 30) }))));
+router.get('/reports', ah(async (req, res) => res.json({ reports: await RP.list(String(req.query.kind || '')) })));
+router.post('/reports/generate', ah(async (req, res) => { const k = str((req.body || {}).kind, 10); if (!['daily', 'weekly', 'monthly'].includes(k)) return res.status(400).json({ error: 'Choose daily, weekly or monthly.' }); res.json(await RP.ensure(k)); }));
+router.get('/reports/:id', ah(async (req, res) => { const r = await RP.getOne(req.params.id); if (!r) return res.status(404).json({ error: 'Report not found.' }); res.json(r); }));
+
 /* ---- audit log, exceptions, tasks ---- */
 router.get('/actions', ah(async (req, res) => res.json({ actions: await St.listActions(req.query) })));
 router.get('/exceptions', ah(async (req, res) => res.json({ exceptions: await St.listExceptions(req.query) })));
