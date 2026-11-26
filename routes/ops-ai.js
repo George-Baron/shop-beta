@@ -20,7 +20,7 @@ const owner = (req) => { if (req.user.role !== 'admin') fail(403, 'Only the owne
 const who = (req) => req.user.name || req.user.email;
 
 router.get('/overview', ah(async (req, res) => res.json(await D.overview(req.query))));
-router.get('/me', ah(async (req, res) => { const ap = await AP.approverOf(req.user); const cfg = await St.getConfig(); res.json({ approver: ap, assistant: { enabled: As.enabled(), model: As.enabled() ? As.MODEL : null }, mode: cfg.mode, owner: req.user.role === 'admin' }); }));
+router.get('/me', ah(async (req, res) => { const ap = await AP.approverOf(req.user); const cfg = await St.getConfig(); res.json({ approver: ap, assistant: { enabled: As.enabled(), model: As.enabled() ? (cfg.assistant_model || As.MODEL) : null }, mode: cfg.mode, owner: req.user.role === 'admin' }); }));
 
 /* ---- audit log, exceptions, tasks ---- */
 router.get('/actions', ah(async (req, res) => res.json({ actions: await St.listActions(req.query) })));
@@ -60,6 +60,7 @@ router.get('/settings', ah(async (req, res) => {
 router.put('/settings', ah(async (req, res) => { owner(req); res.json({ config: await St.saveConfig(req.body || {}, who(req)) }); }));
 
 /* ---- assistant ---- */
+router.get('/assistant-usage', ah(async (req, res) => res.json(await As.usageReport())));
 router.get('/chats', ah(async (req, res) => res.json({ chats: await As.chats(req.user) })));
 router.get('/chats/:id', ah(async (req, res) => res.json({ messages: await As.history(req.user, req.params.id) })));
 router.post('/chat', ah(async (req, res) => { const b = req.body || {}; res.json(await As.chat(req.user, b.chat_id, b.message)); }));
