@@ -1,4 +1,4 @@
-# VELTO AI Operations Manager (Phase 1: Command Centre, Phase 2: Procurement, Phase 3: Global order management, Phase 4: Logistics)
+# VELTO AI Operations Manager (Phase 1: Command Centre, Phase 2: Procurement, Phase 3: Global order management, Phase 4: Logistics, Phase 5: Import / export)
 
 Open **Admin > AI Operations** (`/admin#/opsai`). Staff need the new **AI Operations** permission (role "Operations Supervisor" has it); the owner always does.
 
@@ -44,8 +44,17 @@ Open **Admin > AI Operations** (`/admin#/opsai`). Staff need the new **AI Operat
 - **Track record** per provider (delivered %, on time %, average hours and cost) with a plain verdict; an underperformer is flagged for a person to decide.
 - DHL, UPS and FedEx still show as **not connected**; they will only be marked connected after credentials and a test succeed.
 
+## Phase 5: import and export (AI Operations > Import / export)
+- The consignments, documents, permit reminders and events stay in the store's own Import & export module. The AI layer reads them, checks readiness and links them to orders and purchase orders (`ops_trade_links`); it adds no second trade record.
+- **Readiness** (`lib/ops/trade-readiness.js`) says what is missing for the next step: named party, goods with HS code, value and origin, commercial invoice and packing list, transport document before booking, forwarder, expired ETA, customs query or hold, unverified supplier on the linked purchase order, short stock for exports, and buyer address/country for exports. Landed cost is labelled an ESTIMATE and its gaps (freight, duty, agent fee, exchange rate) are named; nothing is guessed.
+- **Compliance** is only escalated. Regulated classes and unticked required permit reminders block the consignment and raise an exception for compliance. The AI never ticks a reminder, never classifies goods, and never moves a consignment forward.
+- **Orders** linked to a consignment follow it (stage "international shipment in progress") and are never offered to a local rider.
+- **Import procurement**: an approved purchase order for a foreign supplier can have a DRAFT consignment created (`consignment.draft`, level 1, approval in Assisted mode). Incoterm, transport and costs are left unconfirmed and the note says so. One consignment per purchase order.
+- **Watch**: compliance review needed, unmet requirements once booked, no update for 7 days, incomplete landed cost after arrival. Customs holds and late ETAs are still raised by the main monitor.
+- Limits: freight quotations and clearing-agent fees are not yet recorded as quotations (only entered on the shipment); no customs or shipping API is connected; HS classification and duty rates are not looked up.
+
 ## Not built yet (later phases)
 Supplier discovery, vendor email, live courier APIs (DHL/UPS/FedEx show as *not connected*, so booking and tracking are done by staff), import/export agent actions, split / multi-location fulfilment, returns and refund orchestration, demand forecasting, performance dashboards.
 
 ## Tests
-`npm run test:ops-ai:unit`, `npm run test:ops-procure:unit` (rules and scoring, no DB); `npm run test:ops-ai` and `npm run test:ops-procurement` `npm run test:ops-logistics:unit` and `npm run test:ops-logistics` (providers, rates, comparison, booking, tracking); `npm run test:ops-orders:unit` and `npm run test:ops-orders` (order stages and the sweep); (database: gateway, approvals, audit, monitor, vendors, quotations, purchase orders).
+`npm run test:ops-ai:unit`, `npm run test:ops-procure:unit` (rules and scoring, no DB); `npm run test:ops-ai` and `npm run test:ops-procurement` `npm run test:ops-trade:unit` and `npm run test:ops-trade` (consignment readiness, compliance, links, drafting); `npm run test:ops-logistics:unit` and `npm run test:ops-logistics` (providers, rates, comparison, booking, tracking); `npm run test:ops-orders:unit` and `npm run test:ops-orders` (order stages and the sweep); (database: gateway, approvals, audit, monitor, vendors, quotations, purchase orders).

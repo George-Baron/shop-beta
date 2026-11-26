@@ -29,6 +29,9 @@ test('supplier items not shipped: awaiting dropshipper, owned by the supplier', 
 test('a supplier-reported problem goes to investigation', () => assert.strictEqual(c({ own_lines: 0, ds_lines: 1, ds_open: 1, ds_issue: true }).stage, 'under_investigation'));
 test('shipped abroad is the international shipment stage', () => assert.strictEqual(c({ own_lines: 0, ds_lines: 1, ds_open: 1, ds_shipping: 1, ds_waiting: 0, international: true }).stage, 'awaiting_international_shipment'));
 
+test('an order on an import/export consignment follows it, even if it looks ready for a rider', () => { const x = c({ ready: true, trade_status: 'in_transit', trade_ref: 'SH-00001', trade_since: now - 100 }); assert.strictEqual(x.stage, 'awaiting_international_shipment'); assert.ok(/SH-00001/.test(x.next_action)); });
+test('a delivered or missing consignment does not hold the order back', () => assert.strictEqual(c({ ready: true, trade_status: 'delivered' }).stage, 'awaiting_dispatch'));
+
 console.log('\nWholesale');
 const w = (o) => S.classifyWholesale({ kind: 'wholesale', status: 'paid', created: now - 9000, paid_at: now - 8000, stage: 'to_pick', ...o }, now);
 test('a request waits for a quotation; a quote waits on the buyer', () => { assert.strictEqual(w({ status: 'requested' }).stage, 'awaiting_wholesale_quote'); const q = w({ status: 'quoted' }); assert.strictEqual(q.stage, 'awaiting_payment'); assert.ok(S.lateness(q, {}, sla, now).customer_wait); });
