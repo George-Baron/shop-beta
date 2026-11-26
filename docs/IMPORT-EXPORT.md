@@ -1,6 +1,6 @@
 # Import & Export enquiries
 
-The public **Import & Export** page (live in the next step) lets a visitor ask for help bringing goods **into** Nigeria (import) or buying Nigerian goods to send **abroad** (export). This document covers how an enquiry travels through the system.
+The public **Import & Export** page (`/import-export`) lets a visitor ask for help bringing goods **into** Nigeria (import) or buying Nigerian goods to send **abroad** (export). This document covers how an enquiry travels through the system.
 
 ## What happens when someone sends the form
 - `POST /api/trade-enquiries` (public, no account needed; signed-in visitors are linked to their account). Limited to 5 an hour per visitor; a hidden "website" field catches bots; the same person sending the same item twice within a day is one enquiry.
@@ -14,3 +14,10 @@ Admin → **Import & export enquiries**. Anyone with the *Requests for quotation
 No money moves in an enquiry. A real deal becomes a wholesale quote or a dropship order, and the shipment, documents and landed-cost tools in **Dropshipping → Imports & exports** (owner-only) take over.
 
 Table: `trade_enquiries` (migration 044). No new environment variables.
+
+## The public page
+`/import-export` replaces the old "under construction" placeholder. It explains Import and Export side by side, shows the steps for each (a toggle switches between them), has the enquiry form (Import / Export choice, name, email, phone, company, country, item, quantity, budget, timing, air or sea, details), a short FAQ and a link to the contact page. `/import-export?type=export` opens it on Export. Signed-in visitors get their name, email and phone filled in. After sending, the visitor sees their reference (`TE-…`).
+
+It is now indexable: it has its own search title and description, is in the sitemap and is linked from the homepage text. The page makes no promises beyond what the system does: sending an enquiry is free, nothing is charged, and the reply is usually within 2 working days (change the wording in `views/index.html` and `lib/trade-enquiries.js` if your real turnaround differs). It says plainly that illegal, banned or restricted goods cannot be handled and that some goods need permits.
+
+Tests: `npm run test:trade-enquiries` (API and permissions) and `npm run test:trade-ui` (real browser: the page, the form on desktop and phone, the inbox).

@@ -1846,7 +1846,7 @@ async function route() {
     else if (seg[0] === 'shop' || (seg[0] === 'd' && seg[2] === 'shop')) title = await shopView(main, u, cfg);
     else if (seg[0] === 'product' && seg[1]) title = await productView(main, seg[1], cfg);
     else if (seg[0] === 'dropshipping' && seg.length === 1) title = await dropshippingPage(main, cfg);
-    else if (seg[0] === 'import-export' && seg.length === 1) { const t = 'Import & Export'; main.innerHTML = `<div class="wrap page" style="max-width:640px;text-align:center"><nav class="crumbs" style="text-align:left"><a href="/" data-link>Home</a> › ${e(t)}</nav><div class="card"><div style="font-size:46px">🚧</div><h1 style="margin:8px 0">${e(t)}</h1><p class="mu">This page is under construction. Please check back soon.</p><a class="btn" href="/" data-link>Back to home</a></div></div>`; title = t; }
+    else if (seg[0] === 'import-export' && seg.length === 1) title = await importExportPage(main, cfg);
     else if (seg[0] === 'stores' && seg.length === 1) title = await storesView(main, u, cfg);
     else if (seg[0] === 'store' && seg[1]) title = await storeView(main, seg[1], u, cfg);
     else if (seg[0] === 'sell' && seg.length === 1) title = await sellView(main, cfg);
@@ -1925,6 +1925,63 @@ async function sellView(main, cfg) {
 
 /* ---------- Supplier portal (step 7): what a supplier sees at /supplier ---------- */
 /* ---------- public Dropshipping page (/dropshipping) ---------- */
+async function importExportPage(main, cfg) {
+  const want = new URLSearchParams(location.search).get('type') === 'export' ? 'export' : 'import', u = store.user || {};
+  const steps = {
+    import: [['📝', 'Tell us what you need', 'What you want to bring in, how many, from which country, and your budget and timing.'], ['💬', 'We come back with a plan', 'A price that includes freight, duty and clearing where it applies, a route (air or sea) and a realistic timeline.'], ['🚢', 'We handle the shipment', 'We track the goods, prepare the documents and keep you updated until they arrive.'], ['📦', 'Delivered to you', 'We deliver in Nigeria, or you collect. You pay only what we agreed.']],
+    export: [['📝', 'Tell us what you want to buy', 'The products and quantities you are after, and the country they are going to.'], ['💬', 'We check what is possible', 'Availability from our partners and suppliers, pricing, packaging and any permits the goods need.'], ['📑', 'Documents and shipping', 'We prepare the export paperwork and arrange air or sea freight to your port or door.'], ['✅', 'Goods on their way', 'You get tracking and updates until delivery.']],
+  };
+  const faq = [
+    ['Does sending the form cost anything or commit me to anything?', 'No. It is a request for information. We reply with a price and plan, and nothing is charged until you agree.'],
+    ['How long until I hear back?', 'Usually within 2 working days, by email or phone. You get a reference number straight away.'],
+    ['What can you not help with?', 'Anything banned or restricted by law, such as illegal drugs, weapons or counterfeit goods. Some goods need permits or approvals (for example food, drugs or electronics). We will tell you what applies before you commit.'],
+    ['What will it cost in total?', 'Our quote includes the item, freight, duty and clearing where they apply, and delivery. We explain each part so you can see where the money goes.'],
+    ['Can I just buy something from your shop instead?', 'Yes. Browse the store, or see our Dropshipping page for items shipped directly from our partner suppliers.'],
+  ];
+  const stepHtml = (k) => steps[k].map(([i, t, d], n) => `<div class="card"><div style="font-size:28px">${i}</div><b>${n + 1}. ${e(t)}</b><p class="mu" style="margin:6px 0 0">${e(d)}</p></div>`).join('');
+  main.innerHTML = `<div class="wrap page" style="max-width:1000px"><nav class="crumbs"><a href="/" data-link>Home</a> › Import &amp; Export</nav>
+   <div class="card" style="text-align:center;padding:28px 18px"><div style="font-size:42px">🌍</div><h1 style="margin:6px 0">Import &amp; Export</h1><p class="mu" style="max-width:660px;margin:0 auto 14px">Need something brought into Nigeria from abroad, or want to buy Nigerian products to ship overseas? Tell us what you need and we will come back with a clear price, route and timeline.</p>
+    <p><a class="btn" href="#tradeform" id="tgo">Send an enquiry</a></p></div>
+   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:18px">
+    <div class="card"><h2 style="margin-top:0">📥 Import</h2><p class="mu">Bring goods into Nigeria: machines, equipment, stock for your shop, materials, personal orders. We help with sourcing, shipping, documents and delivery.</p><ul style="margin:0;padding-left:20px;line-height:1.7"><li>Air or sea freight</li><li>Duty and clearing worked out for you</li><li>Tracking until it arrives</li></ul></div>
+    <div class="card"><h2 style="margin-top:0">📤 Export</h2><p class="mu">Buy Nigerian products for customers abroad: foodstuffs, crafts, fashion and more, from our partner stores and suppliers. We help with packing, paperwork and shipping.</p><ul style="margin:0;padding-left:20px;line-height:1.7"><li>Products from Nigerian makers</li><li>Export documents prepared</li><li>Shipping to your port or door</li></ul></div></div>
+   <h2 style="margin:26px 0 10px">How it works</h2><div class="tabs" style="display:flex;gap:8px;margin-bottom:10px"><button class="btn ${want === 'import' ? '' : 'ghost'}" data-how="import">Importing</button><button class="btn ${want === 'export' ? '' : 'ghost'}" data-how="export">Exporting</button></div>
+   <div id="howsteps" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px">${stepHtml(want)}</div>
+   <h2 id="tradeform" style="margin:30px 0 10px">Send us an enquiry</h2>
+   <div class="card" id="tradecard"><form id="tf" novalidate>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px"><label><input type="radio" name="tk" value="import" ${want === 'import' ? 'checked' : ''}> 📥 Import: bring goods into Nigeria</label><label><input type="radio" name="tk" value="export" ${want === 'export' ? 'checked' : ''}> 📤 Export: buy Nigerian goods abroad</label></div>
+    <div class="fgrid">
+     <label class="f">Your name<input id="tn" maxlength="80" autocomplete="name" value="${e(u.name || '')}" required></label>
+     <label class="f">Email<input id="te" type="email" maxlength="120" autocomplete="email" value="${e(u.email || '')}" required></label>
+     <label class="f">Phone / WhatsApp (optional)<input id="tp" maxlength="30" autocomplete="tel" value="${e(u.phone || '')}"></label>
+     <label class="f">Company (optional)<input id="tc" maxlength="120" autocomplete="organization"></label>
+     <label class="f"><span id="tcl"></span><input id="tco" maxlength="60" required></label>
+     <label class="f"><span id="til"></span><input id="tit" maxlength="200" required></label>
+     <label class="f">Quantity (optional)<input id="tq" maxlength="80" placeholder="e.g. 40 units, one 20ft container"></label>
+     <label class="f">Budget (optional)<input id="tb" maxlength="80" placeholder="e.g. ₦8 million"></label>
+     <label class="f">When do you need it? (optional)<input id="tt" maxlength="80" placeholder="e.g. before March"></label>
+     <label class="f">Shipping<select id="ts"><option value="any">No preference</option><option value="air">Air</option><option value="sea">Sea</option></select></label>
+     <label class="f full">Details<textarea id="td" rows="4" maxlength="2000" placeholder="Specification, size, use, links to similar items, anything that helps us price it properly." required></textarea></label>
+    </div>
+    <input id="tw" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;height:0;width:0;opacity:0">
+    <p class="mu" style="font-size:12px;margin:8px 0">By sending this you agree that we may contact you about your enquiry. Sending it does not commit you to anything.</p>
+    <button class="btn" id="tsend" type="submit">Send enquiry</button></form></div>
+   <h2 style="margin:26px 0 10px">Questions</h2>${faq.map(([q, a]) => `<details class="card" style="margin-bottom:8px"><summary><b>${e(q)}</b></summary><p class="mu" style="margin:8px 0 0">${e(a)}</p></details>`).join('')}
+   <div class="card" style="margin-top:22px;text-align:center"><b>Prefer to talk first?</b><p class="mu" style="margin:6px 0 10px">Reach us on the contact page and mention Import &amp; Export.</p><a class="btn ghost" href="/page/contact" data-link>Contact us</a></div></div>`;
+  const kind = () => (main.querySelector('input[name=tk]:checked') || {}).value || 'import';
+  const labels = () => { const k = kind(); $('#tcl').textContent = k === 'import' ? 'Which country would it come from?' : 'Which country would it go to?'; $('#til').textContent = k === 'import' ? 'What do you want to import?' : 'Which products do you want to buy?'; };
+  labels();
+  main.querySelectorAll('input[name=tk]').forEach((r) => r.addEventListener('change', () => { labels(); }));
+  main.querySelectorAll('[data-how]').forEach((b) => b.addEventListener('click', () => { main.querySelectorAll('[data-how]').forEach((x) => x.classList.toggle('ghost', x !== b)); $('#howsteps').innerHTML = stepHtml(b.dataset.how); }));
+  $('#tf').addEventListener('submit', async (ev) => {
+    ev.preventDefault(); const btn = $('#tsend'); btn.disabled = true;
+    try {
+      const r = await api('/api/trade-enquiries', { body: { kind: kind(), name: $('#tn').value, email: $('#te').value, phone: $('#tp').value, company: $('#tc').value, country: $('#tco').value, item: $('#tit').value, quantity: $('#tq').value, budget: $('#tb').value, timeline: $('#tt').value, shipping: $('#ts').value, details: $('#td').value, website: $('#tw').value } });
+      $('#tradecard').innerHTML = `<div style="text-align:center;padding:14px"><div style="font-size:40px">✅</div><h3>Thank you, we have your enquiry</h3><p>Your reference is <b id="tref">${e(r.ref)}</b>. We sent a confirmation to your email and will contact you, usually within 2 working days.</p><a class="btn ghost" href="/" data-link>Back to the shop</a></div>`;
+    } catch (x) { toast(x.message, 'bad'); btn.disabled = false; }
+  });
+  return 'Import & Export';
+}
 async function dropshippingPage(main, cfg) {
   const [info, list] = await Promise.all([api('/api/dropshipping'), api('/api/products?fulfilment=dropship&sort=newest&nostores=1')]);
   const items = (list.products || []).slice(0, 12), flags = info.countries.map((c) => `<span class="chip">🌍 ${e(c.name)} · ${c.count}</span>`).join(' ');

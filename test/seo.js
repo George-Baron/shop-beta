@@ -77,12 +77,12 @@ const locs = (xml) => [...xml.matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => m[1].
     assert.strictEqual((sm.t.match(/<url>/g) || []).length, (sm.t.match(/<\/url>/g) || []).length);
   });
   await test('lists the homepage, shop, departments, information pages, dropshipping and public products', async () => {
-    for (const p of ['/', '/shop', '/stores', '/dropshipping', '/d/electronics', '/d/fashion', '/page/about', '/page/shipping', '/page/contact', '/product/seo-live-phone', '/product/seo-rated-speaker']) assert.ok(urls.includes(SITE + p), p);
+    for (const p of ['/', '/shop', '/stores', '/dropshipping', '/import-export', '/d/electronics', '/d/fashion', '/page/about', '/page/shipping', '/page/contact', '/product/seo-live-phone', '/product/seo-rated-speaker']) assert.ok(urls.includes(SITE + p), p);
     assert.ok(!urls.includes(SITE + '/d/pharmacy'), 'the pharmacy department is switched off');
   });
   await test('leaves out inactive, unapproved and private items', async () => {
     assert.ok(!sm.t.includes('seo-inactive-gadget')); assert.ok(!sm.t.includes('seo-pending-gadget'));
-    for (const p of ['/admin', '/account', '/checkout', '/login', '/register', '/wholesale', '/supplier', '/partner', '/rider', '/order', '/track', '/wishlist', '/api', '/feed', '/import-export']) assert.ok(!urls.some((u) => u === SITE + p || u.startsWith(SITE + p + '/')), p + ' must not be listed');
+    for (const p of ['/admin', '/account', '/checkout', '/login', '/register', '/wholesale', '/supplier', '/partner', '/rider', '/order', '/track', '/wishlist', '/api', '/feed']) assert.ok(!urls.some((u) => u === SITE + p || u.startsWith(SITE + p + '/')), p + ' must not be listed');
   });
   await test('escapes XML and reports an unknown part file as 404 while one file is enough', async () => {
     assert.ok(!/&(?!amp;|lt;|gt;|quot;|apos;)/.test(sm.t), 'bare ampersand'); assert.strictEqual((await call('GET', '/sitemap-1.xml')).s, 404);
@@ -185,7 +185,7 @@ const locs = (xml) => [...xml.matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => m[1].
 
   console.log('\nPrivate pages');
   await test('carry noindex in the tag and the header, are not blocked by robots.txt, and show no store data', async () => {
-    for (const p of ['/admin', '/account', '/checkout', '/login', '/register', '/wholesale', '/supplier', '/partner', '/rider', '/pharmacist', '/order/ABC123?t=secret', '/track', '/wishlist', '/forgot', '/import-export']) {
+    for (const p of ['/admin', '/account', '/checkout', '/login', '/register', '/wholesale', '/supplier', '/partner', '/rider', '/pharmacist', '/order/ABC123?t=secret', '/track', '/wishlist', '/forgot']) {
       const r = await call('GET', p); assert.strictEqual(r.s, 200, p); assert.match(robotsMeta(r.t), /^noindex,nofollow$/, p); assert.match(r.h.get('x-robots-tag') || '', /noindex/, p); assert.strictEqual(ldBlocks(r.t).length, 0, p); assert.ok(!r.t.includes('class="seo-static"'), p);
     }
     const nf = await call('GET', '/no/such/page'); assert.strictEqual(nf.s, 404); assert.match(robotsMeta(nf.t), /noindex/);
