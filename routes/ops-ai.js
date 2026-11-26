@@ -44,6 +44,14 @@ router.post('/logistics/shipments/:id/events', ah(async (req, res) => res.json(a
 router.post('/logistics/shipments/:id/cancel', ah(async (req, res) => res.json(await LG.cancelShipment(req.user, req.params.id, str((req.body || {}).reason, 300)))));
 router.get('/logistics/scorecards', ah(async (req, res) => res.json({ scorecards: await LG.scorecards() })));
 
+/* ---- import / export consignments ---- */
+const TO = require('../lib/ops/trade-ops');
+router.get('/trade/consignments', ah(async (req, res) => res.json(await TO.board({ direction: String(req.query.direction || ''), status: String(req.query.status || '') }))));
+router.get('/trade/consignments/:id', ah(async (req, res) => res.json(await TO.detail(req.params.id))));
+router.post('/trade/consignments/:id/links', ah(async (req, res) => { const b = req.body || {}; res.json(await TO.link(req.user, req.params.id, str(b.kind, 20), b.ref_id, b.note)); }));
+router.delete('/trade/consignments/:id/links/:kind/:ref', ah(async (req, res) => res.json(await TO.unlink(req.user, req.params.id, req.params.kind, req.params.ref))));
+router.post('/trade/draft-from-po', ah(async (req, res) => res.json(await require('../lib/ops/gateway').perform({ agent: 'trade', user: req.user, requestedByUser: true }, 'consignment.draft', { summary: 'Draft an import consignment from a purchase order', related_type: 'purchase_order', related_id: String((req.body || {}).po_id), payload: { po_id: int((req.body || {}).po_id) } }))));
+
 /* ---- audit log, exceptions, tasks ---- */
 router.get('/actions', ah(async (req, res) => res.json({ actions: await St.listActions(req.query) })));
 router.get('/exceptions', ah(async (req, res) => res.json({ exceptions: await St.listExceptions(req.query) })));
