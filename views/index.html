@@ -882,10 +882,19 @@ const body = {
   food: (d) => `${sec('Shop by category', '', cats(d))}${sec('Popular Products', shopLink(d.store), grid(d.bestsellers.length ? d.bestsellers : d.featured))}<section class="blk"><div class="wrap">${promos(d)}</div></section><section class="blk"><div class="wrap">${trust('food')}</div></section>`,
 };
 
+// "Partner stores": one row per partner with their products, so what partners sell is easy to see from the homepage.
+const partnerRails = (d) => {
+  const ps = (d.partners || []).filter((p) => p.items.length); if (!ps.length) return '';
+  const total = ps.reduce((a, p) => a + p.products, 0);
+  return `<section class="blk" id="partners"><div class="wrap"><div class="sec-head"><h2>Shop from our partner stores</h2><a href="/shop?store=${e(d.store.slug)}&vendor=partners" data-link>All partner products →</a></div>
+    <p class="mu" style="margin:-6px 0 12px">${total} products from ${ps.length} partner store${ps.length === 1 ? '' : 's'}. Each partner ships or hands over its own items.</p>
+    ${ps.map((p) => `<div class="prail" style="margin-bottom:18px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><a href="/store/${e(p.slug)}" data-link style="font-weight:700;font-size:16px">${e(p.emoji || '🏪')} ${e(p.name)}</a><a href="/store/${e(p.slug)}" data-link class="mu">${p.products} product${p.products === 1 ? '' : 's'} · Visit store →</a></div><div class="grid">${p.items.slice(0, 5).map(productCard).join('')}</div></div>`).join('')}
+    <p style="text-align:center"><a class="btn ghost" href="/stores" data-link>See all partner stores</a></p></div></section>`;
+};
 async function home(main, slug) {
   const d = await api('/api/home/' + encodeURIComponent(slug));
   const k = hero[slug] ? slug : 'fashion';
-  main.innerHTML = hero[k](d) + body[k](d);
+  main.innerHTML = hero[k](d) + body[k](d) + partnerRails(d);
   return d.store.name;
 }
 

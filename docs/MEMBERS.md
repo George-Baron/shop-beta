@@ -20,3 +20,6 @@
 - `/api/dropshipping` answers `{locked:true}` to guests; the page shows a sign-in wall with `?next=` so they return afterwards.
 
 No new settings or environment variables. Tests: `npm run test:members`.
+
+## Homepage partner catalogue
+Every department homepage ends with "Shop from our partner stores": up to 6 approved partners (busiest first), each with a row of their products and a "Visit store" link, plus "All partner products" (`/shop?store=<dept>&vendor=partners`) and "See all partner stores". Only active, approved products that pass the normal visibility rules appear (dropshipped partner items are hidden from guests). Test: `npm run test:home-partners`.
