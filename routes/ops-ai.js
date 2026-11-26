@@ -54,7 +54,7 @@ router.put('/approvers/:userId', ah(async (req, res) => {
 /* ---- settings: mode, thresholds, permission matrix, agents ---- */
 router.get('/settings', ah(async (req, res) => {
   const cfg = await St.getConfig();
-  res.json({ config: cfg, modes: P.MODES.map((m) => ({ key: m, label: P.MODE_LABEL[m] })), departments: Object.entries(P.DEPARTMENTS).map(([key, label]) => ({ key, label })), categories: P.CATEGORIES, agents: Ag.list(cfg),
+  res.json({ config: cfg, modes: P.MODES.map((m) => ({ key: m, label: P.MODE_LABEL[m] })), departments: Object.entries(P.DEPARTMENTS).map(([key, label]) => ({ key, label })), categories: P.CATEGORIES, agents: Ag.list(cfg), supplier_weights: require('../lib/ops/procure').normalizeWeights(cfg.supplier_weights), weight_labels: require('../lib/ops/procure').FACTOR_LABEL,
     effective: Object.fromEntries(P.DEPT_KEYS.map((d) => [d, P.effectiveMode(d, cfg)])), level1_actions: Object.entries(P.ACTIONS).filter(([, v]) => v.level === 1).map(([k, v]) => ({ type: k, label: v.label, dept: v.dept })) });
 }));
 router.put('/settings', ah(async (req, res) => { owner(req); res.json({ config: await St.saveConfig(req.body || {}, who(req)) }); }));
@@ -63,6 +63,34 @@ router.put('/settings', ah(async (req, res) => { owner(req); res.json({ config: 
 router.get('/chats', ah(async (req, res) => res.json({ chats: await As.chats(req.user) })));
 router.get('/chats/:id', ah(async (req, res) => res.json({ messages: await As.history(req.user, req.params.id) })));
 router.post('/chat', ah(async (req, res) => { const b = req.body || {}; res.json(await As.chat(req.user, b.chat_id, b.message)); }));
+
+/* ---- procurement (phase 2) ---- */
+const PC = require('../lib/ops/procurement'), PRC = require('../lib/ops/procure'), G = require('../lib/ops/gateway');
+router.get('/procurement/vendors', ah(async (req, res) => res.json({ vendors: await PC.listVendors(), kinds: PC.KINDS, statuses: PRC.STATUSES, checks: PRC.CHECKS.map((k) => ({ key: k, label: PRC.CHECK_LABEL[k] })) })));
+router.post('/procurement/vendors', ah(async (req, res) => res.json({ vendor: await PC.createVendor(req.user, req.body || {}) })));
+router.put('/procurement/vendors/:id', ah(async (req, res) => { await PC.updateVendor(req.user, req.params.id, req.body || {}); res.json({ ok: true }); }));
+router.post('/procurement/vendors/:id/verify', ah(async (req, res) => { const b = req.body || {}; await PC.setVerification(req.user, req.params.id, str(b.check, 20), str(b.state, 20), b.note); res.json({ ok: true }); }));
+router.post('/procurement/vendors/:id/rate', ah(async (req, res) => { await PC.rateVendor(req.user, req.params.id, req.body || {}); res.json({ ok: true }); }));
+// An approver (level 2+) changes a status directly; anyone else files a request that an approver must decide.
+router.post('/procurement/vendors/:id/status', ah(async (req, res) => {
+  const b = req.body || {}, a = await AP.approverOf(req.user);
+  if (a && a.max_level >= 2) return res.json({ result: await PC.changeStatusByPerson(req.user, req.params.id, str(b.status, 20), str(b.reason, 300)) });
+  const v = await PC.vendorById(req.params.id);
+  res.json({ request: await G.perform({ agent: 'procurement', user: req.user, requestedByUser: true }, 'supplier.status_change', { summary: `Set ${v.ref} ${v.name} to ${b.status}`, justification: str(b.reason, 300), related_type: 'vendor', related_id: v.ref, payload: { vendor_id: Number(v.id), status: str(b.status, 20), reason: str(b.reason, 300) } }) });
+}));
+router.get('/procurement/requests', ah(async (req, res) => res.json({ requests: await PC.listRequests(req.query.status) })));
+router.post('/procurement/requests', ah(async (req, res) => res.json({ request: await PC.createRequest(req.user, req.body || {}) })));
+router.post('/procurement/requests/recommend', ah(async (req, res) => res.json(await PC.recommendFromStock(req.user))));
+router.post('/procurement/requests/:id/cancel', ah(async (req, res) => { await PC.cancelRequest(req.user, req.params.id, str((req.body || {}).reason, 200)); res.json({ ok: true }); }));
+router.get('/procurement/requests/:id/compare', ah(async (req, res) => res.json(await PC.compare(req.params.id))));
+router.post('/procurement/requests/:id/quotations', ah(async (req, res) => res.json({ quotation: await PC.addQuotation(req.user, req.params.id, req.body || {}) })));
+router.post('/procurement/requests/:id/draft', ah(async (req, res) => { const b = req.body || {}; res.json({ po: await PC.draftPO(req.user, req.params.id, b.quotation_id, { qty: b.qty }) }); }));
+router.get('/procurement/purchase-orders', ah(async (req, res) => res.json({ purchase_orders: await PC.listPOs(req.query.status) })));
+router.post('/procurement/purchase-orders/:id/approval', ah(async (req, res) => res.json({ result: await PC.requestPOApproval({ agent: 'procurement', user: req.user, requestedByUser: true }, req.params.id, (req.body || {}).justification) })));
+router.post('/procurement/purchase-orders/:id/sent', ah(async (req, res) => { await PC.markSent(req.user, req.params.id, req.body || {}); res.json({ ok: true }); }));
+router.post('/procurement/purchase-orders/:id/status', ah(async (req, res) => { const b = req.body || {}; await PC.setPOStatus(req.user, req.params.id, str(b.status, 20), b.note); res.json({ ok: true }); }));
+router.post('/procurement/purchase-orders/:id/receipt', ah(async (req, res) => { await PC.recordReceipt(req.user, req.params.id, req.body || {}); res.json({ ok: true }); }));
+router.get('/procurement/purchase-orders/:id/pdf', ah(async (req, res) => { const buf = await PC.poPdf(req.params.id); res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="purchase-order-${int(req.params.id)}.pdf"`, 'Cache-Control': 'private, no-store' }); res.send(buf); }));
 
 /* ---- integrations: honest status. Nothing is claimed as connected unless the store itself shows it is. ---- */
 router.get('/integrations', ah(async (req, res) => {

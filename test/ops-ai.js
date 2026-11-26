@@ -37,7 +37,7 @@ const rejects = async (p, re) => { try { await p; } catch (e) { if (re && !re.te
   });
   await test('an action with no system behind it is refused instead of pretending', async () => {
     await cfgOf({ mode: 'assisted' });
-    const r = await G.perform(ctx, 'po.create', { summary: 'PO', amount: 300000, counterparty: 'ACME' });
+    const r = await G.perform(ctx, 'procurement.off_rule', { summary: 'Buy outside the reorder rules', amount: 300000, counterparty: 'ACME' });
     assert.strictEqual(r.status, 'blocked'); assert.match(r.reason, /not connected/);
   });
 
