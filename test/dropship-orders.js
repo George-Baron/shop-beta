@@ -339,7 +339,7 @@ const fake = http.createServer((req, res) => {
   await test('the page is open to search engines, has its own title, and is in the sitemap; the placeholder is gone', async () => {
     const h = await call('GET', '/dropshipping'); assert.strictEqual(h.s, 200); assert.ok(!/noindex/i.test(h.t), 'indexable'); assert.match(h.t, /<title>[^<]*Dropshipping/i);
     assert.match((await call('GET', '/sitemap.xml')).t, /\/dropshipping</);
-    assert.match((await call('GET', '/import-export')).t, /noindex/i, 'the other placeholder is untouched');
+    const ie = (await call('GET', '/import-export')).t; assert.ok(!/noindex/i.test(ie) && /Import &amp; Export|Import & Export/.test(ie), 'the Import & Export page is now public and indexable');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

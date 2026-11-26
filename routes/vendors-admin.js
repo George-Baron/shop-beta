@@ -57,6 +57,7 @@ router.get('/:id', ah(async (req, res) => {
   res.json({
     vendor: await row(v), users, partner: v.partner_id ? await get('SELECT id, name, address, lat, lng, radius_km, active FROM partners WHERE id=?', v.partner_id) : null,
     payouts: await all('SELECT id, amount, method, reference, note, created, created_by FROM vendor_payouts WHERE vendor_id=? ORDER BY id DESC LIMIT 100', v.id),
+    adjustment_rows: await V.adjustmentsOf(v.id),
     orders: await V.ordersFor(v.id, 50), all_departments: await all('SELECT slug, name, icon FROM stores ORDER BY sort, slug'),
   });
 }));

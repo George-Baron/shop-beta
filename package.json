@@ -30,6 +30,9 @@
     "test:fulfilment": "node --disable-warning=ExperimentalWarning test/fulfilment.js",
     "test:warehouse": "node --disable-warning=ExperimentalWarning test/warehouse.js",
     "test:wallet-ui": "node test/wallet-ui.js",
+    "test:returns-ui": "node test/returns-ui.js",
+    "test:trade-enquiries": "node test/trade-enquiries.js",
+    "test:trade-ui": "node test/trade-ui.js",
     "test:wallet": "node --disable-warning=ExperimentalWarning test/wallet.js",
     "test:loyalty": "node --disable-warning=ExperimentalWarning test/loyalty.js",
     "test:cards": "node --disable-warning=ExperimentalWarning test/cards.js",
@@ -58,6 +61,8 @@
     "test:report-schedule": "node --disable-warning=ExperimentalWarning test/report-schedule.js",
     "test:ops-ai:unit": "node test/ops-ai-unit.js",
     "test:ops-ai": "node --disable-warning=ExperimentalWarning test/ops-ai.js",
+    "test:return-photos": "node --disable-warning=ExperimentalWarning test/return-photos.js",
+    "test:returns": "node --disable-warning=ExperimentalWarning test/returns.js",
     "test:roles": "node --disable-warning=ExperimentalWarning test/roles.js",
     "test:catalog": "node --disable-warning=ExperimentalWarning test/catalog-io.js",
     "test:riders": "node --disable-warning=ExperimentalWarning test/riders.js",
@@ -66,6 +71,7 @@
     "test:trade-docs": "node --disable-warning=ExperimentalWarning test/trade-docs.js",
     "test:dropship-money:unit": "node --disable-warning=ExperimentalWarning test/dropship-money-unit.js",
     "test:dropship-money": "node --disable-warning=ExperimentalWarning test/dropship-money.js",
+    "test:seo": "node --disable-warning=ExperimentalWarning test/seo.js",
     "test:supplier-portal": "node --disable-warning=ExperimentalWarning test/supplier-portal.js"
   },
   "dependencies": {
