@@ -50,6 +50,10 @@ const appBody = (o = {}) => ({ business_name: 'Ada Provisions Ltd', contact_name
     const r = await call('GET', `/api/products?store=${store}&vendor=partners`); const ids = r.j.products.map((p) => p.id); assert.ok(ids.includes(same[0].id) && ids.includes(same[1].id)); assert.ok(r.j.products.every((p) => p.vendor));
     assert.ok(!ids.includes(same[same.length - 1].id) || same.length <= 3 || true);
   });
+  await test('the plain page search engines read lists partner stores and their products, and no unapproved partner', async () => {
+    const t = (await call('GET', '/')).t; assert.ok(t.includes('Partner stores') && t.includes('/store/alpha-mart') && t.includes('/store/beta-goods'), 'partner links');
+    assert.ok(t.includes('/product/' + prods.find((x) => x.id === same[0].id).slug), 'a partner product link'); assert.ok(!t.includes('gamma-pending'));
+  });
   await test('the page shows a Partner stores section with each partner and an all-partner-products link (real browser)', async () => {
     let chromium; try { ({ chromium } = require('playwright')); } catch { return; }
     const br = await chromium.launch(); try {

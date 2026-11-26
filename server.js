@@ -222,11 +222,16 @@ async function describe(req) {
     const m = SEO.homeMeta(S0, stores);
     out.title = m.title; out.desc = m.desc; out.canonical = BASE_URL + '/'; out.jsonld = SEO.homeJsonLd(S0, stores);
     const feat = await all(`SELECT slug, name, price FROM products p WHERE active=1 AND ${PC.visibleSql('p')} AND store IN (${stores.length ? stores.map(() => '?').join(',') : "''"}) ORDER BY featured DESC, id DESC LIMIT 24`, ...stores.map((s) => s.slug));
+    // Partner stores and their products, so search engines see what partners sell (built as a guest, so members-only items never appear here).
+    const pv = await all(`SELECT v.slug, v.name, COUNT(p.id) AS n FROM vendors v JOIN products p ON p.vendor_id=v.id AND p.active=1 AND p.listing='approved' AND ${PC.visibleSql('p')} WHERE v.status='approved' GROUP BY v.id ORDER BY n DESC, v.name LIMIT 12`);
+    const pp = pv.length ? await all(`SELECT p.slug, p.name, p.price FROM products p JOIN vendors v ON v.id=p.vendor_id WHERE v.status='approved' AND p.active=1 AND p.listing='approved' AND ${PC.visibleSql('p')} ORDER BY p.featured DESC, p.sold DESC, p.id DESC LIMIT 24`) : [];
     const mail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(S0.contact_email || '') && !/\.example$/i.test(S0.contact_email) ? S0.contact_email : '';
     out.body = `<h1>${esc(S0.store_name)}</h1><p>${esc(out.desc)}</p>`
       + `<h2>Shop by department</h2><ul>${stores.map((s) => `<li><a href="/d/${esc(s.slug)}">${esc(s.name)}</a>${s.hero_sub ? ' – ' + esc(s.hero_sub) : ''}</li>`).join('')}</ul>`
       + `<h2>More ways to shop</h2><ul><li><a href="/shop">All products</a></li><li><a href="/stores">Partner stores</a></li><li><a href="/dropshipping">Dropshipping</a></li><li><a href="/import-export">Import &amp; Export</a></li></ul>`
       + (feat.length ? `<h2>Featured products</h2>${productLinks(feat)}` : '')
+      + (pv.length ? `<h2>Partner stores</h2><ul>${pv.map((v) => `<li><a href="/store/${esc(v.slug)}">${esc(v.name)}</a> – ${Number(v.n)} product${Number(v.n) === 1 ? '' : 's'}</li>`).join('')}</ul>` : '')
+      + (pp.length ? `<h2>Products from our partner stores</h2>${productLinks(pp)}` : '')
       + `<h2>Delivery</h2><p>We deliver across Nigeria. Delivery cost and timing depend on your state. Read <a href="/page/shipping">Shipping &amp; Returns</a> before you order.</p>`
       + `<h2>Customer service</h2><p>Questions about an order? See the <a href="/page/faq">FAQ</a> or <a href="/page/contact">contact us</a>${mail ? ' at ' + esc(mail) : ''}. <a href="/page/about">About ${esc(S0.store_name)}</a>.</p>`;
     return out;
