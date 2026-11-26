@@ -63,8 +63,11 @@ Everything is computed by code from recorded data. No model writes a figure.
 - **Reports**: daily, weekly and monthly reports are written automatically (the worker checks hourly) once a Lagos-time period has ended, stored unchanged (`ops_reports`) with a plain headline and the full figures, and logged. Make-now buttons exist for the latest of each kind.
 - Limits: forecasts ignore seasonality until there is more than a year of history; lead time is assumed 7 days; no rider cost; profitability depends on product costs being filled in.
 
-## Not built yet (later phases)
-Supplier discovery, vendor email, live courier APIs (DHL/UPS/FedEx show as *not connected*, so booking and tracking are done by staff), import/export agent actions, split / multi-location fulfilment, returns and refund orchestration, demand forecasting, performance dashboards.
+## Not built yet
+- **Needs credentials or a connection you must provide:** live DHL / UPS / FedEx APIs (booking and tracking are done by staff today), an email or messaging service (the AI only drafts supplier and customer messages), a supplier research source for discovery.
+- **Not built:** supplier discovery and quotation requests, split / multi-location fulfilment, returns and refund orchestration (the store's returns module works; the AI layer does not drive it), stock transfers and goods receiving across warehouses, warehouse checks (cycle counts, stock ageing, expiry, dead stock, capacity), the structured operational knowledge store (section 21 of the spec), connection tests in the integrations centre, command-centre filters by branch, warehouse, supplier, product and delivery provider.
+- **Phase 7, controlled autonomy:** end-to-end safeguard test of every blocked action, staged rollout and a go-live checklist.
+- **Store gaps:** web versus app orders are not distinguished; partner fulfilment confirmation and rider pay are not recorded.
 
 ## Tests
 `npm run test:ops-ai:unit`, `npm run test:ops-procure:unit` (rules and scoring, no DB); `npm run test:ops-ai` and `npm run test:ops-procurement` `npm run test:ops-intel:unit` and `npm run test:ops-intel` (forecast, scorecards, profitability, at-risk, performance, reports); `npm run test:ops-trade:unit` and `npm run test:ops-trade` (consignment readiness, compliance, links, drafting); `npm run test:ops-logistics:unit` and `npm run test:ops-logistics` (providers, rates, comparison, booking, tracking); `npm run test:ops-orders:unit` and `npm run test:ops-orders` (order stages and the sweep); (database: gateway, approvals, audit, monitor, vendors, quotations, purchase orders).
