@@ -37,7 +37,8 @@ const appBody = (o = {}) => ({ business_name: 'Ada Provisions Ltd', contact_name
   const admin = await login('owner@example.com', 'Str0ng-Owner-Pass!');
   const A = (m, u, b, c) => call(m, '/api/admin/trade-enquiries' + u, b, c || admin);
   const good = { kind: 'import', name: 'Chidi Okafor', company: 'Okafor Farms', email: 'chidi@example.com', phone: '08031234567', country: 'China', item: 'Solar water pumps', quantity: '40 units', budget: '₦8m', timeline: 'By March', shipping: 'sea', details: 'Need 2-inch surface pumps with a 1 year warranty.' };
-  const ask = (b) => call('POST', '/api/trade-enquiries', b);
+  const reg = await call('POST', '/api/auth/register', { name: 'Enq Customer', email: 'enq.customer@example.com', phone: '08031230001', password: 'mango-river-sky-55' }); assert.strictEqual(reg.s, 200, reg.t);
+  const ask = (b) => call('POST', '/api/trade-enquiries', b, reg.c);   // the form is for registered customers
 
   console.log('\nThe public form');
   await test('an import enquiry is saved, the visitor is emailed a reference, and the team is told', async () => {
@@ -51,6 +52,7 @@ const appBody = (o = {}) => ({ business_name: 'Ada Provisions Ltd', contact_name
     const r = await ask(b); assert.strictEqual(r.s, 200, r.t); const again = await ask(b); assert.strictEqual(again.j.ref, r.j.ref); assert.strictEqual(again.j.duplicate, true);
     assert.strictEqual((await q("SELECT COUNT(*)::int n FROM trade_enquiries WHERE email='amina@example.com'"))[0].n, 1); assert.strictEqual((await q("SELECT shipping FROM trade_enquiries WHERE email='amina@example.com'"))[0].shipping, 'any');
   });
+  await test('a visitor who is not signed in cannot send an enquiry', async () => { const r = await call('POST', '/api/trade-enquiries', good); assert.strictEqual(r.s, 401); });
   await test('bad input is refused with a plain message, and a filled honeypot saves nothing', async () => {
     for (const [patch, re] of [[{ kind: 'sell' }, /Import or Export/], [{ name: '' }, /name/], [{ email: 'nope' }, /email/], [{ item: 'x' }, /import/], [{ country: '' }, /country/], [{ details: 'short' }, /details/]]) { const r = await ask({ ...good, email: 'x' + Math.random().toString(36).slice(2) + '@example.com', ...patch }); assert.strictEqual(r.s, 400, JSON.stringify(patch)); assert.ok(re.test(r.j.error), r.j.error); }
     const before = (await q('SELECT COUNT(*)::int n FROM trade_enquiries'))[0].n; const bot = await ask({ ...good, email: 'bot@example.com', item: 'Cheap pills', website: 'http://spam.example' }); assert.strictEqual(bot.s, 200);

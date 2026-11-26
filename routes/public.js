@@ -20,7 +20,11 @@ const PRODUCT_SELECT = `SELECT p.*, c.name AS category, c.slug AS category_slug,
   FROM products p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN vendors vd ON vd.id = p.vendor_id ${RATING_JOIN}`;
 const PER_PAGE = 20;
 // Catalogue answers are the same for every visitor, so browsers and Cloudflare may keep them briefly. Never use this on anything that depends on who is asking.
-const publicCache = (res) => res.set('Cache-Control', 'public, max-age=10, s-maxage=30, stale-while-revalidate=60');
+// Dropshipped items are shown to signed-in customers only, so every catalogue answer exists in two versions (guest and member): the cache key carries
+// which one, and the member version is never kept by browsers or Cloudflare.
+const MB = require('../lib/members');
+const mk = (k) => (k === null ? null : k + (MB.isMember() ? '~m' : '~g'));
+const publicCache = (res) => res.set('Cache-Control', MB.isMember() && res.req && res.req.user ? 'private, no-cache' : 'public, max-age=10, s-maxage=30, stale-while-revalidate=60');
 const queryKey = (prefix, query) => { const k = prefix + JSON.stringify(Object.entries(query).sort()); return k.length <= 400 ? k : null; };
 
 /* ================= config ================= */
@@ -55,7 +59,7 @@ async function buildConfig() {
 /* ================= catalogue ================= */
 router.get('/home/:slug', ah(async (req, res) => {
   const slug = str(req.params.slug, 40);
-  const data = await cache.cached('home:' + slug, 30000, () => buildHome(slug));
+  const data = await cache.cached(mk('home:' + slug), 30000, () => buildHome(slug));
   publicCache(res);
   res.json(data);
 }));
@@ -74,13 +78,14 @@ async function buildHome(slug) {
 const likeEsc = (s) => s.replace(/[\\%_]/g, (c) => '\\' + c);
 const searchLimit = A.quickLimiter('search', 90, 60000, 'Too many searches. Please wait a moment and try again.');
 router.get('/products', (req, res, next) => (req.query.q ? searchLimit(req, res, next) : next()), ah(async (req, res) => {
-  const key = queryKey('products:', req.query);
+  const key = mk(queryKey('products:', req.query));
   const data = key ? await cache.cached(key, 30000, () => listProducts(req.query)) : await listProducts(req.query);
   publicCache(res);
   res.json(data);
 }));
 // The public Dropshipping page: how many items are shipped by partner suppliers and from which countries. Never a supplier, cost or margin.
 router.get('/dropshipping', ah(async (req, res) => {
+  if (!req.user) { res.set('Cache-Control', 'public, max-age=10, s-maxage=30'); return res.json({ locked: true, message: MB.MEMBERS_ONLY }); }
   const data = await cache.cached('dropshipping-page', 60000, async () => {
     const rows = await all(`SELECT COALESCE(dp.ships_from, s.country) AS cc, COUNT(*) AS n FROM products p JOIN dropship_products dp ON dp.product_id = p.id JOIN suppliers s ON s.id = dp.supplier_id
       WHERE p.fulfilment = 'dropship' AND p.active = 1 AND ${PC.visibleSql('p')} GROUP BY 1 ORDER BY n DESC`);
@@ -141,14 +146,14 @@ async function listProducts(q) {
 
 /* ================= partner stores ================= */
 router.get('/vendors', ah(async (req, res) => {
-  const key = queryKey('vendors:', req.query);
+  const key = mk(queryKey('vendors:', req.query));
   const run_ = () => V.listPublic({ store: str(req.query.store, 40), q: str(req.query.q, 80) });
   const stores = key ? await cache.cached(key, 30000, run_) : await run_();
   publicCache(res); res.json({ stores });
 }));
 router.get('/vendors/:slug', ah(async (req, res) => {
   const slug = str(req.params.slug, 80);
-  const data = await cache.cached('vendor:' + slug, 30000, () => V.pagePublic(slug));
+  const data = await cache.cached(mk('vendor:' + slug), 30000, () => V.pagePublic(slug));
   publicCache(res); res.json(data);
 }));
 router.post('/partners/apply', A.limiter('partner-apply', 4, 3600000, 'Too many applications from this connection. Please try again later.'), ah(async (req, res) => {
@@ -166,7 +171,7 @@ router.post('/products/by-ids', ah(async (req, res) => {
 
 router.get('/products/:slug', ah(async (req, res) => {
   const slug = str(req.params.slug, 120);
-  const base = await cache.cached('product:' + slug, 20000, () => buildProduct(slug));
+  const base = await cache.cached(mk('product:' + slug), 20000, () => buildProduct(slug));
   // Description, reviews and related products may be 20 seconds old. Stock is at most 3 seconds old (a popular product is asked for many times a second,
   // so one read serves them all). It is only for display: checkout takes stock atomically and refuses what is gone.
   const { stock, variants } = await cache.cached('stock:' + base.product.id, 3000, async () => ({

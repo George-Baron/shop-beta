@@ -1925,7 +1925,14 @@ async function sellView(main, cfg) {
 
 /* ---------- Supplier portal (step 7): what a supplier sees at /supplier ---------- */
 /* ---------- public Dropshipping page (/dropshipping) ---------- */
+// Dropshipping, Import & Export and Rewards are for registered customers. A visitor who is not signed in sees what they get and a sign-in / create-account button (and returns here afterwards).
+function memberWall(main, icon, title, lines) {
+  const next = encodeURIComponent(location.pathname);
+  main.innerHTML = `<div class="wrap page" style="max-width:640px"><nav class="crumbs"><a href="/" data-link>Home</a> › ${e(title)}</nav><div class="card" style="text-align:center;padding:28px"><div style="font-size:42px">${icon}</div><h1 style="font-size:26px;margin:8px 0">${e(title)}</h1><p class="mu">This is for registered customers. Creating an account is free and takes a minute. You can still shop and check out as a guest at any time.</p><ul style="text-align:left;display:inline-block;margin:10px 0">${lines.map((l) => `<li>${e(l)}</li>`).join('')}</ul><div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:10px"><a class="btn" href="/login?next=${next}" data-link>Sign in</a><a class="btn ghost" href="/register?next=${next}" data-link>Create a free account</a></div></div></div>`;
+  return title;
+}
 async function importExportPage(main, cfg) {
+  if (!store.user) return memberWall(main, '🌍', 'Import & Export', ['Ask us to bring goods into Nigeria, or to source Nigerian products for export', 'A clear price, route and timeline for every request', 'Track your requests from your account']);
   const want = new URLSearchParams(location.search).get('type') === 'export' ? 'export' : 'import', u = store.user || {};
   const steps = {
     import: [['📝', 'Tell us what you need', 'What you want to bring in, how many, from which country, and your budget and timing.'], ['💬', 'We come back with a plan', 'A price that includes freight, duty and clearing where it applies, a route (air or sea) and a realistic timeline.'], ['🚢', 'We handle the shipment', 'We track the goods, prepare the documents and keep you updated until they arrive.'], ['📦', 'Delivered to you', 'We deliver in Nigeria, or you collect. You pay only what we agreed.']],
@@ -1983,6 +1990,7 @@ async function importExportPage(main, cfg) {
   return 'Import & Export';
 }
 async function dropshippingPage(main, cfg) {
+  if (!store.user) return memberWall(main, '📦', 'Dropshipping', ['More products, shipped straight to you from our partner suppliers', 'Honest delivery times and tracking on every item', 'A refund or alternative if a supplier cannot deliver']);
   const [info, list] = await Promise.all([api('/api/dropshipping'), api('/api/products?fulfilment=dropship&sort=newest&nostores=1')]);
   const items = (list.products || []).slice(0, 12), flags = info.countries.map((c) => `<span class="chip">🌍 ${e(c.name)} · ${c.count}</span>`).join(' ');
   const steps = [['🛍️', 'You choose', 'Browse the items below and pay online, the same way as the rest of the store.'], ['📦', 'We order for you', 'Only after your payment is confirmed, we place the order with our partner supplier.'], ['🚚', 'The supplier ships to you', 'It goes straight from the supplier to your address. You get tracking by email and on your order page.'], ['✅', 'You receive it', 'We follow your parcel until it arrives, and we are here if anything goes wrong.']];

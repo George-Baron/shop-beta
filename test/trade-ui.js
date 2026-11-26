@@ -50,9 +50,14 @@ const register = async (name) => { const email = `w${Date.now().toString(36)}${n
     const owner = (await call('POST', '/api/auth/login', { email: 'owner@example.com', password: 'OwnerPass123' })).c;
     const browser = await chromium.launch(); const base = 'http://127.0.0.1:' + P1;
     const mk = async (cookie, vp) => { const c = await browser.newContext(vp ? { viewport: vp } : {}); if (cookie) await c.addCookies([{ name: cookie.split('=')[0], value: cookie.split('=').slice(1).join('=').split(';')[0], url: base }]); const p = await c.newPage(); const errs = []; p.on('pageerror', (e) => errs.push(e.message)); return { p, errs }; };
-    const visitor = await mk(null), admin = await mk(owner), phone = await mk(null, { width: 375, height: 700 });
+    const reg = await call('POST', '/api/auth/register', { name: 'Chidi Okafor', email: 'chidi.ui@example.com', phone: '08031234567', password: 'mango-river-sky-55' }); const member = reg.c;
+    const guest = await mk(null), visitor = await mk(member), admin = await mk(owner), phone = await mk(member, { width: 375, height: 700 });   // the page and form are for registered customers
     const txt = (p, t) => p.waitForFunction((x) => document.body.innerText.includes(x), t, { timeout: 10000 });
     console.log('Public page');
+    await test('a guest sees a sign-in wall instead of the form, with a way back after signing in', async () => {
+      await guest.p.goto(`${base}/import-export`); await txt(guest.p, 'This is for registered customers');
+      assert.strictEqual(await guest.p.locator('#tf').count(), 0); assert.ok((await guest.p.getAttribute('a[href^="/login?next="]', 'href')).includes('import-export'));
+    });
     await test('the page is live, not a placeholder, with Import and Export sections and the form', async () => {
       await visitor.p.goto(`${base}/import-export`); await txt(visitor.p, 'Send us an enquiry'); const t = await visitor.p.innerText('body');
       assert.ok(!/under construction/i.test(t)); for (const w of ['📥 Import', '📤 Export', 'How it works', 'Questions']) assert.ok(t.includes(w), w);
@@ -65,7 +70,7 @@ const register = async (name) => { const email = `w${Date.now().toString(36)}${n
       await visitor.p.goto(`${base}/import-export?type=export`); await visitor.p.waitForSelector('#tf'); assert.strictEqual(await visitor.p.isChecked('input[name=tk][value=export]'), true, '?type=export preselects Export');
     });
     await test('an incomplete form shows a plain message and sends nothing', async () => {
-      await visitor.p.click('#tsend'); await txt(visitor.p, 'Please tell us your name'); assert.strictEqual(Number((await q('SELECT COUNT(*) n FROM trade_enquiries'))[0].n), 0);
+      await visitor.p.fill('#tn', ''); await visitor.p.click('#tsend'); await txt(visitor.p, 'Please tell us your name'); assert.strictEqual(Number((await q('SELECT COUNT(*) n FROM trade_enquiries'))[0].n), 0);
     });
     await test('a complete import enquiry is sent: thank-you with a reference, saved, and the honeypot is invisible', async () => {
       await visitor.p.goto(`${base}/import-export`); await visitor.p.waitForSelector('#tf');
