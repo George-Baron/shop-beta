@@ -34,6 +34,7 @@
     "test:trade-enquiries": "node test/trade-enquiries.js",
     "test:members": "node test/members.js",
     "test:home-partners": "node test/home-partners.js",
+    "test:wallet-visible": "node test/wallet-visible.js",
     "test:trade-ui": "node test/trade-ui.js",
     "test:wallet": "node --disable-warning=ExperimentalWarning test/wallet.js",
     "test:loyalty": "node --disable-warning=ExperimentalWarning test/loyalty.js",

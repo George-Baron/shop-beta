@@ -58,6 +58,8 @@ label.f{display:block;font-weight:600;font-size:13px;margin-bottom:12px}label.f>
 [data-store=supermarket] .search input{background:#fff;color:#16181d}[data-store=supermarket] .search button{color:#16181d}
 .search button{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:0;cursor:pointer;font-size:16px;padding:6px 10px}
 .icons{display:flex;gap:6px;margin-left:auto}.ibtn{position:relative;background:none;border:0;color:inherit;cursor:pointer;font-size:20px;padding:8px;border-radius:10px;display:grid;place-items:center}.ibtn:hover{background:rgba(127,127,127,.15)}
+.vchip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-size:12px;font-weight:800;white-space:nowrap}
+@media(max-width:520px){.vchip{padding:5px 8px;font-size:11px}}
 .ibtn .dot{position:absolute;top:2px;right:0;background:var(--accent);color:var(--accent-ink);font-size:10px;font-weight:800;min-width:17px;height:17px;border-radius:9px;display:grid;place-items:center;padding:0 4px}
 .menu-btn{display:none}
 .tabs-dept{background:var(--surface-2);border-bottom:1px solid var(--border)}
@@ -882,6 +884,8 @@ const body = {
   food: (d) => `${sec('Shop by category', '', cats(d))}${sec('Popular Products', shopLink(d.store), grid(d.bestsellers.length ? d.bestsellers : d.featured))}<section class="blk"><div class="wrap">${promos(d)}</div></section><section class="blk"><div class="wrap">${trust('food')}</div></section>`,
 };
 
+// Visitors who are not signed in see what a free account gives them; signed-in customers see their wallet and points in the header instead.
+const memberPerks = () => store.user ? '' : `<section class="blk"><div class="wrap"><div class="card" style="display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap"><div><b>Create a free account</b><div class="mu" style="font-size:13px">Earn reward points on every order, keep a wallet for faster checkout, and unlock wholesale, dropshipping and Import &amp; Export.</div></div><div style="display:flex;gap:8px"><a class="btn" href="/register" data-link>Create account</a><a class="btn ghost" href="/login" data-link>Sign in</a></div></div></div></section>`;
 // "Partner stores": one row per partner with their products, so what partners sell is easy to see from the homepage.
 const partnerRails = (d) => {
   const ps = (d.partners || []).filter((p) => p.items.length); if (!ps.length) return '';
@@ -894,7 +898,7 @@ const partnerRails = (d) => {
 async function home(main, slug) {
   const d = await api('/api/home/' + encodeURIComponent(slug));
   const k = hero[slug] ? slug : 'fashion';
-  main.innerHTML = hero[k](d) + body[k](d) + partnerRails(d);
+  main.innerHTML = memberPerks() + hero[k](d) + body[k](d) + partnerRails(d);
   return d.store.name;
 }
 
@@ -1631,7 +1635,7 @@ async function veltoTab(box, tab) {
 
 async function account(main, u, cfg) {
   if (!store.user) { go('/login?next=/account', true); return ''; }
-  const tab = u.searchParams.get('tab') || (u.searchParams.get('wallet') ? 'wallet' : 'orders');
+  const tab = u.searchParams.get('tab') || (u.searchParams.get('wallet') ? 'wallet' : 'overview');
   const [od, ad] = await Promise.all([api('/api/orders'), api('/api/addresses')]);
   const usr = store.user;
   const tabs = [['orders', 'Orders'], ['overview', 'Overview'], ['wallet', 'Wallet'], ['rewards', 'Rewards'], ['card', 'Card'], ['addresses', 'Addresses'], ['profile', 'Profile']];
@@ -2473,6 +2477,7 @@ function shell() {
     <div class="icons">
       <button class="ibtn" id="modeBtn" aria-label="Toggle dark mode">🌓</button>
       <a class="ibtn hide" id="bellBtn" href="/notifications" data-link aria-label="Notifications">🔔<span class="dot hide" id="ncount"></span></a>
+      <a class="vchip hide" id="vchip" href="/account?tab=overview" data-link aria-label="Your wallet and reward points"></a>
       <a class="ibtn" id="acctBtn" href="/account" data-link aria-label="Account">👤</a>
       <a class="ibtn" href="/wishlist" data-link aria-label="Wishlist">♡<span class="dot hide" id="wcount"></span></a>
       <button class="ibtn" id="cartBtn" aria-label="Open cart">🛒<span class="dot hide" id="ccount"></span></button>
@@ -2496,11 +2501,21 @@ function shell() {
   ${s.whatsapp ? `<a class="wa" href="https://wa.me/${e(s.whatsapp)}?text=${encodeURIComponent('Hello ' + s.store_name + ', I need help with…')}" target="_blank" rel="noopener" aria-label="Chat on WhatsApp">💬</a>` : ''}`;
   $('#nav2').innerHTML = '';
 }
+// The wallet balance and reward points sit in the header for signed-in customers, so they are always in view. Refreshed at most once a minute.
+let vchipAt = 0;
+async function refreshVchip(force) {
+  const b = $('#vchip'); if (!b) return;
+  if (!store.user) { vchipAt = 0; b.classList.add('hide'); return; }
+  if (!force && Date.now() - vchipAt < 60000) return; vchipAt = Date.now();
+  const [w, l] = await Promise.all([safeApi('/api/wallet'), safeApi('/api/loyalty')]);
+  const bits = []; if (!w._err && w.status !== undefined) bits.push('👛 ' + wnaira(w.available_balance)); if (!l._err && l.points !== undefined) bits.push('★ ' + Number(l.points).toLocaleString('en-NG') + ' pts');
+  if (!bits.length) { b.classList.add('hide'); return; } b.textContent = bits.join(' · '); b.classList.remove('hide');
+}
 function syncHeader() {
-  const slug = getStoreSlug();
+  const slug = getStoreSlug(); refreshVchip().catch(() => {});
   { const side = $('#catside'), tabs = $('#dtabs'), strip = $('.tabs-dept'); if (side && tabs && tabs.parentElement !== side) side.appendChild(tabs); else if (!side && tabs && strip && tabs.parentElement !== strip) strip.appendChild(tabs); }
   $$('.dtab').forEach((t) => { const on = t.dataset.dept === slug; t.classList.toggle('on', on); t.setAttribute('aria-selected', on); });
-  $('#nav2').innerHTML = `<a href="/d/${e(slug)}" data-link>Home</a><a href="/shop?store=${e(slug)}" data-link>Shop</a><a href="/wholesale" data-link>Wholesale</a><a href="/stores" data-link>Partner Stores</a><a href="/import-export" data-link>Import &amp; Export</a><a href="/dropshipping" data-link>Dropshipping</a><a href="/shop?store=${e(slug)}&flag=deals" data-link>Deals</a><a href="/shop?store=${e(slug)}&flag=new" data-link>New Arrivals</a><a href="/page/contact" data-link>Contact</a>`;
+  $('#nav2').innerHTML = `<a href="/d/${e(slug)}" data-link>Home</a><a href="/shop?store=${e(slug)}" data-link>Shop</a><a href="/wholesale" data-link>Wholesale</a><a href="/stores" data-link>Partner Stores</a><a href="/import-export" data-link>Import &amp; Export</a><a href="/dropshipping" data-link>Dropshipping</a><a href="/account?tab=rewards" data-link>Wallet &amp; Rewards</a><a href="/shop?store=${e(slug)}&flag=deals" data-link>Deals</a><a href="/shop?store=${e(slug)}&flag=new" data-link>New Arrivals</a><a href="/page/contact" data-link>Contact</a>`;
   const c = cart.count(), w = wish.ids.size;
   const cc = $('#ccount'), wc = $('#wcount'); if (cc) { cc.textContent = c; cc.classList.toggle('hide', !c); } if (wc) { wc.textContent = w; wc.classList.toggle('hide', !w); }
   const a = $('#acctBtn'); if (a) a.title = store.user ? store.user.name : 'Sign in';
