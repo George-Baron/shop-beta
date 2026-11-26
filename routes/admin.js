@@ -63,6 +63,7 @@ router.use('/catalog', require('./catalog-admin'));
 router.use('/rfq', require('./rfq-admin'));
 router.use('/commercial', require('./commercial-admin'));
 router.use('/returns', require('./returns-admin'));
+router.use('/trade-enquiries', require('./trade-enquiries').admin);
 router.use('/warehouse', require('./warehouse'));
 router.get('/audit', ah(async (req, res) => {
   const w = [], a = [];

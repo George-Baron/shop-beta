@@ -121,6 +121,7 @@ app.use('/api/rider', require('./routes/rider'));
 app.use('/api/partner', require('./routes/partner'));
 app.use('/api/supplier', require('./routes/supplier-portal'));
 app.use('/api/wholesale', require('./routes/wholesale'));
+app.use('/api/trade-enquiries', require('./routes/trade-enquiries').pub);
 app.use('/api', require('./routes/public'));
 app.use('/api/mobile/v1', require('./routes/public')); // the same shop endpoints under the apps' versioned prefix
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
