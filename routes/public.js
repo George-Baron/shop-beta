@@ -72,7 +72,15 @@ async function buildHome(slug) {
   const bestsellers = await list('AND p.bestseller=1', 'p.sold DESC, p.id DESC', 10);
   const newArrivals = await list('AND p.new_arrival=1', 'p.created DESC', 8);
   const deals = await list('AND p.compare_price > p.price', '(p.compare_price - p.price) * 1.0 / p.compare_price DESC', 10);
-  return { store, categories, featured, bestsellers, newArrivals, deals };
+  // Partner stores: the busiest approved partners in this department, each with a few of their products, so customers can see what partners sell without opening every store.
+  const vs = await all(`SELECT v.id, v.slug, v.name, v.tagline, v.logo, v.emoji, v.city, v.state, COUNT(p.id) AS n FROM vendors v JOIN products p ON p.vendor_id=v.id AND p.active=1 AND p.listing='approved' AND p.store=? AND ${PC.visibleSql('p')}
+    WHERE v.status='approved' GROUP BY v.id ORDER BY n DESC, v.id LIMIT 6`, store.slug);
+  const partners = [];
+  for (const v of vs) {
+    const items = (await all(`${PRODUCT_SELECT} WHERE p.active=1 AND ${PC.visibleSql('p')} AND p.store=? AND p.vendor_id=? ORDER BY p.featured DESC, p.sold DESC, p.id DESC LIMIT 8`, store.slug, v.id)).map(card);
+    partners.push({ slug: v.slug, name: v.name, tagline: v.tagline, logo: v.logo, emoji: v.emoji, city: v.city, state: v.state, products: Number(v.n), items });
+  }
+  return { store, categories, featured, bestsellers, newArrivals, deals, partners };
 }
 
 const likeEsc = (s) => s.replace(/[\\%_]/g, (c) => '\\' + c);
@@ -132,7 +140,7 @@ async function listProducts(q) {
   const storeFacet = (words.length || store || category) && !q.nostores
     ? (await all(`SELECT COALESCE(vd.slug,'') AS slug, COALESCE(vd.name,'') AS name, COUNT(*) AS n ${fromBase} WHERE ${where.join(' AND ')} GROUP BY 1,2 ORDER BY n DESC, 2 LIMIT 12`, ...args)).map((r) => ({ slug: r.slug, name: r.name || 'Shop-Beta', n: Number(r.n) })) : [];
   const vslug = str(q.vendor, 80);
-  if (vslug === 'ours') where.push('p.vendor_id IS NULL'); else if (vslug) { where.push('vd.slug=?'); args.push(vslug); }
+  if (vslug === 'ours') where.push('p.vendor_id IS NULL'); else if (vslug === 'partners') where.push('p.vendor_id IS NOT NULL'); else if (vslug) { where.push('vd.slug=?'); args.push(vslug); }
   const from = `${fromBase} WHERE ${where.join(' AND ')}`;
   const total = (await get(`SELECT COUNT(*) n ${from}`, ...args)).n;
   const pages = Math.max(1, Math.ceil(total / PER_PAGE)), page = Math.min(pages, Math.max(1, int(q.page, 1)));
