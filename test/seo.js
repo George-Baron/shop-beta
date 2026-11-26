@@ -51,7 +51,7 @@ const locs = (xml) => [...xml.matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => m[1].
   await mk('seo-inactive-gadget', 'SEO Inactive Gadget', { active: 0 });
   await mk('seo-bare-cable', 'SEO Bare Cable', { description: '', images: '[]', brand: '', sku: '' });
   const pend = await mk('seo-pending-gadget', 'SEO Pending Gadget'); await q("UPDATE products SET fulfilment='dropship', listing='pending' WHERE id=$1", [pend]); // a dropship item nobody approved yet
-  await q("INSERT INTO reviews (product_id,name,rating,title,body,approved,created) VALUES ($1,'Ngozi',5,'Loud and clear','Great sound for the price.',1,$2),($1,'Spam Bot',1,'x','not shown',0,$2)", [rated, Math.floor(Date.now() / 1000)]);
+  await q("INSERT INTO reviews (product_id,name,rating,title,body,approved,created) VALUES ($1,'Ngozi',5,'Loud and clear','Great sound for the price.',1,$2),($1,'Spam Bot',1,'x','zq-hidden-review',0,$2)", [rated, Math.floor(Date.now() / 1000)]);
   await call('GET', '/api/config'); await sleep(200);
 
   console.log('\nrobots.txt');
@@ -143,7 +143,7 @@ const locs = (xml) => [...xml.matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => m[1].
     rated1 = await call('GET', '/product/seo-rated-speaker'); const ld = ldBlocks(rated1.t)[0];
     assert.strictEqual(ld.offers.availability, 'https://schema.org/OutOfStock'); assert.ok(!('gtin' in ld));
     assert.deepStrictEqual({ v: ld.aggregateRating.ratingValue, n: ld.aggregateRating.reviewCount }, { v: 5, n: 1 }); assert.strictEqual(ld.review.length, 1); assert.strictEqual(ld.review[0].author.name, 'Ngozi'); assert.strictEqual(ld.review[0].reviewRating.ratingValue, 5);
-    assert.ok(!rated1.t.includes('Spam Bot') && !rated1.t.includes('not shown'));
+    assert.ok(!rated1.t.includes('Spam Bot') && !rated1.t.includes('zq-hidden-review'));
   });
   await test('JSON-LD stays valid JSON when names contain markup', async () => {
     await q("UPDATE products SET name='Tricky </script><b>\"Phone\"' WHERE slug='seo-live-phone'"); await saveSettings({ announcement: 'tricky' });
