@@ -121,6 +121,7 @@ app.use('/api/rider', require('./routes/rider'));
 app.use('/api/partner', require('./routes/partner'));
 app.use('/api/supplier', require('./routes/supplier-portal'));
 app.use('/api/wholesale', require('./routes/wholesale'));
+app.use('/api/trade-enquiries', require('./routes/trade-enquiries').pub);
 app.use('/api', require('./routes/public'));
 app.use('/api/mobile/v1', require('./routes/public')); // the same shop endpoints under the apps' versioned prefix
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
@@ -136,7 +137,7 @@ app.get(/^\/(google[a-z0-9]+\.html)$/, SEO.verificationFile);           // Searc
 /* ---------- pages (one HTML shell, filled in per URL for search engines and link previews) ---------- */
 const TEMPLATE = fs.readFileSync(path.join(__dirname, 'views', 'index.html'), 'utf8');
 const PAGES = { about: 'About us', faq: 'Frequently asked questions', shipping: 'Shipping & Returns', privacy: 'Privacy policy', terms: 'Terms of service', contact: 'Contact us' };
-const NOINDEX = new Set(['rider', 'pharmacist', 'partner', 'supplier', 'wholesale', 'import-export', 'checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
+const NOINDEX = new Set(['rider', 'pharmacist', 'partner', 'supplier', 'wholesale', 'checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
 const absUrl = (u) => (!u ? '' : /^https?:\/\//.test(u) ? u : BASE_URL + u);
 
 function pixelSnippet(id, nonce) {
@@ -210,6 +211,10 @@ async function describe(req) {
     out.title = `Dropshipping: more products, shipped straight to you · ${S0.store_name}`; out.desc = 'Shop items shipped directly from our partner suppliers, with honest delivery times, tracking and a refund or alternative if a supplier cannot deliver.'; out.canonical = `${BASE_URL}/dropshipping`;
     out.body = `<h1>Dropshipping</h1><p>${esc(out.desc)}</p>${nav}`; return out;
   }
+  if (seg[0] === 'import-export' && seg.length === 1) {
+    out.title = `Import & Export: bring goods in, or buy Nigerian products abroad · ${S0.store_name}`; out.desc = 'Tell us what you want to import into Nigeria or buy from Nigeria for export. We reply with a clear price, route and timeline. Sending an enquiry is free and commits you to nothing.'; out.canonical = `${BASE_URL}/import-export`;
+    out.body = `<h1>Import &amp; Export</h1><p>${esc(out.desc)}</p>${nav}`; return out;
+  }
   if (p === '/') {
     const m = SEO.homeMeta(S0, stores);
     out.title = m.title; out.desc = m.desc; out.canonical = BASE_URL + '/'; out.jsonld = SEO.homeJsonLd(S0, stores);
@@ -217,7 +222,7 @@ async function describe(req) {
     const mail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(S0.contact_email || '') && !/\.example$/i.test(S0.contact_email) ? S0.contact_email : '';
     out.body = `<h1>${esc(S0.store_name)}</h1><p>${esc(out.desc)}</p>`
       + `<h2>Shop by department</h2><ul>${stores.map((s) => `<li><a href="/d/${esc(s.slug)}">${esc(s.name)}</a>${s.hero_sub ? ' – ' + esc(s.hero_sub) : ''}</li>`).join('')}</ul>`
-      + `<h2>More ways to shop</h2><ul><li><a href="/shop">All products</a></li><li><a href="/stores">Partner stores</a></li><li><a href="/dropshipping">Dropshipping</a></li></ul>`
+      + `<h2>More ways to shop</h2><ul><li><a href="/shop">All products</a></li><li><a href="/stores">Partner stores</a></li><li><a href="/dropshipping">Dropshipping</a></li><li><a href="/import-export">Import &amp; Export</a></li></ul>`
       + (feat.length ? `<h2>Featured products</h2>${productLinks(feat)}` : '')
       + `<h2>Delivery</h2><p>We deliver across Nigeria. Delivery cost and timing depend on your state. Read <a href="/page/shipping">Shipping &amp; Returns</a> before you order.</p>`
       + `<h2>Customer service</h2><p>Questions about an order? See the <a href="/page/faq">FAQ</a> or <a href="/page/contact">contact us</a>${mail ? ' at ' + esc(mail) : ''}. <a href="/page/about">About ${esc(S0.store_name)}</a>.</p>`;
