@@ -1,0 +1,22 @@
+# Registered customers (members) and guests
+
+**Guests** (not signed in) can browse the shop and buy normal items and check out, "buy and go".
+**Registered customers** (free account) also get:
+
+| Feature | Guest | Registered |
+|---|---|---|
+| Normal products, cart, checkout | yes | yes |
+| Dropshipped items (list, search, product page, ordering) | hidden | yes |
+| Dropshipping page | sign-in wall | yes |
+| Import & Export page and enquiry form | sign-in wall (API returns 401) | yes |
+| Rewards / loyalty, wallet | needs sign-in (401) | yes |
+| Wholesale | sign-in wall (already) + approval | yes |
+
+## How it works
+- `lib/members.js` keeps, per request, whether the visitor is signed in. `PC.visibleSql` (the one place that decides what the public catalogue shows) leaves out dropshipped items for guests, so every list, search, product page, home rail and vendor page is covered. Background jobs have no visitor and see everything.
+- Search-engine/server-rendered pages are built as a guest, so Google never sees members-only items.
+- Catalogue cache keys carry `~g` (guest) or `~m` (member); `cache.drop(key)` drops both. Member answers are sent `private, no-cache` and never kept by Cloudflare.
+- Checkout refuses dropshipped items for guests.
+- `/api/dropshipping` answers `{locked:true}` to guests; the page shows a sign-in wall with `?next=` so they return afterwards.
+
+No new settings or environment variables. Tests: `npm run test:members`.

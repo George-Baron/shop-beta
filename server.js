@@ -102,6 +102,8 @@ app.use('/api', (req, res, next) => {
   next();
 });
 app.use('/api', A.loadUser);
+app.use('/api', require('./lib/members').middleware);
+app.use((req, res, next) => (req.path.startsWith('/api/') ? next() : require('./lib/members').run(false, next))); // search-engine and server-rendered pages are built as a guest
 app.use('/api/notifications', require('./routes/notifications'));
 app.use(['/api/wallet', '/api/mobile/v1/wallet'], require('./routes/wallet').customer);
 app.use(['/api/admin/wallet', '/api/mobile/v1/admin/wallet'], require('./routes/wallet').admin);
