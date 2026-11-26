@@ -1,4 +1,4 @@
-# VELTO AI Operations Manager (Phase 1: Command Centre)
+# VELTO AI Operations Manager (Phase 1: Command Centre, Phase 2: Procurement)
 
 Open **Admin > AI Operations** (`/admin#/opsai`). Staff need the new **AI Operations** permission (role "Operations Supervisor" has it); the owner always does.
 
@@ -17,8 +17,16 @@ Open **Admin > AI Operations** (`/admin#/opsai`). Staff need the new **AI Operat
 - Actions with no system behind them yet are refused, not faked.
 - The audit table `ops_actions` is append-only (database trigger); it is also protected during backup restore.
 
+## Phase 2: procurement intelligence (AI Operations > Procurement)
+- **Requests**: "Create requests from real stock" works out what to reorder from stock, incoming orders and 30-day sales (retail), and from reorder levels (wholesale). Retail and wholesale are never added together. The numbers behind each request are saved with it. One open request per product and destination.
+- **Vendors**: every vendor starts *under review* with nothing verified. Only a person can mark a check verified (and must say how). Approving or preferring a vendor needs verified registration **and** contact; losing either drops an approved vendor to *conditional*. A person with approver level 2+ changes a status directly; anyone else, and the AI, must file a request for an approver.
+- **Quotations** are prices vendors actually gave us. Each needs a source and, for vendor quotes, a reference. The AI never writes a price.
+- **Comparison**: landed cost in Naira (goods, freight, insurance, duty, VAT, clearing; duty/VAT are marked as estimates), then a 0-100 score from the eight weighted factors (weights editable in Settings). Only factors with real data count, and each score says how much of the weight that is. Cheapest, fastest, preferred and recommended are shown with the reason. Only approved/preferred/conditional vendors on valid quotes that cover the quantity can be recommended; a quotation whose Naira cost is unknown (no exchange rate) is not ranked. Fewer than 3 qualified quotes is flagged.
+- **Purchase orders**: drafting commits nothing. "Request approval" goes through the normal rules (level by value, split detection, two-person, requester cannot approve). The approval is bound to the PO's exact terms; any change after submission makes it fail. PDF export. A person records "sent" and "goods received" (the AI cannot); late or short deliveries feed the vendor's delivery score and raise an exception. Recording receipt does **not** change stock: receive it in the warehouse as usual.
+- Still not connected: supplier **discovery** (no research source is wired, so the AI says so instead of inventing vendors), emailing vendors, courier APIs.
+
 ## Not built yet (later phases)
-Supplier discovery and PO generation, courier integrations (DHL/UPS/FedEx show as *not connected*), supplier email, import/export agent actions, demand forecasting, performance dashboards.
+Supplier discovery, vendor email, courier integrations (DHL/UPS/FedEx show as *not connected*), import/export agent actions, global order orchestration, demand forecasting, performance dashboards.
 
 ## Tests
-`npm run test:ops-ai:unit` (rules, no DB) and `npm run test:ops-ai` (database: gateway, approvals, audit, monitor).
+`npm run test:ops-ai:unit`, `npm run test:ops-procure:unit` (rules and scoring, no DB); `npm run test:ops-ai` and `npm run test:ops-procurement` (database: gateway, approvals, audit, monitor, vendors, quotations, purchase orders).
