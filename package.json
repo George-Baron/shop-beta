@@ -59,6 +59,7 @@
     "test:return-photos": "node --disable-warning=ExperimentalWarning test/return-photos.js",
     "test:returns": "node --disable-warning=ExperimentalWarning test/returns.js",
     "test:roles": "node --disable-warning=ExperimentalWarning test/roles.js",
+    "test:catalog-photos": "node test/catalog-photos.js",
     "test:catalog": "node --disable-warning=ExperimentalWarning test/catalog-io.js",
     "test:riders": "node --disable-warning=ExperimentalWarning test/riders.js",
     "test:riders-ui": "node --disable-warning=ExperimentalWarning test/riders-ui.js",

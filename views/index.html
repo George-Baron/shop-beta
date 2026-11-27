@@ -2914,10 +2914,11 @@ views.catalogio = async () => {
     ${bad.length ? `<h4>Rows with errors (they will be skipped)</h4><div class="tw" style="max-height:340px;overflow:auto"><table class="t"><tr><th>Line</th><th>Product</th><th>Problem</th><th>Fix here</th></tr>${bad.slice(0, 200).map((r) => `<tr><td>${r.line}</td><td>${e(r.name || '')}<div class="mu2">${e(r.sku || '')}</div></td><td style="color:var(--bad,#c0392b)">${r.errors.map(e).join('<br>')}</td><td><button class="btn sm ghost" data-fix="${r.line}">Edit row</button></td></tr>`).join('')}</table></div>${bad.length > 200 ? `<p class="mu2">Showing the first 200 of ${bad.length}. The full list is in the error report after the import.</p>` : ''}` : ''}
     ${warn.length ? `<h4>Warnings (still imported)</h4><div class="tw" style="max-height:200px;overflow:auto"><table class="t">${warn.slice(0, 100).map((r) => `<tr><td>${r.line}</td><td>${e(r.name)}</td><td>${r.warnings.map(e).join('<br>')}</td></tr>`).join('')}</table></div>` : ''}
     ${S.mode === 'update' && upd.length ? `<h4>What will change</h4><div class="tw" style="max-height:340px;overflow:auto"><table class="t"><tr><th>Product</th><th>Change</th></tr>${upd.slice(0, 200).map((r) => `<tr><td>${e(r.name)}<div class="mu2">${e(r.sku || '')}</div></td><td>${r.changes.map((c) => `${e(c.label)}: <s>${e(String(c.from))}</s> → <b>${e(String(c.to))}</b>`).join('<br>')}</td></tr>`).join('')}</table></div><label style="display:block;margin:10px 0"><input type="checkbox" id="iconf" ${S.confirm ? 'checked' : ''}> I understand this will change ${sm.update} existing product${sm.update === 1 ? '' : 's'}.</label>` : ''}
+    ${S.rows.some((r) => r.images) ? `<div class="panel" style="margin-top:12px"><b>Photos in this file</b><label class="chk" style="display:block;margin-top:6px"><input type="radio" name="phm" value="copy" ${S.photoMode !== 'link' ? 'checked' : ''}> <span>Copy each photo into my shop's storage (recommended). It happens in the background after the import; JPG, PNG, WEBP or GIF up to 5 MB.</span></label><label class="chk" style="display:block"><input type="radio" name="phm" value="link" ${S.photoMode === 'link' ? 'checked' : ''}> <span>Use the links as they are. Nothing is copied, so the photos disappear if the other website removes them.</span></label></div>` : ''}
     <div style="margin-top:12px"><button class="btn" id="igo" ${!good || (S.mode === 'update' && !S.confirm) ? 'disabled' : ''}>${S.mode === 'create' ? `Import ${good} product${good === 1 ? '' : 's'}` : `Apply ${good} change${good === 1 ? '' : 's'}`}</button> <button class="btn ghost" id="iback">Back to columns</button> <button class="btn ghost" id="ireset">Start over</button></div></div>`;
   };
   const stepProg = () => `<div class="panel"><h3 style="margin-top:0">Importing…</h3><div class="pbar2"><i style="width:${S.prog.pct}%"></i></div><p class="mu2">${S.prog.done.toLocaleString('en')} of ${S.prog.total.toLocaleString('en')} rows processed. Please keep this page open.</p></div>`;
-  const stepDone = () => { const d = S.done; return `<div class="panel"><h3 style="margin-top:0">Import finished</h3><div class="stats"><span class="pill ok">${d.created} created</span> <span class="pill ok">${d.updated} updated</span> <span class="pill ${d.failed ? 'bad' : ''}">${d.failed} failed</span></div>${d.failed ? `<p><a class="btn ghost" href="/api/admin/catalog/history/${d.importId}/errors.csv" download>⬇ Download error report</a></p>` : ''}<p class="mu2">Add photos by opening each product on the Products page.</p><button class="btn" id="ireset">Import another file</button></div>`; };
+  const stepDone = () => { const d = S.done; return `<div class="panel"><h3 style="margin-top:0">Import finished</h3><div class="stats"><span class="pill ok">${d.created} created</span> <span class="pill ok">${d.updated} updated</span> <span class="pill ${d.failed ? 'bad' : ''}">${d.failed} failed</span></div>${d.failed ? `<p><a class="btn ghost" href="/api/admin/catalog/history/${d.importId}/errors.csv" download>⬇ Download error report</a></p>` : ''}${d.photos ? `<div class="panel" id="iph" style="margin:10px 0"><b>Photos</b> <span class="mu2">checking…</span></div>` : '<p class="mu2">Add photos by putting links in the Image URLs column, or by opening each product on the Products page.</p>'}<button class="btn" id="ireset">Import another file</button></div>`; };
   const exportBox = () => `<div class="panel"><h3 style="margin-top:0">Export products</h3><div class="tbar">
     <select id="xf">${Object.entries(FL).map(([k, v]) => `<option value="${k}">${e(v)}</option>`).join('')}</select>
     <select id="xc" style="display:none"><option value="">Choose category</option>${meta.lookups.categories.map((c) => `<option value="${c.id}">${e(c.name)} (${e(c.store)})</option>`).join('')}</select>
@@ -2956,6 +2957,7 @@ views.catalogio = async () => {
     on('#imapok', 'click', guard(async () => { S.rows = buildRows(); await revalidate(); }));
     on('#iback', 'click', () => { S.v = null; paint(); });
     on('#imkcat', 'click', async () => { const r = await api('/api/admin/catalog/missing-categories', { body: { rows: S.rows, create: true } }); toast(r.created + ' categor' + (r.created === 1 ? 'y' : 'ies') + ' created' + (r.unknownDepartments.length ? '. Unknown departments left alone: ' + r.unknownDepartments.map((d) => d.name).join(', ') : '')); await revalidate(); });
+    $$('input[name=phm]').forEach((x) => x.addEventListener('change', () => { S.photoMode = x.value; }));
     on('#iconf', 'change', (ev) => { S.confirm = ev.target.checked; const g = $('#igo'); if (g) g.disabled = !S.confirm; });
     onAll('[data-fix]', 'click', (el) => {
       const line = Number(el.dataset.fix), row = S.rows.find((r) => r.line === line), res = S.v.results.find((r) => r.line === line);
@@ -2965,17 +2967,29 @@ views.catalogio = async () => {
     });
     on('#igo', 'click', guard(async () => {
       S.prog = { pct: 0, done: 0, total: S.rows.length }; paint();
-      let importId, created = 0, updated = 0, failed = 0;
+      let importId, created = 0, updated = 0, failed = 0, photos = 0;
       try {
         for (let i = 0; i < S.rows.length; i += 500) {
           const chunk = S.rows.slice(i, i + 500);
-          if (chunk.length) { const r = await api('/api/admin/catalog/commit', { body: { rows: chunk, mode: S.mode, importId, filename: S.file, total: S.rows.length, confirmUpdate: S.mode === 'update' ? true : undefined } }); importId = r.importId; created += r.created; updated += r.updated; failed += r.failed; }
+          if (chunk.length) { const r = await api('/api/admin/catalog/commit', { body: { rows: chunk, mode: S.mode, importId, filename: S.file, total: S.rows.length, confirmUpdate: S.mode === 'update' ? true : undefined, photoMode: S.photoMode } }); importId = r.importId; created += r.created; updated += r.updated; failed += r.failed; photos += r.photos || 0; }
           S.prog.done = Math.min(S.rows.length, i + 500); S.prog.pct = Math.round(S.prog.done / S.rows.length * 100); const bar = $('.pbar2 i'); if (bar) bar.style.width = S.prog.pct + '%'; const t = $('.pbar2 + p'); if (t) t.textContent = `${S.prog.done.toLocaleString('en')} of ${S.prog.total.toLocaleString('en')} rows processed. Please keep this page open.`;
         }
-        S.done = { importId, created, updated, failed };
+        S.done = { importId, created, updated, failed, photos };
       } catch (err) { S.prog = null; paint(); throw err; }
       S.prog = null; S.v = null; history = await hist(); paint(); toast('Import finished');
     }));
+    // Photos named by link are copied in the background: show how far it has got, and let the owner retry the ones that failed.
+    if ($('#iph') && S.done && S.done.photos) {
+      const id = S.done.importId, box = $('#iph');
+      const draw = async () => {
+        if (!document.body.contains(box)) return;
+        const r = await api('/api/admin/catalog/history/' + id + '/photos');
+        box.innerHTML = `<b>Photos</b> <span class="pill ok">${r.done} copied</span> ${r.waiting ? `<span class="pill">${r.waiting} waiting</span>` : ''} ${r.failed ? `<span class="pill bad">${r.failed} failed</span>` : ''}${r.waiting ? '<p class="mu2" style="margin:6px 0 0">This runs in the background. You can leave this page; the photos keep arriving.</p>' : ''}${r.failures.length ? `<div style="overflow:auto;max-height:240px;margin-top:8px"><table class="tbl"><tr><th>Line</th><th>Product</th><th>Link</th><th>Problem</th></tr>${r.failures.map((f) => `<tr><td>${f.line}</td><td>${e(f.name)}</td><td style="word-break:break-all">${e(f.url.slice(0, 80))}</td><td>${e(f.error)}</td></tr>`).join('')}</table></div><button class="btn ghost sm" id="iphr" style="margin-top:8px">Try the failed photos again</button>` : ''}`;
+        const rb = $('#iphr'); if (rb) rb.addEventListener('click', guard(async () => { await api('/api/admin/catalog/history/' + id + '/photos/retry', { body: {} }); toast('Trying again'); draw(); }));
+        if (r.waiting) setTimeout(() => draw().catch(() => {}), 4000);
+      };
+      draw().catch((er) => { box.innerHTML = `<span class="err">${e(er.message)}</span>`; });
+    }
     on('#xf', 'change', (ev) => { const v = ev.target.value; $('#xc').style.display = v === 'category' ? '' : 'none'; $('#xb').style.display = v === 'brand' ? '' : 'none'; $('#xp').style.display = v === 'partner' ? '' : 'none'; });
     on('#xgo', 'click', guard(async () => {
       const f = $('#xf').value, q = new URLSearchParams({ filter: f, format: $('#xfmt').value });
