@@ -2322,7 +2322,7 @@ async function rfqDetail(main, rq, draw, W) {
   const run = (fn) => async (ev) => { try { await fn(ev); } catch (x) { toast(x.message, 'bad'); } };
   const track = rq.steps.map((s, i) => `<li class="${i < rq.step ? 'done' : i === rq.step ? 'now' : ''}"><span>${i < rq.step ? '✓' : i + 1}</span>${e(s.label)}</li>`).join('');
   const q = rq.quote, canAnswer = rq.status === 'quote_sent';
-  draw(`<div class="noprint" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">${rfqPill(rq.status, rq.label)} <a class="btn ghost sm" href="/api/wholesale/rfq/${e(rq.ref)}/download.xlsx">Download Excel</a> <button class="btn ghost sm" onclick="window.print()">Print</button>${rq.sales_ref ? ` <a class="btn sm" href="/wholesale/quote/${e(rq.sales_ref)}" data-link>Open order ${e(rq.sales_ref)}</a>` : ''}</div>
+  draw(`<div class="noprint" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">${rfqPill(rq.status, rq.label)} <a class="btn ghost sm" href="/api/wholesale/rfq/${e(rq.ref)}/download.xlsx">Download Excel</a> <button class="btn ghost sm" data-print="1">Print</button>${rq.sales_ref ? ` <a class="btn sm" href="/wholesale/quote/${e(rq.sales_ref)}" data-link>Open order ${e(rq.sales_ref)}</a>` : ''}</div>
     ${['rejected', 'expired'].includes(rq.status) ? '' : `<ol class="rtrk">${track}</ol>`}
     ${rq.status === 'rejected' ? `<div class="card" style="border-color:var(--bad)"><b>This request was closed.</b><p style="margin:6px 0 0">${e(rq.reject_reason || '')}</p></div>` : ''}
     ${rq.status === 'expired' ? '<div class="card" style="border-color:var(--bad)"><b>This quotation has expired.</b><p style="margin:6px 0 0">Ask us for a new one by starting a new request.</p></div>' : ''}
@@ -2404,7 +2404,7 @@ async function wholesalePage(main) {
       ${fu.stage === 'dispatched' && fu.failed_attempts ? '<p class="mu" style="margin:4px 0">We could not deliver on an earlier attempt. See the progress notes below.</p>' : ''}
       ${fu.stage === 'delivered' ? `<p class="mu" style="margin:4px 0">Received by ${e(fu.received_by)}${fu.delivered_at ? ' on ' + wdate(fu.delivered_at) : ''}.</p>` : ''}
       <button class="btn ghost sm" id="winv">View / print final invoice</button></div>` : '';
-    draw(`<p class="noprint"><span class="pill">${e(WSTATUS[q.status] || q.status)}</span> <button class="btn ghost sm" onclick="window.print()">Print proforma</button></p>${proformaHtml(q, account.business_name)}<div class="card noprint" style="margin-top:14px">${act}</div>${tracker}
+    draw(`<p class="noprint"><span class="pill">${e(WSTATUS[q.status] || q.status)}</span> <button class="btn ghost sm" data-print="1">Print proforma</button></p>${proformaHtml(q, account.business_name)}<div class="card noprint" style="margin-top:14px">${act}</div>${tracker}
       <div class="card noprint" style="margin-top:14px"><h4 style="margin-top:0">Progress</h4>${q.events.map((x) => `<div style="font-size:13px;padding:2px 0"><span class="mu">${wdate(x.created)}</span> · ${e(x.note || x.status)}</div>`).join('')}</div>`);
     const after = () => wholesalePage(main);
     if (q.status === 'delivered') {
@@ -2656,6 +2656,8 @@ async function route() {
 window.addEventListener('hashchange', route);
 const mn = (html) => { $('#mn').innerHTML = html; };
 const hd = (title, extra = '') => `<div class="hd"><h1>${title}</h1><div>${extra}</div></div>`;
+// Print buttons use a data attribute because the page's security policy blocks inline onclick handlers.
+document.addEventListener('click', (ev) => { if (ev.target.closest && ev.target.closest('[data-print]')) window.print(); });
 const on = (sel, ev, fn) => { const el = $(sel, $('#mn')); if (el) el.addEventListener(ev, guard(fn)); };
 const onAll = (sel, ev, fn) => $$(sel, $('#mn')).forEach((el) => el.addEventListener(ev, guard((x) => fn(el, x))));
 
