@@ -34,6 +34,7 @@
     "test:trade-enquiries": "node test/trade-enquiries.js",
     "test:members": "node test/members.js",
     "test:home-partners": "node test/home-partners.js",
+    "test:wallet-visible": "node test/wallet-visible.js",
     "test:trade-ui": "node test/trade-ui.js",
     "test:wallet": "node --disable-warning=ExperimentalWarning test/wallet.js",
     "test:loyalty": "node --disable-warning=ExperimentalWarning test/loyalty.js",
@@ -85,7 +86,9 @@
     "test:dropship-money:unit": "node --disable-warning=ExperimentalWarning test/dropship-money-unit.js",
     "test:dropship-money": "node --disable-warning=ExperimentalWarning test/dropship-money.js",
     "test:seo": "node --disable-warning=ExperimentalWarning test/seo.js",
-    "test:supplier-portal": "node --disable-warning=ExperimentalWarning test/supplier-portal.js"
+    "test:supplier-portal": "node --disable-warning=ExperimentalWarning test/supplier-portal.js",
+    "test:ops-autonomy:unit": "node test/ops-autonomy-unit.js",
+    "test:ops-autonomy": "node test/ops-autonomy.js"
   },
   "dependencies": {
     "compression": "^1.8.2",

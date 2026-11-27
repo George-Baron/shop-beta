@@ -58,6 +58,8 @@ label.f{display:block;font-weight:600;font-size:13px;margin-bottom:12px}label.f>
 [data-store=supermarket] .search input{background:#fff;color:#16181d}[data-store=supermarket] .search button{color:#16181d}
 .search button{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:0;cursor:pointer;font-size:16px;padding:6px 10px}
 .icons{display:flex;gap:6px;margin-left:auto}.ibtn{position:relative;background:none;border:0;color:inherit;cursor:pointer;font-size:20px;padding:8px;border-radius:10px;display:grid;place-items:center}.ibtn:hover{background:rgba(127,127,127,.15)}
+.vchip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-size:12px;font-weight:800;white-space:nowrap}
+@media(max-width:520px){.vchip{padding:5px 8px;font-size:11px}}
 .ibtn .dot{position:absolute;top:2px;right:0;background:var(--accent);color:var(--accent-ink);font-size:10px;font-weight:800;min-width:17px;height:17px;border-radius:9px;display:grid;place-items:center;padding:0 4px}
 .menu-btn{display:none}
 .tabs-dept{background:var(--surface-2);border-bottom:1px solid var(--border)}
@@ -412,7 +414,7 @@ async function api(path, opts = {}) {
   if (opts.body !== undefined) { o.method = opts.method || 'POST'; o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(opts.body); }
   let r; try { r = await fetch(path, o); } catch { throw new Error('Network problem. Check your connection and try again.'); }
   let d = {}; try { d = await r.json(); } catch { /* empty */ }
-  if (!r.ok || d.error) { const err = new Error(d.error || 'Something went wrong.'); err.status = r.status; throw err; }
+  if (!r.ok || d.error) { const err = new Error(d.error || 'Something went wrong.'); err.status = r.status; err.data = d; throw err; }
   return d;
 }
 
@@ -882,6 +884,8 @@ const body = {
   food: (d) => `${sec('Shop by category', '', cats(d))}${sec('Popular Products', shopLink(d.store), grid(d.bestsellers.length ? d.bestsellers : d.featured))}<section class="blk"><div class="wrap">${promos(d)}</div></section><section class="blk"><div class="wrap">${trust('food')}</div></section>`,
 };
 
+// Visitors who are not signed in see what a free account gives them; signed-in customers see their wallet and points in the header instead.
+const memberPerks = () => store.user ? '' : `<section class="blk"><div class="wrap"><div class="card" style="display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap"><div><b>Create a free account</b><div class="mu" style="font-size:13px">Earn reward points on every order, keep a wallet for faster checkout, and unlock wholesale, dropshipping and Import &amp; Export.</div></div><div style="display:flex;gap:8px"><a class="btn" href="/register" data-link>Create account</a><a class="btn ghost" href="/login" data-link>Sign in</a></div></div></div></section>`;
 // "Partner stores": one row per partner with their products, so what partners sell is easy to see from the homepage.
 const partnerRails = (d) => {
   const ps = (d.partners || []).filter((p) => p.items.length); if (!ps.length) return '';
@@ -894,7 +898,7 @@ const partnerRails = (d) => {
 async function home(main, slug) {
   const d = await api('/api/home/' + encodeURIComponent(slug));
   const k = hero[slug] ? slug : 'fashion';
-  main.innerHTML = hero[k](d) + body[k](d) + partnerRails(d);
+  main.innerHTML = memberPerks() + hero[k](d) + body[k](d) + partnerRails(d);
   return d.store.name;
 }
 
@@ -1631,7 +1635,7 @@ async function veltoTab(box, tab) {
 
 async function account(main, u, cfg) {
   if (!store.user) { go('/login?next=/account', true); return ''; }
-  const tab = u.searchParams.get('tab') || (u.searchParams.get('wallet') ? 'wallet' : 'orders');
+  const tab = u.searchParams.get('tab') || (u.searchParams.get('wallet') ? 'wallet' : 'overview');
   const [od, ad] = await Promise.all([api('/api/orders'), api('/api/addresses')]);
   const usr = store.user;
   const tabs = [['orders', 'Orders'], ['overview', 'Overview'], ['wallet', 'Wallet'], ['rewards', 'Rewards'], ['card', 'Card'], ['addresses', 'Addresses'], ['profile', 'Profile']];
@@ -2473,6 +2477,7 @@ function shell() {
     <div class="icons">
       <button class="ibtn" id="modeBtn" aria-label="Toggle dark mode">🌓</button>
       <a class="ibtn hide" id="bellBtn" href="/notifications" data-link aria-label="Notifications">🔔<span class="dot hide" id="ncount"></span></a>
+      <a class="vchip hide" id="vchip" href="/account?tab=overview" data-link aria-label="Your wallet and reward points"></a>
       <a class="ibtn" id="acctBtn" href="/account" data-link aria-label="Account">👤</a>
       <a class="ibtn" href="/wishlist" data-link aria-label="Wishlist">♡<span class="dot hide" id="wcount"></span></a>
       <button class="ibtn" id="cartBtn" aria-label="Open cart">🛒<span class="dot hide" id="ccount"></span></button>
@@ -2496,11 +2501,21 @@ function shell() {
   ${s.whatsapp ? `<a class="wa" href="https://wa.me/${e(s.whatsapp)}?text=${encodeURIComponent('Hello ' + s.store_name + ', I need help with…')}" target="_blank" rel="noopener" aria-label="Chat on WhatsApp">💬</a>` : ''}`;
   $('#nav2').innerHTML = '';
 }
+// The wallet balance and reward points sit in the header for signed-in customers, so they are always in view. Refreshed at most once a minute.
+let vchipAt = 0;
+async function refreshVchip(force) {
+  const b = $('#vchip'); if (!b) return;
+  if (!store.user) { vchipAt = 0; b.classList.add('hide'); return; }
+  if (!force && Date.now() - vchipAt < 60000) return; vchipAt = Date.now();
+  const [w, l] = await Promise.all([safeApi('/api/wallet'), safeApi('/api/loyalty')]);
+  const bits = []; if (!w._err && w.status !== undefined) bits.push('👛 ' + wnaira(w.available_balance)); if (!l._err && l.points !== undefined) bits.push('★ ' + Number(l.points).toLocaleString('en-NG') + ' pts');
+  if (!bits.length) { b.classList.add('hide'); return; } b.textContent = bits.join(' · '); b.classList.remove('hide');
+}
 function syncHeader() {
-  const slug = getStoreSlug();
+  const slug = getStoreSlug(); refreshVchip().catch(() => {});
   { const side = $('#catside'), tabs = $('#dtabs'), strip = $('.tabs-dept'); if (side && tabs && tabs.parentElement !== side) side.appendChild(tabs); else if (!side && tabs && strip && tabs.parentElement !== strip) strip.appendChild(tabs); }
   $$('.dtab').forEach((t) => { const on = t.dataset.dept === slug; t.classList.toggle('on', on); t.setAttribute('aria-selected', on); });
-  $('#nav2').innerHTML = `<a href="/d/${e(slug)}" data-link>Home</a><a href="/shop?store=${e(slug)}" data-link>Shop</a><a href="/wholesale" data-link>Wholesale</a><a href="/stores" data-link>Partner Stores</a><a href="/import-export" data-link>Import &amp; Export</a><a href="/dropshipping" data-link>Dropshipping</a><a href="/shop?store=${e(slug)}&flag=deals" data-link>Deals</a><a href="/shop?store=${e(slug)}&flag=new" data-link>New Arrivals</a><a href="/page/contact" data-link>Contact</a>`;
+  $('#nav2').innerHTML = `<a href="/d/${e(slug)}" data-link>Home</a><a href="/shop?store=${e(slug)}" data-link>Shop</a><a href="/wholesale" data-link>Wholesale</a><a href="/stores" data-link>Partner Stores</a><a href="/import-export" data-link>Import &amp; Export</a><a href="/dropshipping" data-link>Dropshipping</a><a href="/account?tab=rewards" data-link>Wallet &amp; Rewards</a><a href="/shop?store=${e(slug)}&flag=deals" data-link>Deals</a><a href="/shop?store=${e(slug)}&flag=new" data-link>New Arrivals</a><a href="/page/contact" data-link>Contact</a>`;
   const c = cart.count(), w = wish.ids.size;
   const cc = $('#ccount'), wc = $('#wcount'); if (cc) { cc.textContent = c; cc.classList.toggle('hide', !c); } if (wc) { wc.textContent = w; wc.classList.toggle('hide', !w); }
   const a = $('#acctBtn'); if (a) a.title = store.user ? store.user.name : 'Sign in';
@@ -4711,7 +4726,7 @@ const opsStat = (l, v, s = '') => `<div class="stat"><div class="l">${e(l)}</div
 const opsSev = { critical: 'bad', high: 'bad', medium: 'pending', low: '', info: '' };
 
 views.opsai = async () => {
-  const tabs = [['centre', 'Command Centre'], ['assistant', 'Assistant'], ['orders', 'Orders'], ['logistics', 'Logistics'], ['trade', 'Import / export'], ['insights', 'Insights'], ['reports', 'Reports'], ['procurement', 'Procurement'], ['approvals', 'Approvals'], ['exceptions', 'Exceptions'], ['audit', 'Audit log'], ['settings', 'Settings & agents']];
+  const tabs = [['centre', 'Command Centre'], ['assistant', 'Assistant'], ['orders', 'Orders'], ['logistics', 'Logistics'], ['trade', 'Import / export'], ['insights', 'Insights'], ['reports', 'Reports'], ['procurement', 'Procurement'], ['approvals', 'Approvals'], ['exceptions', 'Exceptions'], ['audit', 'Audit log'], ['golive', 'Go-live'], ['settings', 'Settings & agents']];
   const meOps = await api(OPSBASE + '/me');
   let body = '';
   if (OPS.tab === 'centre') {
@@ -4822,6 +4837,24 @@ views.opsai = async () => {
   } else if (OPS.tab === 'audit') {
     const d = await api(OPSBASE + '/actions?' + new URLSearchParams(OPS.ast ? { status: OPS.ast } : {}));
     body = `<div class="tbar"><select id="oas"><option value="">All (except quiet lookups)</option>${['done', 'recommended', 'pending_approval', 'blocked', 'failed'].map((s) => `<option value="${s}" ${OPS.ast === s ? 'selected' : ''}>${opsStatus[s][0]}</option>`).join('')}</select> <span class="mu">This record cannot be edited or deleted.</span></div><div class="panel"><div class="tw"><table class="t"><tr><th>When</th><th>Who</th><th>Agent</th><th>Action</th><th>Result</th></tr>${(d.actions || []).map((a) => `<tr><td class="mu">${opsT(a.created)}<div>${e(a.ref || '')}</div></td><td>${e(opsWho[a.actor_kind] || a.actor_kind)}${a.actor_name ? `<div class="mu">${e(a.actor_name)}</div>` : ''}</td><td>${e(a.agent)}</td><td>${e(a.description)}<div class="mu">${e(a.action_type)}${a.level != null ? ' · level ' + a.level : ''}${a.related_id ? ' · ' + e(a.related_type + ' ' + a.related_id) : ''}</div></td><td>${opsPill(a.status)}${a.error ? `<div class="mu">${e(a.error)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="5" class="mu">No entries.</td></tr>'}</table></div></div>`;
+  } else if (OPS.tab === 'golive') {
+    const g = await api(OPSBASE + '/autonomy'), own = meOps.owner, dis = own ? '' : 'disabled', sg = g.facts.safeguard;
+    const dt = (x) => new Date(x * 1000).toLocaleString('en-GB', { timeZone: 'Africa/Lagos' });
+    const tick = (ok) => ok ? '<span class="pill ok">met</span>' : '<span class="pill">not yet</span>';
+    body = `<p class="mu">The AI starts in Monitor mode. A department only moves to Controlled after it has earned it: people have decided its proposals in Assisted mode, the safeguard test has passed, and you have accepted its limits. Money payments, bank details and contracts always stay with people, in every mode.</p>
+    <div class="panel"><h3 style="margin-top:0">${g.facts.paused ? '⛔ Autonomy is paused' : '🟢 Autonomy is on (where earned)'}</h3>
+      <p class="mu">While paused the AI only looks, drafts and tells; everything else waits for a person. It pauses itself if ${g.limits.breaker_failures} of its own actions fail within ${g.limits.breaker_window_min} minutes. Today it has acted on its own ${g.today} time(s) (limit ${g.limits.autonomy_daily_limit} a day, ₦${Number(g.limits.l1_daily_budget_ngn).toLocaleString()} a day per type).</p>
+      ${own ? (g.facts.paused ? '<button class="btn" id="glresume">Resume autonomy</button>' : '<button class="btn danger" id="glpause">Pause autonomy now</button>') : '<p class="mu">Only the owner can pause or resume.</p>'}</div>
+    <div class="panel"><h3 style="margin-top:0">Safeguard test</h3>
+      <p class="mu">Tries every action, in every mode, at many amounts, and checks the rules that must never break: no payments, no self-approval, no splitting to dodge limits, no running while paused, and more.</p>
+      <p>${sg ? `${sg.ok ? '<span class="pill ok">passed</span>' : '<span class="pill">FAILED</span>'} ${sg.passed}/${sg.total} rules, ${sg.cases} cases, run ${dt(sg.ran_at)}${sg.failing && sg.failing.length ? ' · broken: ' + e(sg.failing.join(', ')) : ''}` : 'Not run yet.'}</p>
+      ${own ? '<button class="btn" id="glsafe">Run the safeguard test</button>' : ''}</div>
+    <div class="panel"><h3 style="margin-top:0">Ready to go live?</h3><p class="mu">Approvers: ${g.facts.approvers} (${g.facts.senior_approvers} senior) · Monitor last ran ${g.facts.monitor_age_min == null ? 'never' : g.facts.monitor_age_min + ' min ago'} · Critical issues open: ${g.facts.critical_open} · Riders verified ${g.facts.riders_verified}, with live GPS ${g.facts.riders_fresh_gps} · Couriers ready ${g.facts.providers_ready}</p>
+      <div class="tw"><table class="t"><tr><th>Department</th><th>Runs as</th><th>Assisted record</th><th>Requirements for Controlled</th><th></th></tr>${g.departments.map((d) => `<tr><td><b>${e(d.label)}</b></td><td>${e(d.mode)}</td><td>${d.evidence.decided} decided${d.evidence.approved_pct == null ? '' : ', ' + d.evidence.approved_pct + '% approved'}</td>
+        <td>${d.controlled.checks.map((c) => `<div>${tick(c.ok)} ${e(c.label)} <span class="mu">(${e(c.detail)})</span></div>`).join('')}</td>
+        <td>${own && d.key !== 'financial' ? `<button class="btn sm ghost" data-glack="${d.key}" ${d.acknowledged ? 'disabled' : ''}>${d.acknowledged ? 'Acknowledged' : 'Accept limits'}</button>` : ''}</td></tr>`).join('')}</table></div>
+      <p class="mu">Set a department's mode under Settings &amp; agents. If a requirement is missing the system says which, and only the owner can override with a written reason, which is kept in the audit log.</p></div>
+    <div class="panel"><h3 style="margin-top:0">What the AI did on its own (latest)</h3><div class="tw"><table class="t"><tr><th>When</th><th>Action</th><th>Result</th></tr>${g.recent.map((r) => `<tr><td>${dt(r.created)}</td><td>${e(r.description || r.action_type)}</td><td>${r.status === 'failed' ? '<span class="pill">failed</span> ' + e(r.error) : e(r.status)}</td></tr>`).join('') || '<tr><td colspan="3" class="mu">Nothing yet. It has taken no action on its own.</td></tr>'}</table></div></div>`;
   } else {
     const [s, ap, ig, us] = await Promise.all([api(OPSBASE + '/settings'), api(OPSBASE + '/approvers'), api(OPSBASE + '/integrations'), api(OPSBASE + '/assistant-usage')]), c = s.config, own = meOps.owner, dis = own ? '' : 'disabled';
     body = `<div class="panel"><h3 style="margin-top:0">How much the AI may do</h3><p class="mu">Monitor: it only watches and recommends. Assisted: it prepares actions and a person approves each one. Controlled: it runs routine, low-value actions by itself. High-risk and money actions always need a person, and the AI can never pay anyone.${own ? '' : ' Only the owner can change these.'}</p>
@@ -4883,7 +4916,18 @@ views.opsai = async () => {
   const send = async (text) => { OPS.msgs.push({ role: 'user', content: text }); $('#oci').value = ''; $('#ocb').disabled = true; try { const r = await api(OPSBASE + '/chat', { body: { chat_id: OPS.chat, message: text } }); OPS.chat = r.chat_id || OPS.chat; OPS.msgs.push({ role: 'assistant', content: r.reply, actions: r.actions }); } catch (err) { OPS.msgs.push({ role: 'assistant', content: 'Error: ' + err.message }); } route(); };
   on('#ocf', 'submit', async (ev) => { ev.preventDefault(); const t = $('#oci').value.trim(); if (t) await send(t); });
   on('#ocn', 'click', () => { OPS.chat = null; OPS.msgs = []; route(); });
-  on('#osave', 'click', async () => { const dm = {}; $$('[data-dm]', $('#mn')).forEach((x) => { if (x.value) dm[x.dataset.dm] = x.value; }); await api(OPSBASE + '/settings', { method: 'PUT', body: { mode: $('#omode').value, department_modes: dm, l1_daily_budget_ngn: Number($('#obud').value), approval_hours: Number($('#oapp').value), monitor_enabled: $('#omon').checked } }); toast('Saved'); route(); });
+  on('#osave', 'click', async () => { const dm = {}; $$('[data-dm]', $('#mn')).forEach((x) => { if (x.value) dm[x.dataset.dm] = x.value; }); const body = { mode: $('#omode').value, department_modes: dm, l1_daily_budget_ngn: Number($('#obud').value), approval_hours: Number($('#oapp').value), monitor_enabled: $('#omon').checked };
+    try { await api(OPSBASE + '/settings', { method: 'PUT', body }); } catch (er) {
+      if (er.status !== 409 || !er.data || !er.data.blocked) throw er;
+      const why = er.data.blocked.map((b) => b.dept + ' → ' + b.to + ':\n  - ' + b.failing.map((f) => f.label + ' (' + f.detail + ')').join('\n  - ')).join('\n\n');
+      const r = prompt('Not ready yet:\n\n' + why + '\n\nTo go ahead anyway, type why (at least 15 characters). It is logged. Cancel to stop.'); if (!r) return;
+      await api(OPSBASE + '/settings', { method: 'PUT', body: { ...body, _override_reason: r } });
+    }
+    toast('Saved'); route(); });
+  on('#glpause', 'click', async () => { const r = prompt('Why pause? (optional)') ; if (r === null) return; await api(OPSBASE + '/autonomy/pause', { body: { reason: r } }); toast('Autonomy paused'); route(); });
+  on('#glresume', 'click', async () => { const r = prompt('What was fixed? (kept in the log)'); if (r === null) return; await api(OPSBASE + '/autonomy/resume', { body: { reason: r } }); toast('Autonomy resumed'); route(); });
+  on('#glsafe', 'click', async () => { const r = await api(OPSBASE + '/autonomy/safeguards', { body: {} }); toast(r.ok ? 'Safeguard test passed' : 'Safeguard test FAILED'); route(); });
+  onAll('[data-glack]', 'click', async (el) => { if (!confirm('Accept that the AI may run routine, low-value ' + el.dataset.glack + ' actions by itself within the limits shown?')) return; await api(OPSBASE + '/autonomy/acknowledge', { body: { department: el.dataset.glack } }); toast('Acknowledged'); route(); });
   on('#othsave', 'click', async () => { const th = {}; $$('[data-th]', $('#mn')).forEach((x) => { const [k, i] = x.dataset.th.split(':'); (th[k] = th[k] || [])[Number(i)] = Number(x.value); }); await api(OPSBASE + '/settings', { method: 'PUT', body: { thresholds: th } }); toast('Saved (an invalid order of limits is ignored)'); route(); });
   on('#omsave', 'click', async () => { await api(OPSBASE + '/settings', { method: 'PUT', body: { assistant_model: $('#omodel').value } }); toast('Saved'); route(); });
   on('#swsave', 'click', async () => { const w = {}; $$('[data-sw]', $('#mn')).forEach((x) => { w[x.dataset.sw] = Number(x.value); }); await api(OPSBASE + '/settings', { method: 'PUT', body: { supplier_weights: w } }); toast('Saved'); route(); });

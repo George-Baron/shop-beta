@@ -23,3 +23,10 @@ No new settings or environment variables. Tests: `npm run test:members`.
 
 ## Homepage partner catalogue
 Every department homepage ends with "Shop from our partner stores": up to 6 approved partners (busiest first), each with a row of their products and a "Visit store" link, plus "All partner products" (`/shop?store=<dept>&vendor=partners`) and "See all partner stores". Only active, approved products that pass the normal visibility rules appear (dropshipped partner items are hidden from guests). Test: `npm run test:home-partners`.
+
+## Wallet and rewards are easy to find
+- Signed-in customers see their wallet balance and reward points in a header chip (links to the account overview), and "Wallet & Rewards" in the menu. The chip refreshes at most once a minute.
+- Visitors see a "Create a free account" invitation at the top of each department homepage.
+- `/account` opens on the Overview (wallet + rewards + card), not on Orders.
+- The VELTO-MART CARD stays "coming soon" until a card issuer is connected (docs/CARDS.md).
+Test: `npm run test:wallet-visible`.

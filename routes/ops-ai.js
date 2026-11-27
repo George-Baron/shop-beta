@@ -98,7 +98,23 @@ router.get('/settings', ah(async (req, res) => {
   res.json({ config: cfg, modes: P.MODES.map((m) => ({ key: m, label: P.MODE_LABEL[m] })), departments: Object.entries(P.DEPARTMENTS).map(([key, label]) => ({ key, label })), categories: P.CATEGORIES, agents: Ag.list(cfg), supplier_weights: require('../lib/ops/procure').normalizeWeights(cfg.supplier_weights), weight_labels: require('../lib/ops/procure').FACTOR_LABEL,
     effective: Object.fromEntries(P.DEPT_KEYS.map((d) => [d, P.effectiveMode(d, cfg)])), level1_actions: Object.entries(P.ACTIONS).filter(([, v]) => v.level === 1).map(([k, v]) => ({ type: k, label: v.label, dept: v.dept })) });
 }));
-router.put('/settings', ah(async (req, res) => { owner(req); res.json({ config: await St.saveConfig(req.body || {}, who(req)) }); }));
+router.put('/settings', ah(async (req, res) => {
+  owner(req);
+  const { _override_reason, ...patch } = req.body || {};
+  // raising a department's mode has to be earned (lib/ops/autonomy.js); the owner may override in writing, and that is logged
+  const g = await AU.guard(patch, who(req), _override_reason);
+  if (!g.allowed) return res.status(409).json({ error: 'The requirements for this mode are not met yet.', blocked: g.blocked });
+  if ('autonomy_paused' in patch) { await AU.setPaused(!!patch.autonomy_paused, who(req), _override_reason); delete patch.autonomy_paused; }
+  res.json({ config: await St.saveConfig(patch, who(req)), overridden: !!g.overridden });
+}));
+
+/* ---- go-live: readiness, the safeguard test, pause / resume ---- */
+const AU = require('../lib/ops/autonomy');
+router.get('/autonomy', ah(async (req, res) => res.json({ ...(await AU.readiness()), recent: await AU.recentAutonomous(30), today: await AU.autonomousToday() })));
+router.post('/autonomy/safeguards', ah(async (req, res) => { owner(req); res.json(await AU.runSafeguards(who(req))); }));
+router.post('/autonomy/acknowledge', ah(async (req, res) => { owner(req); res.json({ acknowledged: await AU.acknowledge(String((req.body || {}).department || ''), who(req)) }); }));
+router.post('/autonomy/pause', ah(async (req, res) => { owner(req); res.json({ config: await AU.setPaused(true, who(req), (req.body || {}).reason) }); }));
+router.post('/autonomy/resume', ah(async (req, res) => { owner(req); res.json({ config: await AU.setPaused(false, who(req), (req.body || {}).reason) }); }));
 
 /* ---- assistant ---- */
 router.get('/assistant-usage', ah(async (req, res) => res.json(await As.usageReport())));
