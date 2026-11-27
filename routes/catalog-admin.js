@@ -40,7 +40,7 @@ router.post('/commit', big, ah(async (req, res) => {
   const b = req.body || {};
   if (b.mode === 'update' && b.confirmUpdate !== true) fail(400, 'Please confirm that you want to change the existing products shown in the preview.');
   cache.clear();
-  try { res.json(await IO.commit(b.rows, b.mode, { importId: b.importId, filename: b.filename, total: b.total }, req.user)); }
+  try { res.json(await IO.commit(b.rows, b.mode, { importId: b.importId, filename: b.filename, total: b.total, photoMode: b.photoMode === 'link' ? 'link' : 'copy' }, req.user)); }
   finally { cache.bump().catch((e) => console.error('Cache bump failed:', e.message)); }
 }));
 
@@ -63,5 +63,9 @@ router.get('/history/:id/errors.csv', ah(async (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="import-${Number(req.params.id)}-errors.csv"`);
   res.send(await IO.errorReportCsv(req.params.id));
 }));
+
+// Photos named by link in the file are copied in the background: how many are done, waiting or failed, and a retry for the failed ones.
+router.get('/history/:id/photos', ah(async (req, res) => res.json(await IO.photoStatus(req.params.id))));
+router.post('/history/:id/photos/retry', ah(async (req, res) => res.json(await IO.retryPhotos(req.params.id))));
 
 module.exports = router;
