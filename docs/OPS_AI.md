@@ -63,6 +63,14 @@ Everything is computed by code from recorded data. No model writes a figure.
 - **Reports**: daily, weekly and monthly reports are written automatically (the worker checks hourly) once a Lagos-time period has ended, stored unchanged (`ops_reports`) with a plain headline and the full figures, and logged. Make-now buttons exist for the latest of each kind.
 - Limits: forecasts ignore seasonality until there is more than a year of history; lead time is assumed 7 days; no rider cost; profitability depends on product costs being filled in.
 
+## Phase 7: controlled autonomy (AI Operations > Go-live)
+Autonomy is earned, not switched on. The AI starts in Monitor mode.
+- **Rollout gate** (`lib/ops/autonomy.js`): raising a department to Assisted needs two approvers, one at level 3+. Raising it to Controlled also needs: the monitor on and ran in the last 30 min; no open critical exceptions; a passing safeguard test in the last 24 h; at least 10 of its Assisted-mode proposals decided by people with 80%+ approved; the owner's acknowledgement for that department; and, for riders, verified riders with live GPS, for couriers an approved provider with a current rate. The gate is enforced when settings are saved. Only the owner can override, with a written reason (15+ characters), which is logged. Financial can never be overridden: it is capped at Assisted.
+- **Safeguard test** (`lib/ops/safeguards.js`): runs every action in every mode at many amounts through the real policy and checks the "AI must never" rules (no payments or banking changes, nothing above level 1 on its own, no self-approval, no splitting to avoid limits, unknown currency treated as highest level, nothing runs while paused or past the daily limit, SoD). The unit tests also break the policy on purpose to prove the test notices.
+- **Pause switch**: while paused, only level-0 work (look, draft, tell) runs; everything else asks a person. **Circuit breaker**: if 5 autonomous actions fail within 30 minutes (configurable) autonomy pauses itself and raises a critical exception; a person resumes it. **Daily cap**: past 200 autonomous actions in 24 h (configurable), actions ask a person.
+- **Suggested rollout**: Monitor for a few days -> Assisted for everything for 1-2 weeks (decide each proposal) -> run the safeguard test -> accept limits and make Riders Controlled -> after a week add Couriers and Retail -> keep Procurement, Refunds and Import/export in Assisted until you trust them. Financial stays with people.
+- Tests: `npm run test:ops-autonomy:unit`, `npm run test:ops-autonomy`.
+
 ## Not built yet (later phases)
 Supplier discovery, vendor email, live courier APIs (DHL/UPS/FedEx show as *not connected*, so booking and tracking are done by staff), import/export agent actions, split / multi-location fulfilment, returns and refund orchestration, demand forecasting, performance dashboards.
 
