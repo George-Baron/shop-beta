@@ -22,7 +22,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const until = async (f, ms = 15000) => { const end = Date.now() + ms; for (;;) { const v = await f(); if (v) return v; if (Date.now() > end) throw new Error('timed out waiting'); await sleep(200); } };
 
 // The fake Paystack: what it says about each reference is set by the test.
-const fx = { amounts: {}, status: {}, amountOverride: {} };
+const fx = { amounts: {}, status: {}, amountOverride: {}, fwAmt: {}, fwCur: {}, fwStatus: {}, fwOverride: {} };
+const FWHASH = 'fw-secret-hash-123';
 const fake = http.createServer((req, res) => {
   const c = []; req.on('data', (d) => c.push(d)); req.on('end', () => {
     const body = Buffer.concat(c).toString(); const send = (s, o) => res.writeHead(s, { 'Content-Type': 'application/json' }).end(JSON.stringify(o));
@@ -30,6 +31,9 @@ const fake = http.createServer((req, res) => {
     if (req.url === '/transaction/initialize') { const j = JSON.parse(body); fx.amounts[j.reference] = j.amount; return send(200, { status: true, data: { authorization_url: 'http://pay.test/' + j.reference } }); }
     const m = /^\/transaction\/verify\/(.+)$/.exec(req.url);
     if (m) { const ref = decodeURIComponent(m[1]); return send(200, { status: true, data: { status: fx.status[ref] || 'abandoned', currency: 'NGN', amount: fx.amountOverride[ref] != null ? fx.amountOverride[ref] : fx.amounts[ref], reference: ref } }); }
+    if (req.url === '/v3/payments') { const j = JSON.parse(body); fx.fwAmt[j.tx_ref] = j.amount; fx.fwCur[j.tx_ref] = j.currency; return send(200, { status: 'success', data: { link: 'https://pay.test/fw/' + j.tx_ref } }); }
+    const fm = /^\/v3\/transactions\/verify_by_reference\?tx_ref=(.+)$/.exec(req.url);
+    if (fm) { const ref = decodeURIComponent(fm[1]); if (!(ref in fx.fwStatus)) return send(404, { status: 'error' }); return send(200, { status: 'success', data: { status: fx.fwStatus[ref], tx_ref: ref, currency: 'NGN', amount: fx.fwOverride[ref] != null ? fx.fwOverride[ref] : fx.fwAmt[ref] } }); }
     send(404, {});
   });
 });
@@ -46,7 +50,7 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
 (async () => {
   await new Promise((r) => fake.listen(FAKE, r));
   await pg(`CREATE DATABASE ${DB}`);
-  const app = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(P1), BASE_URL: 'http://127.0.0.1:' + P1, DATABASE_URL: URL_DB, DATABASE_SSL: 'off', DATA_DIR: DATA, ADMIN_EMAIL: 'owner@example.com', ADMIN_PASSWORD: 'OwnerPass123', PAYSTACK_SECRET_KEY: PAYKEY, PAYSTACK_API_URL: 'http://127.0.0.1:' + FAKE, RESEND_API_KEY: '', RATE_LIMIT_MULTIPLIER: '100', WORKER_POLL_MS: '200' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const app = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(P1), BASE_URL: 'http://127.0.0.1:' + P1, DATABASE_URL: URL_DB, DATABASE_SSL: 'off', DATA_DIR: DATA, ADMIN_EMAIL: 'owner@example.com', ADMIN_PASSWORD: 'OwnerPass123', PAYSTACK_SECRET_KEY: PAYKEY, PAYSTACK_API_URL: 'http://127.0.0.1:' + FAKE, FLUTTERWAVE_SECRET_KEY: 'FLWSECK_TEST-x', FLUTTERWAVE_WEBHOOK_HASH: FWHASH, FLUTTERWAVE_API_URL: 'http://127.0.0.1:' + FAKE, RESEND_API_KEY: '', RATE_LIMIT_MULTIPLIER: '100', WORKER_POLL_MS: '200' }, stdio: ['ignore', 'pipe', 'pipe'] });
   app.log = ''; app.stdout.on('data', (d) => { app.log += d; }); app.stderr.on('data', (d) => { app.log += d; });
   try {
     await up();
@@ -80,6 +84,36 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
       const before = (await bal(bob)).available_balance, ref = await fund(bob, 10000, 'success', 100); // paid 1 naira
       const r = await call('GET', '/api/wallet/fund/' + ref, null, bob.cookie);
       assert.strictEqual(r.j.status, 'mismatch'); assert.strictEqual((await bal(bob)).available_balance, before);
+    });
+    const fwHook = (ref, hash) => call('POST', '/api/flutterwave/webhook', { event: 'charge.completed', data: { tx_ref: ref, status: 'successful' } }, null, { 'verif-hash': hash });
+    const fwu = await register('Femi');
+    const fwFund = async (u, amount) => { const r = await call('POST', '/api/wallet/fund', { amount, gateway: 'flutterwave' }, u.cookie); assert.strictEqual(r.s, 200, 'fund ' + r.t); return r.j; };
+    await test('Flutterwave: the wallet page offers it, a top-up goes to its page, and only a confirmed payment credits, exactly once', async () => {
+      const o = await bal(fwu); assert.deepStrictEqual(o.gateways, ['paystack', 'flutterwave']);
+      const before = o.available_balance, r = await fwFund(fwu, 3000); assert.strictEqual(r.gateway, 'flutterwave'); assert.ok(r.url.startsWith('https://pay.test/fw/'));
+      assert.strictEqual(fx.fwAmt[r.ref], 3000, 'asks for naira, not kobo');
+      assert.strictEqual((await fwHook(r.ref, 'wrong')).s, 401, 'bad hash');
+      fx.fwStatus[r.ref] = 'pending'; await fwHook(r.ref, FWHASH); await sleep(700); assert.strictEqual((await bal(fwu)).available_balance, before, 'pending pays nothing');
+      fx.fwStatus[r.ref] = 'successful';
+      await Promise.all([fwHook(r.ref, FWHASH), fwHook(r.ref, FWHASH), call('GET', '/api/wallet/fund/' + r.ref, null, fwu.cookie)]);
+      await until(async () => (await q('SELECT status FROM wallet_funding WHERE ref=$1', [r.ref]))[0].status === 'success');
+      await fwHook(r.ref, FWHASH); await call('GET', '/api/wallet/fund/' + r.ref, null, fwu.cookie); await sleep(700);
+      assert.strictEqual((await bal(fwu)).available_balance, before + 3000);
+      assert.strictEqual(Number((await q('SELECT COUNT(*) n FROM wallet_txns WHERE gateway_ref=$1', [r.ref]))[0].n), 1);
+      assert.strictEqual((await q('SELECT gateway FROM wallet_funding WHERE ref=$1', [r.ref]))[0].gateway, 'flutterwave');
+    });
+    await test('Flutterwave: a wrong amount is not credited and is flagged; a failed payment is marked failed', async () => {
+      const before = (await bal(fwu)).available_balance;
+      const a = await fwFund(fwu, 2000); fx.fwStatus[a.ref] = 'successful'; fx.fwOverride[a.ref] = 500;
+      await call('GET', '/api/wallet/fund/' + a.ref, null, fwu.cookie);
+      assert.strictEqual((await q('SELECT status FROM wallet_funding WHERE ref=$1', [a.ref]))[0].status, 'mismatch');
+      const b = await fwFund(fwu, 2000); fx.fwStatus[b.ref] = 'failed'; await call('GET', '/api/wallet/fund/' + b.ref, null, fwu.cookie);
+      assert.strictEqual((await q('SELECT status FROM wallet_funding WHERE ref=$1', [b.ref]))[0].status, 'failed');
+      assert.strictEqual((await bal(fwu)).available_balance, before);
+    });
+    await test('Flutterwave: someone else cannot confirm my top-up, and an unknown gateway name falls back to Paystack', async () => {
+      const r = await fwFund(fwu, 1000); assert.strictEqual((await call('GET', '/api/wallet/fund/' + r.ref, null, ann.cookie)).s, 404);
+      const u = await call('POST', '/api/wallet/fund', { amount: 1000, gateway: 'nonsense' }, fwu.cookie); assert.strictEqual(u.j.gateway, 'paystack');
     });
     await test('webhook without a valid signature is rejected', async () => assert.strictEqual((await webhook('WF-X', 'bad')).s, 401));
     await test('duplicate webhooks, repeats and parallel verifies credit once', async () => {

@@ -42,7 +42,7 @@ const canon = (parsed, mapping = parsed.mapping) => parsed.rows.map((r) => { con
   const cat = fields.lookups.categories[0], dept = (await q('SELECT name FROM stores WHERE slug=$1', [cat.store]))[0].name;
   const cat2 = fields.lookups.categories.find((c) => c.store !== cat.store);
   const before = Number((await q('SELECT COUNT(*) n FROM products'))[0].n);
-  const H = ['Product Name', 'Internal Reference', 'Barcode', 'Department', 'Category', 'Subcategory', 'Brand', 'Description', 'Cost Price', 'Selling Price', 'Wholesale Price', 'Quantity', 'Minimum Stock', 'Unit of Measure', 'Product Status', 'Tax', 'Weight', 'Partner'];
+  const H = ['Product Name', 'Internal Reference', 'Barcode', 'Department', 'Category', 'Subcategory', 'Brand', 'Description', 'Cost Price', 'Selling Price', 'Wholesale Price', 'Quantity', 'Minimum Stock', 'Unit of Measure', 'Product Status', 'Tax', 'Weight', 'Image URLs', 'Partner'];
   const good = (n, extra = {}) => ({ line: n + 1, name: 'Imp Product ' + n, sku: 'IMP-' + n, barcode: '', department: '', category: cat.name, price: '1500', stock: '10', ...extra });
 
   console.log('\nAccess');
@@ -67,7 +67,7 @@ const canon = (parsed, mapping = parsed.mapping) => parsed.rows.map((r) => { con
 
   console.log('\nReading files and mapping columns');
   await test('an .xlsx made from the template is read and its columns map automatically', async () => {
-    const r = await A('POST', '/parse', { filename: 'products.xlsx', data: await xlsxB64([H, ['Tea Pack', 'T-1', '600111', dept, cat.name, '', 'Lipton', 'Black tea', 800, 1200, 1000, 40, 5, 'pcs', 'Active', 7.5, 0.25, '']]) });
+    const r = await A('POST', '/parse', { filename: 'products.xlsx', data: await xlsxB64([H, ['Tea Pack', 'T-1', '600111', dept, cat.name, '', 'Lipton', 'Black tea', 800, 1200, 1000, 40, 5, 'pcs', 'Active', 7.5, 0.25, '', '']]) });
     assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.rows.length, 1);
     for (const f of fields.fields) assert.strictEqual(r.j.mapping[f.key], f.header, f.key);
   });
