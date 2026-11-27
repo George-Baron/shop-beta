@@ -66,6 +66,12 @@ router.get('/history/:id/errors.csv', ah(async (req, res) => {
 
 // Photos named by link in the file are copied in the background: how many are done, waiting or failed, and a retry for the failed ones.
 router.get('/history/:id/photos', ah(async (req, res) => res.json(await IO.photoStatus(req.params.id))));
+router.get('/history/:id/photos.csv', ah(async (req, res) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="photos-${Number(req.params.id)}-not-found.csv"`);
+  res.send(await IO.photoFailuresCsv(req.params.id));
+}));
+router.post('/find-photos', ah(async (req, res) => res.json(await IO.findPhotosByBarcode(req.user))));
 router.post('/history/:id/photos/retry', ah(async (req, res) => res.json(await IO.retryPhotos(req.params.id))));
 
 module.exports = router;
