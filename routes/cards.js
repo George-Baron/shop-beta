@@ -2,6 +2,7 @@
 // VELTO-MART CARD API: /api/cards and /api/mobile/v1/cards. The webhook is called by the issuer, not by customers.
 const express = require('express');
 const A = require('../lib/auth');
+const ST = require('../lib/staff');
 const C = require('../lib/cards');
 const S = require('../lib/shop');
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -24,10 +25,10 @@ for (const a of ['activate', 'freeze', 'unfreeze', 'block']) customer.post(`/:id
 customer.post('/:id/replace', A.limiter('card-replace', 5, 3600000), ah(async (req, res) => res.json({ application: await C.replace(req.user, req.params.id, req.body) })));
 
 const admin = express.Router();
-admin.use(A.requireAdmin);
-admin.get('/applications', ah(async (req, res) => res.json({ applications: await C.adminList(S.str(req.query.status, 20)) })));
-admin.get('/applications/:id', ah(async (req, res) => res.json(await C.adminDetail(req.params.id))));
-admin.post('/:id/block', ah(async (req, res) => { await C.adminBlock(req.params.id, req.body && req.body.reason, req.user); res.json({ ok: true }); }));
-admin.get('/report', ah(async (req, res) => res.json(await C.adminReport())));
+admin.use(A.requireBackoffice);
+admin.get('/applications', ST.walletGate('view'), ah(async (req, res) => res.json({ applications: await C.adminList(S.str(req.query.status, 20)) })));
+admin.get('/applications/:id', ST.walletGate('view'), ah(async (req, res) => res.json(await C.adminDetail(req.params.id))));
+admin.post('/:id/block', ST.walletGate('edit'), ah(async (req, res) => { await C.adminBlock(req.params.id, req.body && req.body.reason, req.user); res.json({ ok: true }); }));
+admin.get('/report', ST.walletGate('view'), ah(async (req, res) => res.json(await C.adminReport())));
 
 module.exports = { customer, admin, webhook };

@@ -3,6 +3,7 @@
 // Customers only ever see their own wallet: the owner is always req.user, never an id from the request.
 const express = require('express');
 const A = require('../lib/auth');
+const ST = require('../lib/staff');
 const W = require('../lib/wallet');
 const S = require('../lib/shop');
 const { get, all, run } = require('../lib/db');
@@ -28,11 +29,11 @@ customer.get('/fund/:ref', A.limiter('wallet-verify', 40, 600000), ah(async (req
 }));
 
 const admin = express.Router();
-admin.use(A.requireAdmin);
+admin.use(A.requireBackoffice);
 // Switches and limits (administrators). Switching the wallet off stops new top-ups only; customers can still spend what they already hold.
 const SETTINGS = ['wallet_enabled', 'wallet_min_fund', 'wallet_max_fund', 'wallet_max_balance', 'card_enabled'];
-admin.get('/settings', ah(async (req, res) => { const rows = await all('SELECT key, value FROM settings WHERE key = ANY(?)', SETTINGS); const m = Object.fromEntries(rows.map((r) => [r.key, r.value])); res.json({ wallet_enabled: m.wallet_enabled !== '0', wallet_min_fund: Number(m.wallet_min_fund || 100), wallet_max_fund: Number(m.wallet_max_fund || 1000000), wallet_max_balance: Number(m.wallet_max_balance || 5000000), card_enabled: m.card_enabled === '1', card_provider_ready: !!require('../lib/cards').provider() }); }));
-admin.put('/settings', ah(async (req, res) => {
+admin.get('/settings', ST.walletGate('view'), ah(async (req, res) => { const rows = await all('SELECT key, value FROM settings WHERE key = ANY(?)', SETTINGS); const m = Object.fromEntries(rows.map((r) => [r.key, r.value])); res.json({ wallet_enabled: m.wallet_enabled !== '0', wallet_min_fund: Number(m.wallet_min_fund || 100), wallet_max_fund: Number(m.wallet_max_fund || 1000000), wallet_max_balance: Number(m.wallet_max_balance || 5000000), card_enabled: m.card_enabled === '1', card_provider_ready: !!require('../lib/cards').provider() }); }));
+admin.put('/settings', ST.walletGate('owner'), ah(async (req, res) => {
   const b = req.body || {}, put = (k, v) => run('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT (key) DO UPDATE SET value=excluded.value', k, String(v));
   const num = (v, name) => { const n = Number(v); if (!Number.isSafeInteger(n) || n < 1) S.fail(400, name + ' must be a whole number of Naira, 1 or more.'); return n; };
   if (b.wallet_enabled !== undefined) await put('wallet_enabled', b.wallet_enabled ? 1 : 0);
@@ -44,26 +45,26 @@ admin.put('/settings', ah(async (req, res) => {
   await W.audit(0, req.user, 'settings', JSON.stringify(b).slice(0, 200)).catch(() => {});
   res.json({ ok: true });
 }));
-admin.get('/reconcile', ah(async (req, res) => res.json(await W.reconcile())));
-admin.get('/customers/:id', ah(async (req, res) => {
+admin.get('/reconcile', ST.walletGate('view'), ah(async (req, res) => res.json(await W.reconcile())));
+admin.get('/customers/:id', ST.walletGate('view'), ah(async (req, res) => {
   const id = S.int(req.params.id), u = await get('SELECT id,name,email FROM users WHERE id=?', id); if (!u) S.fail(404, 'Not found.');
   res.json({ customer: u, wallet: await W.overview(u), transactions: (await W.history(u, req.query)).transactions, audit: await all('SELECT action,actor_name,detail,created FROM wallet_audit WHERE user_id=? ORDER BY id DESC LIMIT 50', id) });
 }));
-admin.post('/customers/:id/freeze', ah(async (req, res) => { await W.setFrozen(S.int(req.params.id), true, req.body && req.body.reason, req.user); res.json({ ok: true }); }));
-admin.post('/customers/:id/unfreeze', ah(async (req, res) => { await W.setFrozen(S.int(req.params.id), false, '', req.user); res.json({ ok: true }); }));
-admin.post('/customers/:id/adjust', ah(async (req, res) => res.json(await W.adjust(S.int(req.params.id), req.body || {}, req.user))));
+admin.post('/customers/:id/freeze', ST.walletGate('edit'), ah(async (req, res) => { await W.setFrozen(S.int(req.params.id), true, req.body && req.body.reason, req.user); res.json({ ok: true }); }));
+admin.post('/customers/:id/unfreeze', ST.walletGate('edit'), ah(async (req, res) => { await W.setFrozen(S.int(req.params.id), false, '', req.user); res.json({ ok: true }); }));
+admin.post('/customers/:id/adjust', ST.walletGate('owner'), ah(async (req, res) => res.json(await W.adjust(S.int(req.params.id), req.body || {}, req.user))));
 
 // Financial reports (administrators). ?from=&to= are epoch seconds.
 const F = require('../lib/finance');
-admin.get('/funding', ah(async (req, res) => res.json({ funding: await F.fundingList(req.query) })));
-admin.get('/suspicious', ah(async (req, res) => res.json(await F.suspicious())));
+admin.get('/funding', ST.walletGate('view'), ah(async (req, res) => res.json({ funding: await F.fundingList(req.query) })));
+admin.get('/suspicious', ST.walletGate('view'), ah(async (req, res) => res.json(await F.suspicious())));
 const reports = express.Router();
-reports.use(A.requireAdmin);
-reports.get('/summary', ah(async (req, res) => res.json(await F.summary(req.query))));
-reports.get('/wallet', ah(async (req, res) => res.json(await F.wallet(req.query))));
-reports.get('/sales', ah(async (req, res) => res.json(await F.sales(req.query))));
-reports.get('/rewards', ah(async (req, res) => res.json(await F.loyalty(req.query))));
-reports.get('/gateways', ah(async (req, res) => res.json(await F.gateways(req.query))));
-reports.get('/wallet-transactions.csv', ah(async (req, res) => { res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="wallet-transactions.csv"' }); res.send(await F.walletCsv(req.query)); }));
+reports.use(A.requireBackoffice);
+reports.get('/summary', ST.walletGate('view', ['finance']), ah(async (req, res) => res.json(await F.summary(req.query))));
+reports.get('/wallet', ST.walletGate('view', ['finance']), ah(async (req, res) => res.json(await F.wallet(req.query))));
+reports.get('/sales', ST.walletGate('view', ['finance']), ah(async (req, res) => res.json(await F.sales(req.query))));
+reports.get('/rewards', ST.walletGate('view', ['finance']), ah(async (req, res) => res.json(await F.loyalty(req.query))));
+reports.get('/gateways', ST.walletGate('view', ['finance']), ah(async (req, res) => res.json(await F.gateways(req.query))));
+reports.get('/wallet-transactions.csv', ST.walletGate('view', ['finance']), ah(async (req, res) => { res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="wallet-transactions.csv"' }); res.send(await F.walletCsv(req.query)); }));
 
 module.exports = { customer, admin, reports };

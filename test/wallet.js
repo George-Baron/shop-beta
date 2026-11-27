@@ -290,6 +290,29 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
       assert.strictEqual((await call('PUT', '/api/admin/wallet/settings', { wallet_min_fund: 0 }, admin)).s, 400);
       assert.strictEqual((await call('PUT', '/api/admin/wallet/settings', { card_enabled: true }, admin)).s, 400); // no issuer connected
     });
+    const mkStaff = async (key, perms) => { const role = (await call('GET', '/api/admin/staff', null, admin)).j.roles[0].id; const r = await call('POST', '/api/admin/staff', { name: key + ' Staff', email: key + '@example.com', username: key + '.user', role_id: role, perms }, admin); assert.strictEqual(r.s, 200, r.t); return (await call('POST', '/api/auth/login', { email: key + '@example.com', password: r.j.temp_password })).c; };
+    await test('staff: wallet access follows the role (view, freeze, never balance changes or settings)', async () => {
+      const none = await mkStaff('wnone', ['orders:view']), viewer = await mkStaff('wview', ['wallet:view']), editor = await mkStaff('wedit', ['wallet:view', 'wallet:edit']), fin = await mkStaff('wfin', ['finance:view']);
+      const target = await register('Target');
+      for (const u of ['/api/admin/wallet/reconcile', '/api/admin/wallet/suspicious', '/api/admin/wallet/funding', '/api/admin/loyalty/campaigns', '/api/admin/cards/report']) assert.strictEqual((await call('GET', u, null, none)).s, 403, 'no wallet role: ' + u);
+      for (const u of ['/api/admin/wallet/reconcile', '/api/admin/wallet/suspicious', '/api/admin/wallet/funding', '/api/admin/wallet/customers/' + target.id, '/api/admin/loyalty/report', '/api/admin/loyalty/campaigns', '/api/admin/cards/report', '/api/admin/finance/summary']) assert.strictEqual((await call('GET', u, null, viewer)).s, 200, 'viewer: ' + u);
+      assert.strictEqual((await call('GET', '/api/admin/finance/summary', null, fin)).s, 200, 'finance may read money reports');
+      assert.strictEqual((await call('GET', '/api/admin/wallet/reconcile', null, fin)).s, 403, 'but not the wallet pages');
+      const fz = (c, a) => call('POST', `/api/admin/wallet/customers/${target.id}/${a}`, { reason: 'checking' }, c);
+      assert.strictEqual((await fz(viewer, 'freeze')).s, 403, 'viewer cannot freeze');
+      assert.strictEqual((await fz(editor, 'freeze')).s, 200); assert.strictEqual((await fz(editor, 'unfreeze')).s, 200);
+      const before = (await bal(target)).available_balance;
+      assert.strictEqual((await call('POST', `/api/admin/wallet/customers/${target.id}/adjust`, { direction: 'credit', amount: 500, reason: 'x', reference: 'T-1' }, editor)).s, 403, 'editor cannot change a balance');
+      assert.strictEqual((await call('POST', `/api/admin/loyalty/customers/${target.id}/adjust`, { points: 50, reason: 'x' }, editor)).s, 403);
+      assert.strictEqual((await call('PUT', '/api/admin/wallet/settings', { wallet_enabled: false }, editor)).s, 403, 'editor cannot switch the wallet');
+      assert.strictEqual((await call('PUT', '/api/admin/loyalty/config', { loyalty_points_per_1000: 99 }, editor)).s, 403);
+      assert.strictEqual((await call('POST', '/api/admin/loyalty/campaigns', { name: 'x', kind: 'multiplier', multiplier_pct: 150 }, editor)).s, 403);
+      assert.strictEqual((await call('POST', '/api/admin/loyalty/sweep', {}, editor)).s, 403);
+      assert.strictEqual((await bal(target)).available_balance, before);
+      assert.strictEqual((await call('GET', '/api/admin/wallet/reconcile')).s, 401, 'signed-out people are still refused');
+      assert.strictEqual((await call('GET', '/api/admin/wallet/reconcile', null, target.cookie)).s, 401, 'customers are refused');
+      const log = (await call('GET', `/api/admin/wallet/customers/${target.id}`, null, admin)).j.audit; assert.ok(JSON.stringify(log).includes('freeze'), 'the freeze is in the staff-action log');
+    });
     await test('the books still balance after all of that', async () => { const r = (await call('GET', '/api/admin/wallet/reconcile', null, admin)).j; assert.strictEqual(r.ok, true, JSON.stringify(r)); });
   } finally {
     app.kill(); fake.close(); await sleep(300);
