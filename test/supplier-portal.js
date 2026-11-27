@@ -62,9 +62,11 @@ const fake = http.createServer((req, res) => {
   const priceOf = async (id) => Number((await q('SELECT price FROM products WHERE id=$1', [id]))[0].price);
 
   let n = 0;
+  // dropshipped items can only be bought by a registered member (docs/MEMBERS.md)
+  const MEMBER = (await call('POST', '/api/auth/register', { name: 'Shop Member', email: 'shop.member@example.com', phone: '08031239999', password: 'mango-river-sky-55' })).c;
   const place = async (items, o = {}) => {
     const body = { items, contact: { name: o.name || 'Ada Obi', email: o.email || `ada${++n}@example.com`, phone: '08011112222' }, address: { state: 'Lagos', city: 'Ikeja', address: '5 Allen Avenue' }, delivery: 'standard', payment: o.payment || 'paystack', idempotencyKey: crypto.randomUUID().replace(/-/g, '') };
-    const r = await call('POST', '/api/checkout', body); if (r.s !== 200) return r;
+    const r = await call('POST', '/api/checkout', body, MEMBER); if (r.s !== 200) return r;
     const row = (await q('SELECT * FROM orders WHERE ref=$1', [r.j.ref]))[0];
     return { s: 200, ref: r.j.ref, row, token: row.access_token, email: row.email };
   };
