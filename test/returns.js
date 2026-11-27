@@ -16,10 +16,11 @@ const OWNER = 'Str0ng-Owner-Pass!';
 // Starts a server; mail=true gives it an email key (the send goes nowhere, the message is still stored in the outbox).
 const http = require('http');
 // A pretend Paystack: records refund requests; set fake.fail to make it refuse.
-const fake = { calls: [], fail: false };
-const fakeSrv = http.createServer((req, res) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { if (req.url === '/refund') { const j = JSON.parse(b || '{}'); fake.calls.push({ ...j, auth: req.headers.authorization }); res.setHeader('Content-Type', 'application/json'); if (fake.fail) { res.statusCode = 400; return res.end(JSON.stringify({ status: false, message: 'Transaction has already been fully reversed' })); } return res.end(JSON.stringify({ status: true, message: 'queued', data: { id: 9000 + fake.calls.length, status: 'pending', transaction: j.transaction } })); } res.statusCode = 404; res.end('{}'); }); });
+const fake = { calls: [], fail: false, stripe: [], stripeFail: false };
+const fakeSrv = http.createServer((req, res) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { if (req.url === '/refund') { const j = JSON.parse(b || '{}'); fake.calls.push({ ...j, auth: req.headers.authorization }); res.setHeader('Content-Type', 'application/json'); if (fake.fail) { res.statusCode = 400; return res.end(JSON.stringify({ status: false, message: 'Transaction has already been fully reversed' })); } return res.end(JSON.stringify({ status: true, message: 'queued', data: { id: 9000 + fake.calls.length, status: 'pending', transaction: j.transaction } })); } if (req.url === '/v1/refunds') { const f = new URLSearchParams(b); fake.stripe.push({ pi: f.get('payment_intent'), amount: Number(f.get('amount')), idem: req.headers['idempotency-key'], auth: req.headers.authorization }); res.setHeader('Content-Type', 'application/json'); if (fake.stripeFail) { res.statusCode = 400; return res.end(JSON.stringify({ error: { message: 'Charge ch_1 has already been refunded.' } })); } return res.end(JSON.stringify({ id: 're_' + fake.stripe.length, status: 'succeeded' })); }
+    res.statusCode = 404; res.end('{}'); }); });
 const start = async (port, mail, fakePort) => {
-  const srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(port), BASE_URL: 'http://127.0.0.1:' + port, DATABASE_URL: urlOf(DB), DATA_DIR: require('os').tmpdir() + '/sb-ret-' + tag, ADMIN_EMAIL: 'owner@example.com', ADMIN_PASSWORD: OWNER, RATE_LIMIT_MULTIPLIER: '50', RESEND_API_KEY: 're_test', RESEND_API_URL: 'http://127.0.0.1:9', WORKER_ENABLED: '0', PAYSTACK_SECRET_KEY: 'sk_test_fake', PAYSTACK_API_URL: 'http://127.0.0.1:' + fakePort } });
+  const srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(port), BASE_URL: 'http://127.0.0.1:' + port, DATABASE_URL: urlOf(DB), DATA_DIR: require('os').tmpdir() + '/sb-ret-' + tag, ADMIN_EMAIL: 'owner@example.com', ADMIN_PASSWORD: OWNER, RATE_LIMIT_MULTIPLIER: '50', RESEND_API_KEY: 're_test', RESEND_API_URL: 'http://127.0.0.1:9', WORKER_ENABLED: '0', PAYSTACK_SECRET_KEY: 'sk_test_fake', PAYSTACK_API_URL: 'http://127.0.0.1:' + fakePort, STRIPE_ENABLED: '1', STRIPE_SECRET_KEY: 'sk_test_stripe', STRIPE_API_URL: 'http://127.0.0.1:' + fakePort } });
   for (let i = 0; i < 200; i++) { try { await fetch(`http://127.0.0.1:${port}/health`); break; } catch { await sleep(100); } }
   const call = async (method, url, body, cookie) => { const r = await fetch(`http://127.0.0.1:${port}${url}`, { method, headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) }); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch { /* */ } const sc = r.headers.getSetCookie ? r.headers.getSetCookie() : []; return { s: r.status, j, t, c: (sc[0] || '').split(';')[0] }; };
   return { srv, call };
@@ -31,6 +32,7 @@ const start = async (port, mail, fakePort) => {
   const { srv, call } = await start(port, true, fport);
   const owner = (await call('POST', '/api/auth/login', { email: 'owner@example.com', password: OWNER })).c;
   const A = (m, u, b, c) => call(m, '/api/admin' + u, b, c === undefined ? owner : c);
+  assert.strictEqual((await A('PUT', '/settings', { settings: { return_auto_refund: '0' } })).s, 200);   // the older tests below check manual settlement; automatic sending is tested in its own section
   const PW = 'Blue-Harbour-Lamp-2026-x', T = () => Math.floor(Date.now() / 1000);
   const reg = async (name, email) => { assert.strictEqual((await call('POST', '/api/auth/register', { name, email, phone: '0803' + String(Math.random()).slice(2, 9), password: PW })).s, 200); return { id: Number((await q('SELECT id FROM users WHERE email=$1', [email]))[0].id), c: (await call('POST', '/api/auth/login', { email, password: PW })).c, email, name }; };
   const ada = await reg('Ada Buyer', 'ada@buyer.com'), bob = await reg('Bob Other', 'bob@buyer.com');
@@ -180,6 +182,180 @@ const start = async (port, mail, fakePort) => {
   await test('discounts are shared fairly: a return is worth what the customer actually paid for those items', async () => {
     const d = await order({ ref: 'DISC1' + tag.toUpperCase().slice(-3), lines: [[kettle, 'Kettle', 6000, 1], [mug, 'Mug', 1000, 4]], fee: 0, discount: 1000 });   // subtotal 10000, paid 9000
     const rq = (await ask(d, { reason: 'changed_mind', condition: 'unopened', details: '', items: [{ item_id: d.items[0].id, qty: 1 }] })).j; assert.strictEqual((await ret(rq.id)).requested_amount, 5400);
+  });
+  console.log('\nOperations Manager opens a return for a customer');
+  await test('the Operations Manager role exists and can open returns; roles without Orders: Edit cannot', async () => {
+    const roles = (await A('GET', '/staff')).j.roles, om = roles.find((x) => x.name === 'Operations Manager'); assert.ok(om && om.builtin, 'role is built in');
+    const ops = await emp('Opal Ops', 'opal@example.com', 'Operations Manager'), d = await order({ ref: 'OPS1' + tag.toUpperCase().slice(-3) });
+    assert.strictEqual((await A('GET', '/returns/lookup?ref=' + d.ref, undefined, ops)).s, 200);
+    const fin = await emp('Fin Only', 'finonly@example.com', 'Finance Officer'); assert.strictEqual((await A('POST', '/returns/open', { order_ref: d.ref }, fin)).s, 403);
+    const body = { order_ref: d.ref, reason: 'faulty', condition: 'damaged', packaging: 'original', details: 'Customer phoned: it will not switch on.', note: 'Phone call Monday', items: [{ item_id: d.items[0].id, qty: 1 }] };
+    const r = await A('POST', '/returns/open', body, ops); assert.strictEqual(r.s, 200, r.t);
+    const x = await ret(r.j.id); assert.strictEqual(x.opened_by, 'staff'); assert.strictEqual(x.opened_by_name, 'Opal Ops'); assert.strictEqual(x.status, 'requested'); assert.strictEqual(x.requested_amount, 6000); assert.strictEqual(x.open_note, 'Phone call Monday');
+    assert.ok((await q("SELECT 1 FROM outbox WHERE to_email='ada@buyer.com' AND subject LIKE $1", ['%' + r.j.ref + '%'])).length >= 1, 'the customer is emailed');
+    assert.ok((await view(d)).returns[0].ref === r.j.ref, 'the customer sees it on the order page');
+    assert.strictEqual((await A('POST', '/returns/open', body, ops)).s, 400, 'one open return per order');
+    const det = (await A('GET', '/returns/' + r.j.id)).j.return; assert.strictEqual(det.opened_by, 'staff'); assert.strictEqual(det.opened_by_name, 'Opal Ops');
+    assert.ok((await q("SELECT 1 FROM audit_log WHERE path='/api/admin/returns/open'")).length >= 1, 'in the activity log');
+  });
+  await test('staff may open one after the window, flagged late; the customer still cannot; unknown orders, unpaid and undelivered are refused', async () => {
+    const old = await order({ ref: 'OLD1' + tag.toUpperCase().slice(-3), deliveredAt: T() - 86400 * 20 }), b = { order_ref: old.ref, reason: 'faulty', condition: 'damaged', packaging: 'no', details: 'Found a defect while using it.', items: [{ item_id: old.items[0].id, qty: 1 }] };
+    assert.strictEqual((await ask(old, {})).s, 400, 'customer is blocked by the window');
+    const l = (await A('GET', '/returns/lookup?ref=' + old.ref)).j; assert.strictEqual(l.can, true); assert.strictEqual(l.past_window, true);
+    const r = await A('POST', '/returns/open', b); assert.strictEqual(r.s, 200, r.t); assert.strictEqual(Number((await ret(r.j.id)).past_window), 1);
+    assert.strictEqual((await A('POST', '/returns/open', { ...b, order_ref: 'NOPE-1' })).s, 404);
+    const unpaid = await order({ ps: 'unpaid' }); assert.strictEqual((await A('POST', '/returns/open', { ...b, order_ref: unpaid.ref, items: [{ item_id: unpaid.items[0].id, qty: 1 }] })).s, 400);
+    const sh = await order({ status: 'shipped', deliveredAt: null }); assert.strictEqual((await A('POST', '/returns/open', { ...b, order_ref: sh.ref, items: [{ item_id: sh.items[0].id, qty: 1 }] })).s, 400);
+    assert.strictEqual((await A('POST', '/returns/open', b, ada.c)).s !== 200, true, 'a shopper cannot use the staff route');
+  });
+  console.log('\nOwner approval and automatic refund');
+  const autoOn = async (v, max) => { const r = await A('PUT', '/settings', { settings: { return_auto_refund: v, return_auto_approve_max: String(max || 0) } }); assert.strictEqual(r.s, 200, r.t); };
+  let ops2, recd;
+  await test('a reviewer only recommends: the return waits for the owner, nothing is refunded, the customer sees no decision yet, the owner is told', async () => {
+    await autoOn('1'); ops2 = await emp('Ola Ops', 'ola@example.com', 'Operations Manager'); fake.calls.length = 0;
+    const d = await order({ ref: 'REC1' + tag.toUpperCase().slice(-3) }), rq = (await ask(d, {})).j;
+    const r = await A('POST', `/returns/${rq.id}/approve`, { amount: 6000, note: 'Faulty, photos look right.' }, ops2); assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.stage, 'recommended');
+    const x = await ret(rq.id); assert.strictEqual(x.status, 'recommended'); assert.strictEqual(x.approved_amount, null); assert.strictEqual(x.recommended_amount, 6000); assert.strictEqual(x.recommended_by_name, 'Ola Ops'); assert.strictEqual(fake.calls.length, 0, 'no money moved');
+    const v = await view(d); assert.strictEqual(v.returns[0].status_text, 'Waiting for review'); assert.strictEqual(v.returns[0].approved_amount, null, 'customer sees no amount yet'); assert.strictEqual(v.returns[0].can_cancel, false);
+    assert.ok((await q("SELECT 1 FROM notifications n JOIN users u ON u.id=n.user_id WHERE u.role='admin' AND n.title LIKE $1", ['%needs your approval%' + d.ref])).length >= 1, 'owner notified');
+    assert.strictEqual((await A('POST', `/returns/${rq.id}/approve`, {}, ops2)).s, 409, 'cannot recommend twice');
+    assert.strictEqual((await A('POST', `/returns/${rq.id}/reject`, { note: 'Not eligible' }, ops2)).s, 403, 'a reviewer cannot decline once it is with the owner');
+    assert.strictEqual((await A('POST', `/returns/${rq.id}/settle`, { method: 'original' })).s, 409, 'even the owner cannot settle before approving');
+    const det = (await A('GET', '/returns/' + rq.id, undefined, ops2)).j.return; assert.strictEqual(det.status, 'recommended'); assert.strictEqual(det.recommended_by, 'Ola Ops');
+    d.rq = rq; recd = d;
+  });
+  await test('the owner approves: Paystack is asked for the right amount automatically, the return is settled, the customer is told, nobody has to settle it', async () => {
+    const d = recd, rq = d.rq; fake.calls.length = 0;
+    const r = await A('POST', `/returns/${rq.id}/approve`, {}); assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.stage, 'approved'); assert.strictEqual(r.j.auto.ok, true);
+    const x = await ret(rq.id); assert.strictEqual(x.status, 'settled'); assert.strictEqual(x.approved_amount, 6000, 'defaults to what the reviewer recommended'); assert.strictEqual(x.approval, 'owner'); assert.strictEqual(x.auto_settle, 'done'); assert.strictEqual(Number(x.gateway_refunded), 600000);
+    assert.strictEqual(fake.calls.length, 1); assert.strictEqual(fake.calls[0].amount, 600000); assert.strictEqual(fake.calls[0].transaction, 'PSREF-' + d.ref);
+    assert.ok((await q("SELECT 1 FROM outbox WHERE to_email='ada@buyer.com' AND subject LIKE $1", ['%' + x.ref + '%'])).length >= 2, 'approval and refund emails');
+    assert.strictEqual((await A('POST', `/returns/${rq.id}/approve`, {})).s, 409, 'cannot approve twice, so never a second refund'); assert.strictEqual(fake.calls.length, 1);
+  });
+  await test('the owner can approve straight from "requested", change the amount with a note, and a refused Paystack refund leaves it approved and waiting, with finance alerted', async () => {
+    const d = await order({ ref: 'OWN1' + tag.toUpperCase().slice(-3) }), rq = (await ask(d, {})).j; fake.calls.length = 0; fake.fail = true;
+    assert.strictEqual((await A('POST', `/returns/${rq.id}/approve`, { amount: 5000 })).s, 400, 'a changed amount needs a note');
+    const r = await A('POST', `/returns/${rq.id}/approve`, { amount: 5000, note: 'Small handling fee.' }); fake.fail = false; assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.auto.ok, false); assert.ok(/reversed/.test(r.j.auto.error));
+    const x = await ret(rq.id); assert.strictEqual(x.status, 'awaiting_settlement'); assert.strictEqual(x.auto_settle, 'failed'); assert.strictEqual(x.approved_amount, 5000);
+    assert.ok((await q("SELECT 1 FROM notifications WHERE title LIKE $1", ['Automatic refund did not go through%' + d.ref])).length >= 1);
+    const again = await A('POST', `/returns/${rq.id}/settle`, { method: 'original' }); assert.strictEqual(again.s, 200, again.t); assert.strictEqual((await ret(rq.id)).status, 'settled');
+  });
+  await test('cash on delivery cannot be sent automatically: approved and left for Finance to settle by hand; switching automatic refunds off does the same for card orders', async () => {
+    const cod = await order({ ref: 'COD2' + tag.toUpperCase().slice(-3), pm: 'pod', pref: '' }), rq = (await ask(cod, {})).j; fake.calls.length = 0;
+    const r = await A('POST', `/returns/${rq.id}/approve`, {}); assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.auto.manual, true);
+    assert.strictEqual((await ret(rq.id)).status, 'awaiting_settlement'); assert.strictEqual((await ret(rq.id)).auto_settle, 'manual_needed'); assert.strictEqual(fake.calls.length, 0);
+    await autoOn('0'); const card = await order({ ref: 'OFF2' + tag.toUpperCase().slice(-3) }), r2 = (await ask(card, {})).j;
+    assert.strictEqual((await A('POST', `/returns/${r2.id}/approve`, {})).s, 200); assert.strictEqual((await ret(r2.id)).status, 'awaiting_settlement'); assert.strictEqual(fake.calls.length, 0, 'switched off');
+    await autoOn('1');
+  });
+  await test('a Stripe payment is refunded through Stripe in its own currency, once, automatically after the owner approves', async () => {
+    const d = await order({ ref: 'STR1' + tag.toUpperCase().slice(-3), pref: 'pi_test_123' }); await q("UPDATE orders SET gateway='stripe', currency='USD', charge_amount=9500, fx_rate=1 WHERE id=$1", [d.id]);   // total 9500 naira = 9500 cents here, so the maths is easy to read
+    const rq = (await ask(d, {})).j; fake.stripe.length = 0;
+    const r = await A('POST', `/returns/${rq.id}/approve`, {}); assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.auto.ok, true, JSON.stringify(r.j));
+    assert.strictEqual(fake.stripe.length, 1); const c = fake.stripe[0]; assert.strictEqual(c.pi, 'pi_test_123'); assert.strictEqual(c.auth, 'Bearer sk_test_stripe'); assert.strictEqual(c.idem, 'shopbeta-return-' + rq.id);
+    const x = await ret(rq.id), expect = Math.round(9500 * (6000 * 100) / (9500 * 100)); assert.strictEqual(c.amount, expect, 'refund is the approved share of what was charged'); assert.strictEqual(x.status, 'settled'); assert.strictEqual(x.gateway_ref, 're_' + fake.stripe.length); assert.strictEqual(x.gateway_status, 'succeeded');
+    assert.strictEqual(fake.calls.length, 0, 'Paystack was not called'); assert.strictEqual((await A('POST', `/returns/${rq.id}/settle`, { method: 'original' })).s, 409); assert.strictEqual(fake.stripe.length, 1);
+  });
+  await test('if Stripe refuses, nothing is recorded as paid, Finance is alerted and the refund can be tried again', async () => {
+    const d = await order({ ref: 'STR2' + tag.toUpperCase().slice(-3), pref: 'pi_test_456' }); await q("UPDATE orders SET gateway='stripe', currency='USD', charge_amount=9500, fx_rate=1 WHERE id=$1", [d.id]);
+    const rq = (await ask(d, {})).j; fake.stripeFail = true;
+    const r = await A('POST', `/returns/${rq.id}/approve`, {}); fake.stripeFail = false; assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.auto.ok, false); assert.ok(/Stripe refused/.test(r.j.auto.error), r.j.auto.error);
+    const x = await ret(rq.id); assert.strictEqual(x.status, 'awaiting_settlement'); assert.strictEqual(x.gateway_ref, ''); assert.strictEqual(x.auto_settle, 'failed');
+    const again = await A('POST', `/returns/${rq.id}/settle`, { method: 'original' }); assert.strictEqual(again.s, 200, again.t); assert.strictEqual((await ret(rq.id)).status, 'settled');
+  });
+  await test('small-amount rule (off by default): at or under the limit a request is approved and refunded by itself; above it, it waits as normal', async () => {
+    const off = await order({ ref: 'SM0' + tag.toUpperCase().slice(-3) }), r0 = (await ask(off, {})).j; assert.strictEqual((await ret(r0.id)).status, 'requested', 'off by default');
+    await autoOn('1', 2000); fake.calls.length = 0;
+    const small = await order({ ref: 'SM1' + tag.toUpperCase().slice(-3), lines: [[mug, 'Mug', 1000, 2]] }), rs = (await ask(small, { reason: 'faulty', items: [{ item_id: small.items[0].id, qty: 1 }] })).j;
+    const x = await ret(rs.id); assert.strictEqual(x.status, 'settled'); assert.strictEqual(x.approval, 'auto'); assert.strictEqual(x.approved_amount, 1000); assert.strictEqual(fake.calls.length, 1); assert.strictEqual(x.decided_by_name, 'Auto-approval (small amount)');
+    const big = await order({ ref: 'SM2' + tag.toUpperCase().slice(-3) }), rb = (await ask(big, {})).j; assert.strictEqual((await ret(rb.id)).status, 'requested', 'over the limit waits for people');
+    await autoOn('1', 0);
+  });
+  console.log('\nReturns in each sales channel');
+  const supplier = async (name, cc) => Number((await q("INSERT INTO suppliers (name,country,currency,created,updated) VALUES ($1,$2,$3,1,1) RETURNING id", [name, cc, cc === 'NG' ? 'NGN' : 'USD']))[0].id);
+  const dsLine = async (d, i, sup, status = 'delivered') => Number((await q("INSERT INTO dropship_lines (order_item_id,order_id,product_id,supplier_id,status,qty,sell_price,sent_at,created,updated,delivered_at) VALUES ($1,$2,$3,$4,$5,$6,$7,1,1,1,1) RETURNING id", [d.items[i].id, d.id, d.items[i].product_id, sup, status, d.items[i].qty, d.items[i].price]))[0].id);
+  await test('an imported dropship item is flagged for the approver, opens a supplier return when the owner approves, is not restocked, and is marked refunded once the customer is paid', async () => {
+    const sup = await supplier('Shenzhen Home Co', 'CN'), d = await order({ ref: 'DSI1' + tag.toUpperCase().slice(-3), lines: [[kettle, 'Kettle', 6000, 1]] }), line = await dsLine(d, 0, sup);
+    const rq = (await ask(d, {})).j, det = (await A('GET', '/returns/' + rq.id)).j; const c = det.channels[0];
+    assert.strictEqual(c.channel, 'imported'); assert.strictEqual(c.supplier, 'Shenzhen Home Co'); assert.ok(c.notes.some((n) => /duties/.test(n)) && c.notes.some((n) => /not put back on our shelf/.test(n)));
+    const stockBefore = await stock(kettle); fake.calls.length = 0;
+    const ops3 = await emp('Dee Ops', 'dee@example.com', 'Operations Manager'); await A('POST', `/returns/${rq.id}/approve`, {}, ops3);
+    assert.strictEqual((await q('SELECT status FROM dropship_lines WHERE id=$1', [line]))[0].status, 'delivered', 'a mere recommendation changes nothing at the supplier');
+    const r = await A('POST', `/returns/${rq.id}/approve`, {}); assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.auto.ok, true);
+    const l = (await q('SELECT status, refund_reference FROM dropship_lines WHERE id=$1', [line]))[0]; assert.strictEqual(l.status, 'refunded', 'customer refunded, so the line is refunded');
+    const sr = (await q('SELECT status, reason FROM dropship_returns WHERE line_id=$1', [line]))[0]; assert.ok(sr && sr.status === 'requested' && /Customer return/.test(sr.reason), 'supplier return opened');
+    assert.strictEqual((await q('SELECT amount_ngn FROM dropship_refunds WHERE line_id=$1', [line]))[0].amount_ngn, 6000);
+    assert.strictEqual(await stock(kettle), stockBefore, 'no own stock to put back');
+    const ex = await q("SELECT 1 FROM dropship_lines l LEFT JOIN dropship_returns r ON r.line_id=l.id WHERE l.id=$1 AND r.id IS NOT NULL", [line]); assert.strictEqual(ex.length, 1);
+  });
+  await test('a part-quantity return of a dropship line does not touch the supplier line, and tells the team to claim by hand; a Nigerian supplier is "dropship", not "imported"', async () => {
+    const sup = await supplier('Ikeja Wholesale Ltd', 'NG'), d = await order({ ref: 'DSP1' + tag.toUpperCase().slice(-3), lines: [[mug, 'Mug', 1000, 3]] }), line = await dsLine(d, 0, sup);
+    const rq = (await ask(d, { items: [{ item_id: d.items[0].id, qty: 1 }] })).j, det = (await A('GET', '/returns/' + rq.id)).j;
+    assert.strictEqual(det.channels[0].channel, 'dropship'); assert.ok(det.channels[0].notes.some((n) => /Only 1 of 3/.test(n)));
+    await A('POST', `/returns/${rq.id}/approve`, {});
+    assert.strictEqual((await q('SELECT status FROM dropship_lines WHERE id=$1', [line]))[0].status, 'delivered'); assert.strictEqual((await q('SELECT COUNT(*)::int n FROM dropship_returns WHERE line_id=$1', [line]))[0].n, 0);
+    assert.ok((await q("SELECT 1 FROM dropship_events WHERE line_id=$1 AND note LIKE 'Customer return%'", [line])).length >= 1, 'noted on the line');
+    assert.strictEqual((await ret(rq.id)).status, 'settled', 'the customer is still refunded');
+  });
+  await test('a partner store item shows what comes off the partner\'s balance, and plain own-stock items carry no notes', async () => {
+    const vid = Number((await q("INSERT INTO vendors (slug,name,status,commission_pct,created) VALUES ('shop-ch','Shop Ch','approved',10,1) RETURNING id"))[0].id);
+    const d = await order({ ref: 'PCH1' + tag.toUpperCase().slice(-3), lines: [[kettle, 'Kettle', 6000, 1], [fan, 'Fan', 4000, 1]] }); await q('UPDATE order_items SET vendor_id=$1, commission=600 WHERE id=$2', [vid, d.items[0].id]);
+    const rq = (await ask(d, { items: [{ item_id: d.items[0].id, qty: 1 }, { item_id: d.items[1].id, qty: 1 }] })).j, ch = (await A('GET', '/returns/' + rq.id)).j.channels;
+    assert.strictEqual(ch[0].channel, 'partner'); assert.ok(/5,400/.test(ch[0].notes[0]) && /Shop Ch/.test(ch[0].notes[0])); assert.strictEqual(ch[1].channel, 'own'); assert.strictEqual(ch[1].notes.length, 0);
+  });
+  console.log('\nWholesale returns');
+  let wacct, wq, wopsC; const wn = tag.toUpperCase().slice(-3);
+  const wquote = async (ref, o = {}) => {
+    const id = Number((await q("INSERT INTO wholesale_quotes (ref,account_id,status,goods_total,logistics_fee,total,payment_method,payment_ref,order_no,created,delivered_at) VALUES ($1,$2,'delivered',$3,2000,$4,$5,$6,$7,1,$8) RETURNING id", [ref, wacct, 100000, 102000, o.pm || 'paystack', o.pref === undefined ? ref : o.pref, 'WO-' + ref, o.deliveredAt === undefined ? T() - 86400 : o.deliveredAt]))[0].id);
+    await q("INSERT INTO wholesale_quote_items (quote_id,product_id,name,qty,list_price,unit_price) VALUES ($1,$2,'Kettle',10,6000,5000),($1,$3,'Fan',10,5000,5000)", [id, kettle, fan]);
+    return { id, ref, items: (await q('SELECT id, product_id, qty, unit_price FROM wholesale_quote_items WHERE quote_id=$1 ORDER BY id', [id])).map((r) => ({ id: Number(r.id), product_id: Number(r.product_id), qty: Number(r.qty), unit_price: Number(r.unit_price) })) };
+  };
+  const wopen = (d, b, c = ada.c) => call('POST', `/api/wholesale/quotes/${d.ref}/return`, { reason: 'faulty', details: 'Four kettles arrived with cracked bases.', items: [{ item_id: d.items[0].id, qty: 4 }], ...b }, c);
+  await test('only an approved buyer on a delivered order can ask; the window applies to the buyer; one open return per order', async () => {
+    wacct = Number((await q("INSERT INTO wholesale_accounts (user_id,business_name,contact_name,email,status,evaluate_until,created) VALUES ($1,'Bright Traders','Ada Buyer','ada@buyer.com','approved',1,1) RETURNING id", [ada.id]))[0].id);
+    wq = await wquote('WQ-A' + wn); assert.strictEqual((await call('POST', `/api/wholesale/quotes/${wq.ref}/return`, {}, bob.c)).s, 404, 'not another buyer\'s order');
+    assert.strictEqual((await call('POST', `/api/wholesale/quotes/${wq.ref}/return`, {})).s, 401);
+    const info = (await call('GET', `/api/wholesale/quotes/${wq.ref}/return`, undefined, ada.c)).j; assert.strictEqual(info.can, true); assert.strictEqual(info.lines[0].returnable, 10);
+    const bad = await wopen(wq, { items: [{ item_id: wq.items[0].id, qty: 11 }] }); assert.strictEqual(bad.s, 400); assert.strictEqual((await wopen(wq, { details: 'bad' })).s, 400);
+    const old = await wquote('WQ-O' + wn, { deliveredAt: T() - 86400 * 20 }); assert.strictEqual((await wopen(old, {})).s, 400, 'window closed for the buyer');
+    const r = await wopen(wq, {}); assert.strictEqual(r.s, 200, r.t); assert.strictEqual((await wopen(wq, {})).s, 400, 'one open return per order');
+    const undelivered = await wquote('WQ-U' + wn); await q("UPDATE wholesale_quotes SET status='shipped' WHERE id=$1", [undelivered.id]); assert.strictEqual((await wopen(undelivered, {})).s, 400);
+    wq.rid = r.j.id;
+  });
+  await test('review, owner approval and an automatic Paystack refund of the goods only (never the delivery fee)', async () => {
+    wopsC = await emp('Wale Ops', 'wale@example.com', 'Operations Manager'); fake.calls.length = 0;
+    const lst = (await A('GET', '/returns/wholesale', undefined, wopsC)).j.returns; assert.ok(lst.some((x) => x.id === wq.rid && x.business === 'Bright Traders' && x.requested_amount === 20000));
+    const rv = await A('POST', `/returns/wholesale/${wq.rid}/approve`, { amount: 20000, note: 'Photos match.' }, wopsC); assert.strictEqual(rv.j.stage, 'recommended'); assert.strictEqual(fake.calls.length, 0);
+    const mine = (await call('GET', `/api/wholesale/quotes/${wq.ref}/return`, undefined, ada.c)).j.returns[0]; assert.strictEqual(mine.status_text, 'Waiting for review'); assert.strictEqual(mine.approved_amount, null);
+    assert.strictEqual((await A('POST', `/returns/wholesale/${wq.rid}/reject`, { note: 'No thanks.' }, wopsC)).s, 403); assert.strictEqual((await A('POST', `/returns/wholesale/${wq.rid}/settle`, { method: 'original' })).s, 409);
+    assert.strictEqual((await A('POST', `/returns/wholesale/${wq.rid}/approve`, { amount: 100001 })).s, 400, 'cannot exceed the goods value');
+    const ap = await A('POST', `/returns/wholesale/${wq.rid}/approve`, {}); assert.strictEqual(ap.s, 200, ap.t); assert.strictEqual(ap.j.auto.ok, true, JSON.stringify(ap.j));
+    assert.strictEqual(fake.calls.length, 1); assert.strictEqual(fake.calls[0].transaction, wq.ref); assert.strictEqual(fake.calls[0].amount, 2000000);
+    const x = (await A('GET', `/returns/wholesale/${wq.rid}`)).j; assert.strictEqual(x.return.status, 'settled'); assert.strictEqual(x.return.approved_amount, 20000); assert.strictEqual(x.return.approval, 'owner');
+    assert.strictEqual((await A('POST', `/returns/wholesale/${wq.rid}/approve`, {})).s, 409); assert.strictEqual(fake.calls.length, 1, 'never refunded twice');
+    const m = (await call('GET', `/api/wholesale/quotes/${wq.ref}/return`, undefined, ada.c)).j; assert.strictEqual(m.returns[0].status_text, 'Refunded'); assert.strictEqual(m.lines[0].returnable, 6, 'returnable quantity goes down'); assert.strictEqual(m.can, true);
+    assert.ok((await q("SELECT 1 FROM outbox WHERE to_email='ada@buyer.com' AND subject LIKE $1", ['%' + x.return.ref + '%'])).length >= 3, 'received, approved, refunded emails');
+  });
+  await test('bank-transfer orders wait for Finance, who records the transfer; restocking puts the goods back in the warehouse once', async () => {
+    const d = await wquote('WQ-B' + wn, { pm: 'transfer', pref: 'TRF-9' }), r = (await wopen(d, { items: [{ item_id: d.items[1].id, qty: 3 }] })).j; fake.calls.length = 0;
+    const ap = await A('POST', `/returns/wholesale/${r.id}/approve`, {}); assert.strictEqual(ap.j.auto.manual, true); assert.strictEqual(fake.calls.length, 0);
+    const fin2 = await emp('Femi Fin', 'femi@example.com', 'Finance Officer'); assert.strictEqual((await A('POST', `/returns/wholesale/${r.id}/settle`, { method: 'original' }, fin2)).s, 400, 'no card to refund');
+    assert.strictEqual((await A('POST', `/returns/wholesale/${r.id}/settle`, { method: 'manual' }, fin2)).s, 400, 'reference needed'); assert.strictEqual((await A('POST', `/returns/wholesale/${r.id}/settle`, { method: 'manual', reference: 'GTB-77' }, wopsC)).s, 403, 'paying out is Finance');
+    const before = Number((await q("SELECT COALESCE(SUM(on_hand),0)::int n FROM wholesale_stock_balances WHERE product_id=$1", [fan]))[0].n);
+    const st = await A('POST', `/returns/wholesale/${r.id}/settle`, { method: 'manual', reference: 'GTB-77', restock: true }, fin2); assert.strictEqual(st.s, 200, st.t); assert.strictEqual(st.j.restocked, true);
+    const x = (await A('GET', `/returns/wholesale/${r.id}`)).j.return; assert.strictEqual(x.status, 'settled'); assert.strictEqual(x.settle_reference, 'GTB-77'); assert.strictEqual(x.settled_by, 'Femi Fin');
+    assert.strictEqual(Number((await q("SELECT COALESCE(SUM(on_hand),0)::int n FROM wholesale_stock_balances WHERE product_id=$1", [fan]))[0].n), before + 3);
+    assert.strictEqual((await A('POST', `/returns/wholesale/${r.id}/settle`, { method: 'manual', reference: 'GTB-77', restock: true }, fin2)).s, 409);
+  });
+  await test('staff open a return for a buyer (flagged late), the buyer can cancel a request nobody has reviewed, and a decline tells the buyer why', async () => {
+    const old = await wquote('WQ-L' + wn, { deliveredAt: T() - 86400 * 30 }), b = { quote_ref: old.ref, reason: 'agreed', details: 'Agreed by phone with the account manager.', note: 'Call on Monday', items: [{ item_id: old.items[0].id, qty: 2 }] };
+    assert.strictEqual((await A('POST', '/returns/wholesale/open', b, finC)).s, 403, 'Finance cannot open one');
+    const l = (await A('GET', '/returns/wholesale/lookup?ref=' + old.ref, undefined, wopsC)).j; assert.strictEqual(l.can, true); assert.strictEqual(l.past_window, true);
+    const r = await A('POST', '/returns/wholesale/open', b, wopsC); assert.strictEqual(r.s, 200, r.t); const x = (await A('GET', `/returns/wholesale/${r.j.id}`)).j.return; assert.strictEqual(x.opened_by, 'staff'); assert.strictEqual(x.past_window, true);
+    assert.strictEqual((await A('POST', `/returns/wholesale/${r.j.id}/reject`, { note: 'x' })).s, 400); assert.strictEqual((await A('POST', `/returns/wholesale/${r.j.id}/reject`, { note: 'Outside our terms.' })).s, 200);
+    assert.ok((await q("SELECT 1 FROM outbox WHERE to_email='ada@buyer.com' AND body LIKE '%Outside our terms%'")).length >= 1);
+    const c = await wquote('WQ-C' + wn), rc = (await wopen(c, {})).j; assert.strictEqual((await call('POST', `/api/wholesale/returns/${rc.ref}/cancel`, {}, bob.c)).s, 404); assert.strictEqual((await call('POST', `/api/wholesale/returns/${rc.ref}/cancel`, {}, ada.c)).s, 200);
+    assert.strictEqual((await call('POST', `/api/wholesale/returns/${rc.ref}/cancel`, {}, ada.c)).s, 409);
   });
   console.log('\nSafety');
   await test('every step is in the activity log, and the page for customers never shows staff names or gateway details', async () => {

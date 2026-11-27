@@ -17,7 +17,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const pg = async (sql, params, db) => { const c = new Pg({ connectionString: db ? urlOf(db) : ADMIN_URL }); await c.connect(); try { return (await c.query(sql, params)).rows; } finally { await c.end(); } };
 const q = (sql, params) => pg(sql, params, DB);
 let srv, log = '';
+let MEMBER = '';   // dropshipped items are for signed-in customers: once a customer exists, shop calls made without a cookie go out as that customer
 const call = async (method, url, body, cookie, raw) => {
+  if (!cookie && MEMBER && /^\/api\/(products|cart|checkout|dropshipping)/.test(url)) cookie = MEMBER;
   const r = await fetch(`http://127.0.0.1:${PORT}${url}`, { method, redirect: 'manual', headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
   const sc = r.headers.getSetCookie ? r.headers.getSetCookie() : []; const buf = Buffer.from(await r.arrayBuffer()), t = buf.toString('utf8'); let j = null; try { j = JSON.parse(t); } catch { /* */ }
   if (process.env.DEBUG_V && r.status >= 400) console.log('   [' + r.status + '] ' + method + ' ' + url + ' ' + t.slice(0, 300));
@@ -42,6 +44,7 @@ const supplier = (o = {}) => ({ name: 'Shenzhen Gadgets Ltd', country: 'CN', cur
     assert.strictEqual((await call('POST', '/api/admin/dropship/suppliers', supplier())).s, 401);
     await call('POST', '/api/auth/register', { name: 'Cus Tomer', email: 'cust@example.com', phone: '08030000000', password: 'mango-river-sky-55' });
     const cust = await login('cust@example.com', 'mango-river-sky-55');
+    MEMBER = cust;
     assert.strictEqual((await call('GET', '/api/admin/dropship/suppliers', undefined, cust)).s, 401, 'a customer is not an admin');
   });
   await test('a supplier needs a real country and currency, a valid email, and known shipping methods', async () => {

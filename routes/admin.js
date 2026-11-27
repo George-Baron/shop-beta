@@ -63,6 +63,7 @@ router.use('/catalog', require('./catalog-admin'));
 router.use('/rfq', require('./rfq-admin'));
 router.use('/commercial', require('./commercial-admin'));
 router.use('/returns', require('./returns-admin'));
+router.use('/trade-enquiries', require('./trade-enquiries').admin);
 router.use('/warehouse', require('./warehouse'));
 router.get('/audit', ah(async (req, res) => {
   const w = [], a = [];
@@ -72,6 +73,8 @@ router.get('/audit', ah(async (req, res) => {
 }));
 
 /* ---------- dashboard ---------- */
+// SEO health check: owner only, read-only. It reports what this server can verify about its own pages, sitemap and feed. It cannot know what Google has indexed.
+router.get('/seo', A.requireAdmin, ah(async (req, res) => res.json(await require('../lib/seo').audit())));
 router.get('/dashboard', ah(async (req, res) => {
   // Every employee may open the dashboard, but sees only the parts their role allows: money needs Finance or Reports, orders and top products need Orders,
   // the customer count and unread messages need Customers, low stock needs Catalogue. The owner sees everything.
@@ -334,6 +337,9 @@ router.put('/settings', ah(async (req, res) => {
   if ('free_shipping_threshold' in s) out.free_shipping_threshold = String(Math.max(0, int(s.free_shipping_threshold)));
   if ('pod_confirm_hours' in s) out.pod_confirm_hours = String(Math.min(168, Math.max(1, int(s.pod_confirm_hours, 24))));
   for (const [k, lo, hi, d] of [['max_distance_km', 1, 500, 60], ['per_km_fee', 0, 5000, 0], ['free_km', 0, 500, 0], ['prep_minutes', 0, 600, 20], ['open_hour', 0, 23, 8], ['cutoff_hour', 1, 24, 20]]) if (k in s) out[k] = String(Math.min(hi, Math.max(lo, int(s[k], d))));
+  if ('return_auto_refund' in s) out.return_auto_refund = String(s.return_auto_refund) === '0' || s.return_auto_refund === false ? '0' : '1';
+  if ('return_auto_approve_max' in s) out.return_auto_approve_max = String(Math.min(10000000, Math.max(0, int(s.return_auto_approve_max))));
+  if ('wholesale_return_days' in s) out.wholesale_return_days = String(Math.min(365, Math.max(0, int(s.wholesale_return_days))));
   if ('return_days' in s) out.return_days = String(Math.min(365, Math.max(0, int(s.return_days))));
   if ('express_multiplier' in s) { const m = Number(s.express_multiplier); out.express_multiplier = String(Number.isFinite(m) ? Math.min(5, Math.max(1, m)) : 1.5); }
   if ('assistant_notes' in s) out.assistant_notes = str(s.assistant_notes, 1500);
