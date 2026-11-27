@@ -20,7 +20,11 @@ const PRODUCT_SELECT = `SELECT p.*, c.name AS category, c.slug AS category_slug,
   FROM products p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN vendors vd ON vd.id = p.vendor_id ${RATING_JOIN}`;
 const PER_PAGE = 20;
 // Catalogue answers are the same for every visitor, so browsers and Cloudflare may keep them briefly. Never use this on anything that depends on who is asking.
-const publicCache = (res) => res.set('Cache-Control', 'public, max-age=10, s-maxage=30, stale-while-revalidate=60');
+// Dropshipped items are shown to signed-in customers only, so every catalogue answer exists in two versions (guest and member): the cache key carries
+// which one, and the member version is never kept by browsers or Cloudflare.
+const MB = require('../lib/members');
+const mk = (k) => (k === null ? null : k + (MB.isMember() ? '~m' : '~g'));
+const publicCache = (res) => res.set('Cache-Control', MB.isMember() && res.req && res.req.user ? 'private, no-cache' : 'public, max-age=10, s-maxage=30, stale-while-revalidate=60');
 const queryKey = (prefix, query) => { const k = prefix + JSON.stringify(Object.entries(query).sort()); return k.length <= 400 ? k : null; };
 
 /* ================= config ================= */
@@ -55,7 +59,7 @@ async function buildConfig() {
 /* ================= catalogue ================= */
 router.get('/home/:slug', ah(async (req, res) => {
   const slug = str(req.params.slug, 40);
-  const data = await cache.cached('home:' + slug, 30000, () => buildHome(slug));
+  const data = await cache.cached(mk('home:' + slug), 30000, () => buildHome(slug));
   publicCache(res);
   res.json(data);
 }));
@@ -68,19 +72,28 @@ async function buildHome(slug) {
   const bestsellers = await list('AND p.bestseller=1', 'p.sold DESC, p.id DESC', 10);
   const newArrivals = await list('AND p.new_arrival=1', 'p.created DESC', 8);
   const deals = await list('AND p.compare_price > p.price', '(p.compare_price - p.price) * 1.0 / p.compare_price DESC', 10);
-  return { store, categories, featured, bestsellers, newArrivals, deals };
+  // Partner stores: the busiest approved partners in this department, each with a few of their products, so customers can see what partners sell without opening every store.
+  const vs = await all(`SELECT v.id, v.slug, v.name, v.tagline, v.logo, v.emoji, v.city, v.state, COUNT(p.id) AS n FROM vendors v JOIN products p ON p.vendor_id=v.id AND p.active=1 AND p.listing='approved' AND p.store=? AND ${PC.visibleSql('p')}
+    WHERE v.status='approved' GROUP BY v.id ORDER BY n DESC, v.id LIMIT 6`, store.slug);
+  const partners = [];
+  for (const v of vs) {
+    const items = (await all(`${PRODUCT_SELECT} WHERE p.active=1 AND ${PC.visibleSql('p')} AND p.store=? AND p.vendor_id=? ORDER BY p.featured DESC, p.sold DESC, p.id DESC LIMIT 8`, store.slug, v.id)).map(card);
+    partners.push({ slug: v.slug, name: v.name, tagline: v.tagline, logo: v.logo, emoji: v.emoji, city: v.city, state: v.state, products: Number(v.n), items });
+  }
+  return { store, categories, featured, bestsellers, newArrivals, deals, partners };
 }
 
 const likeEsc = (s) => s.replace(/[\\%_]/g, (c) => '\\' + c);
 const searchLimit = A.quickLimiter('search', 90, 60000, 'Too many searches. Please wait a moment and try again.');
 router.get('/products', (req, res, next) => (req.query.q ? searchLimit(req, res, next) : next()), ah(async (req, res) => {
-  const key = queryKey('products:', req.query);
+  const key = mk(queryKey('products:', req.query));
   const data = key ? await cache.cached(key, 30000, () => listProducts(req.query)) : await listProducts(req.query);
   publicCache(res);
   res.json(data);
 }));
 // The public Dropshipping page: how many items are shipped by partner suppliers and from which countries. Never a supplier, cost or margin.
 router.get('/dropshipping', ah(async (req, res) => {
+  if (!req.user) { res.set('Cache-Control', 'public, max-age=10, s-maxage=30'); return res.json({ locked: true, message: MB.MEMBERS_ONLY }); }
   const data = await cache.cached('dropshipping-page', 60000, async () => {
     const rows = await all(`SELECT COALESCE(dp.ships_from, s.country) AS cc, COUNT(*) AS n FROM products p JOIN dropship_products dp ON dp.product_id = p.id JOIN suppliers s ON s.id = dp.supplier_id
       WHERE p.fulfilment = 'dropship' AND p.active = 1 AND ${PC.visibleSql('p')} GROUP BY 1 ORDER BY n DESC`);
@@ -127,7 +140,7 @@ async function listProducts(q) {
   const storeFacet = (words.length || store || category) && !q.nostores
     ? (await all(`SELECT COALESCE(vd.slug,'') AS slug, COALESCE(vd.name,'') AS name, COUNT(*) AS n ${fromBase} WHERE ${where.join(' AND ')} GROUP BY 1,2 ORDER BY n DESC, 2 LIMIT 12`, ...args)).map((r) => ({ slug: r.slug, name: r.name || 'Shop-Beta', n: Number(r.n) })) : [];
   const vslug = str(q.vendor, 80);
-  if (vslug === 'ours') where.push('p.vendor_id IS NULL'); else if (vslug) { where.push('vd.slug=?'); args.push(vslug); }
+  if (vslug === 'ours') where.push('p.vendor_id IS NULL'); else if (vslug === 'partners') where.push('p.vendor_id IS NOT NULL'); else if (vslug) { where.push('vd.slug=?'); args.push(vslug); }
   const from = `${fromBase} WHERE ${where.join(' AND ')}`;
   const total = (await get(`SELECT COUNT(*) n ${from}`, ...args)).n;
   const pages = Math.max(1, Math.ceil(total / PER_PAGE)), page = Math.min(pages, Math.max(1, int(q.page, 1)));
@@ -141,14 +154,14 @@ async function listProducts(q) {
 
 /* ================= partner stores ================= */
 router.get('/vendors', ah(async (req, res) => {
-  const key = queryKey('vendors:', req.query);
+  const key = mk(queryKey('vendors:', req.query));
   const run_ = () => V.listPublic({ store: str(req.query.store, 40), q: str(req.query.q, 80) });
   const stores = key ? await cache.cached(key, 30000, run_) : await run_();
   publicCache(res); res.json({ stores });
 }));
 router.get('/vendors/:slug', ah(async (req, res) => {
   const slug = str(req.params.slug, 80);
-  const data = await cache.cached('vendor:' + slug, 30000, () => V.pagePublic(slug));
+  const data = await cache.cached(mk('vendor:' + slug), 30000, () => V.pagePublic(slug));
   publicCache(res); res.json(data);
 }));
 router.post('/partners/apply', A.limiter('partner-apply', 4, 3600000, 'Too many applications from this connection. Please try again later.'), ah(async (req, res) => {
@@ -166,7 +179,7 @@ router.post('/products/by-ids', ah(async (req, res) => {
 
 router.get('/products/:slug', ah(async (req, res) => {
   const slug = str(req.params.slug, 120);
-  const base = await cache.cached('product:' + slug, 20000, () => buildProduct(slug));
+  const base = await cache.cached(mk('product:' + slug), 20000, () => buildProduct(slug));
   // Description, reviews and related products may be 20 seconds old. Stock is at most 3 seconds old (a popular product is asked for many times a second,
   // so one read serves them all). It is only for display: checkout takes stock atomically and refuses what is gone.
   const { stock, variants } = await cache.cached('stock:' + base.product.id, 3000, async () => ({
@@ -334,6 +347,23 @@ router.post('/orders/:ref/return/:rid/cancel', A.limiter('order-return-cancel', 
   if (o.view !== 'full') fail(403, 'Open your order from the link in your confirmation email, or sign in.');
   await require('../lib/returns').cancel(o, int(req.params.rid)); res.json({ ok: true });
 }));
+router.post('/orders/:ref/return/:rid/photos', A.limiter('order-return-photo', 30, 3600000), require('express').json({ limit: '7mb' }), ah(async (req, res) => {
+  const o = await ownedOrder(req, req.params.ref, req.body.email, req.body.token);
+  if (o.view !== 'full') fail(403, 'Open your order from the link in your confirmation email, or sign in.');
+  res.json({ ok: true, ...(await require('../lib/returns').addPhoto(o, int(req.params.rid), req.body || {})) });
+}));
+router.post('/orders/:ref/return/:rid/photos/:pid/delete', A.limiter('order-return-photo-del', 30, 3600000), ah(async (req, res) => {
+  const o = await ownedOrder(req, req.params.ref, req.body.email, req.body.token);
+  if (o.view !== 'full') fail(403, 'Open your order from the link in your confirmation email, or sign in.');
+  await require('../lib/returns').removePhoto(o, int(req.params.rid), int(req.params.pid)); res.json({ ok: true });
+}));
+// Viewing a photo is a POST so the private order link never ends up in a URL or a log.
+router.post('/orders/:ref/return/:rid/photos/:pid', A.limiter('order-return-photo-view', 120, 3600000), ah(async (req, res) => {
+  const o = await ownedOrder(req, req.params.ref, req.body.email, req.body.token);
+  if (o.view !== 'full') fail(403, 'Open your order from the link in your confirmation email, or sign in.');
+  const f = await require('../lib/returns').readPhoto(int(req.params.rid), int(req.params.pid), o.id);
+  res.set({ 'Content-Type': f.mime, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' }).send(f.buf);
+}));
 router.post('/orders/:ref/rate-delivery', A.limiter('rate-delivery', 20, 600000), ah(async (req, res) => {
   const o = await ownedOrder(req, req.params.ref, req.body.email, req.body.token);
   if (o.view !== 'full') fail(403, 'Open your order from the link in your confirmation email to rate the delivery.');
@@ -384,6 +414,13 @@ router.post('/paystack/webhook', ah(async (req, res) => {
     const ref = str(ev.data.reference, 40).toUpperCase();
     await queue.enqueue('paystack.settle', { ref }, { key: 'paystack:' + ref });
   }
+  res.json({ ok: true });
+}));
+// Flutterwave tells us a wallet top-up finished. Only the reference is taken from it; the worker asks Flutterwave for the real status, currency and amount.
+router.post('/flutterwave/webhook', ah(async (req, res) => {
+  if (!require('../lib/flutterwave').webhookOk(req.headers)) return res.status(401).json({ error: 'Bad signature' });
+  const d = (req.body || {}).data || {}, ref = str(d.tx_ref, 40).toUpperCase();
+  if (/^WF-/.test(ref)) await queue.enqueue('flutterwave.settle', { ref }, { key: 'flutterwave:' + ref + ':' + Math.floor(Date.now() / 30000) });
   res.json({ ok: true });
 }));
 // Stripe tells us a card payment finished. We never trust the message itself: the worker asks Stripe for the session and checks the amount and currency.

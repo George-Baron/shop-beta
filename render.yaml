@@ -18,7 +18,11 @@ services:
       - key: SEED_DEMO
         value: "0"
       - key: BASE_URL
-        sync: false              # https://www.yourshop.com  (no trailing slash)
+        sync: false              # https://velto-mart.com.ng  (no trailing slash). Used for canonical links and the sitemap.
+      - key: GOOGLE_SITE_VERIFICATION
+        sync: false              # optional: Search Console HTML-tag value (see docs/SEO.md)
+      - key: GOOGLE_VERIFICATION_FILE
+        sync: false              # optional: Search Console HTML-file name
       - key: DATABASE_URL
         sync: false              # Supabase "Transaction pooler" string, port 6543
       - key: SUPABASE_URL

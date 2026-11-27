@@ -42,7 +42,7 @@ router.post('/commit', lim, big, scoped(async (req, res, v) => {
   if (Number(b.total) > MAX_ROWS) fail(400, 'Too many rows in one file.');
   cache.clear();
   try {
-    const r = await IO.commit(b.rows, b.mode, { importId: b.importId, filename: b.filename, total: b.total }, req.user, v);
+    const r = await IO.commit(b.rows, b.mode, { importId: b.importId, filename: b.filename, total: b.total, photoMode: b.photoMode === 'link' ? 'link' : 'copy' }, req.user, v);
     if (r.created || r.updated) await require('../lib/notify').toStaff('catalog', true, { type: 'product', title: `${v.name} imported products`, body: `${r.created} new and ${r.updated} changed. They are waiting for your review.`, link: '/admin#/vendors' });
     res.json(r);
   } finally { cache.bump().catch((e) => console.error('Cache bump failed:', e.message)); }
@@ -58,4 +58,7 @@ router.get('/history', scoped(async (req, res, v) => res.json({ history: await I
 router.get('/history/:id/errors.csv', scoped(async (req, res, v) => {
   res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="import-${Number(req.params.id)}-errors.csv"` }).send(await IO.errorReportCsv(req.params.id, v));
 }));
+router.get('/history/:id/photos', scoped(async (req, res, v) => res.json(await IO.photoStatus(req.params.id, v))));
+router.post('/history/:id/photos/retry', scoped(async (req, res, v) => res.json(await IO.retryPhotos(req.params.id, v))));
+
 module.exports = router;
