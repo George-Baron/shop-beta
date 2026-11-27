@@ -416,6 +416,13 @@ router.post('/paystack/webhook', ah(async (req, res) => {
   }
   res.json({ ok: true });
 }));
+// Flutterwave tells us a wallet top-up finished. Only the reference is taken from it; the worker asks Flutterwave for the real status, currency and amount.
+router.post('/flutterwave/webhook', ah(async (req, res) => {
+  if (!require('../lib/flutterwave').webhookOk(req.headers)) return res.status(401).json({ error: 'Bad signature' });
+  const d = (req.body || {}).data || {}, ref = str(d.tx_ref, 40).toUpperCase();
+  if (/^WF-/.test(ref)) await queue.enqueue('flutterwave.settle', { ref }, { key: 'flutterwave:' + ref + ':' + Math.floor(Date.now() / 30000) });
+  res.json({ ok: true });
+}));
 // Stripe tells us a card payment finished. We never trust the message itself: the worker asks Stripe for the session and checks the amount and currency.
 router.post('/stripe/webhook', ah(async (req, res) => {
   const stripe = require('../lib/stripe');
