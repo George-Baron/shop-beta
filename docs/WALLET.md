@@ -39,3 +39,13 @@ Run: `npm run test:wallet`.
 
 ## Switching the wallet on or off
 Admin > **Wallet & rewards** > **Switches and limits**: wallet top-ups on/off, smallest and largest top-up, largest balance, and the VELTO-MART CARD switch (it can only be turned on once a card issuer is connected). Off stops new top-ups only; customers can still spend their balance and refunds still return to the wallet. Rewards have their own switch lower on the same page.
+
+## Second top-up provider: Flutterwave
+
+Customers can add money with Paystack or Flutterwave once both are set up (the choice only appears when Flutterwave is configured).
+
+Set on Render: `FLUTTERWAVE_SECRET_KEY` (Flutterwave dashboard > Settings > API) and `FLUTTERWAVE_WEBHOOK_HASH` (any long random text you also paste into Settings > Webhooks > "Secret hash"). Webhook URL: `https://YOUR-SHOP/api/flutterwave/webhook`.
+
+How it stays safe: the wallet is credited only after our server asks Flutterwave (`verify_by_reference`) and the reference, NGN currency and amount match; the webhook only says "look at this reference". Repeats, retries and the customer's own return credit once (same idempotency key as Paystack). Used for top-ups only, not for orders or refunds.
+
+**Status: tested against a stand-in for Flutterwave, not the live service.** Before announcing it, make a real ₦100 top-up with Flutterwave and check the wallet is credited once and the books-balanced check is green.
