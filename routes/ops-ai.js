@@ -108,6 +108,12 @@ router.put('/settings', ah(async (req, res) => {
   res.json({ config: await St.saveConfig(patch, who(req)), overridden: !!g.overridden });
 }));
 
+/* ---- returns: the AI reads and recommends; people approve, reject and settle in Returns ---- */
+const RO = require('../lib/ops/returns-ops');
+router.get('/returns', ah(async (req, res) => res.json(await RO.board())));
+router.get('/returns/:id', ah(async (req, res) => res.json(await RO.detail(req.params.id))));
+router.post('/returns/:id/assess', ah(async (req, res) => res.json(await RO.recommend(req.params.id, req.user))));
+
 /* ---- go-live: readiness, the safeguard test, pause / resume ---- */
 const AU = require('../lib/ops/autonomy');
 router.get('/autonomy', ah(async (req, res) => res.json({ ...(await AU.readiness()), recent: await AU.recentAutonomous(30), today: await AU.autonomousToday() })));
