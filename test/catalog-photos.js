@@ -37,6 +37,8 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 let hits = 0;
 const img = http.createServer((req, res) => {
   hits++;
+  const m = /^\/api\/v2\/product\/(\d+)\.json/.exec(req.url);
+  if (m) { res.writeHead(m[1] === '6001111111111' ? 200 : 404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify(m[1] === '6001111111111' ? { product: { image_front_url: `http://127.0.0.1:${img.address().port}/a.png` } } : {})); }
   if (req.url.startsWith('/a.png') || req.url.startsWith('/b.png') || req.url.startsWith('/c.png')) { res.writeHead(200, { 'Content-Type': 'image/png' }); return res.end(PNG); }
   if (req.url.startsWith('/fake.jpg')) { res.writeHead(200, { 'Content-Type': 'image/jpeg' }); return res.end('this is not a picture'); }
   res.writeHead(404); res.end('nope');
@@ -45,7 +47,7 @@ const img = http.createServer((req, res) => {
 (async () => {
   await new Promise((r) => img.listen(0, '127.0.0.1', r)); const IP = img.address().port, I = (p) => `http://127.0.0.1:${IP}${p}`;
   await pg(`CREATE DATABASE ${DB}`);
-  srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(PORT), BASE_URL: 'http://127.0.0.1:' + PORT, DATABASE_URL: urlOf(DB), DATA_DIR: require('os').tmpdir() + '/sb-catp-' + tag, ADMIN_EMAIL: 'owner@example.com', ADMIN_PASSWORD: 'Str0ng-Owner-Pass!', RATE_LIMIT_MULTIPLIER: '50', ALLOW_PRIVATE_IMAGE_HOSTS: '1', WORKER_POLL_MS: '200' } });
+  srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '..', 'server.js')], { env: { ...process.env, PORT: String(PORT), BASE_URL: 'http://127.0.0.1:' + PORT, DATABASE_URL: urlOf(DB), DATA_DIR: require('os').tmpdir() + '/sb-catp-' + tag, ADMIN_EMAIL: 'owner@example.com', ADMIN_PASSWORD: 'Str0ng-Owner-Pass!', RATE_LIMIT_MULTIPLIER: '50', ALLOW_PRIVATE_IMAGE_HOSTS: '1', OFF_BASE_URL: 'http://127.0.0.1:' + IP, WORKER_POLL_MS: '200' } });
   srv.stdout.on('data', (d) => { log += d; }); srv.stderr.on('data', (d) => { log += d; });
   for (let i = 0; i < 200; i++) { try { await fetch(`http://127.0.0.1:${PORT}/health`); break; } catch { await sleep(100); } }
   const admin = await login('owner@example.com', 'Str0ng-Owner-Pass!');
@@ -120,6 +122,19 @@ const img = http.createServer((req, res) => {
     const r = (await A('POST', '/commit', { mode: 'create', photoMode: 'link', rows: [row(20, { images: 'https://example.com/pic.jpg' }), row(21, { images: I('/a.png') })], total: 2 })).j;
     const st = await waitPhotos(r.importId, 2); assert.strictEqual(st.done, 1); assert.strictEqual(st.failed, 1); assert.strictEqual(hits, h, 'nothing downloaded');
     assert.deepStrictEqual(await images('PH-20'), ['https://example.com/pic.jpg']);
+  });
+
+  console.log('\nFind photos by barcode');
+  await test('products with a barcode and no photo get a photo from the open database; unknown barcodes are listed', async () => {
+    const mk = (n, bc) => ({ ...row(n, { barcode: bc }), line: n });
+    const c = (await A('POST', '/commit', { mode: 'create', rows: [mk(40, '6001111111111'), mk(41, '6002222222222'), mk(42, '')], total: 3 })).j; assert.strictEqual(c.created, 3, JSON.stringify(c));
+    const r = (await A('POST', '/find-photos', {})).j; assert.strictEqual(r.queued, 2, JSON.stringify(r));
+    const st = await waitPhotos(r.importId, 2); assert.strictEqual(st.done, 1); assert.strictEqual(st.failed, 1);
+    const own = await images('PH-40'); assert.strictEqual(own.length, 1); assert.ok(own[0].startsWith('/uploads/') || own[0].startsWith('http'), own[0]);
+    assert.deepStrictEqual(await images('PH-41'), []); assert.deepStrictEqual(await images('PH-42'), []);
+    const csv = await (await raw('GET', `/api/admin/catalog/history/${r.importId}/photos.csv`, undefined, admin)).text();
+    assert.ok(csv.includes('PH-41') && /Not found in Open Food Facts/.test(csv) && !csv.includes('PH-42'), csv);
+    assert.strictEqual((await A('POST', '/find-photos', {})).j.queued, 1, 'only the product still without a photo is asked again');
   });
 
   console.log('\nAccess');

@@ -5,3 +5,7 @@
 - Progress and failures (with the reason) show on the finish screen; **Retry failed photos** tries again and keeps photos already copied.
 - Copying needs working product-image storage (Supabase bucket or local). Links must be public JPG/PNG/WebP; private network addresses are refused.
 - Update mode adds new photos after the existing ones (max 8 per product); a blank cell keeps current photos. Exports contain full links, so export then re-import changes nothing.
+
+## Find photos by barcode
+
+Import & Export → **Find photos by barcode** looks up every product that has a barcode (6–14 digits) and no photo in Open Food Facts (open database, photos CC-BY-SA) and copies the front photo into storage. About 1.5 lookups a second, up to 2,000 products per run. Products not found are listed under progress, and can be downloaded as a CSV (`/history/:id/photos.csv`). Running it again asks only about products still without a photo. Tests point `OFF_BASE_URL` at a local server.

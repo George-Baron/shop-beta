@@ -3130,7 +3130,8 @@ views.catalogio = async () => {
     <div style="margin-top:12px"><button class="btn" id="igo" ${!good || (S.mode === 'update' && !S.confirm) ? 'disabled' : ''}>${S.mode === 'create' ? `Import ${good} product${good === 1 ? '' : 's'}` : `Apply ${good} change${good === 1 ? '' : 's'}`}</button> <button class="btn ghost" id="iback">Back to columns</button> <button class="btn ghost" id="ireset">Start over</button></div></div>`;
   };
   const stepProg = () => `<div class="panel"><h3 style="margin-top:0">Importing…</h3><div class="pbar2"><i style="width:${S.prog.pct}%"></i></div><p class="mu2">${S.prog.done.toLocaleString('en')} of ${S.prog.total.toLocaleString('en')} rows processed. Please keep this page open.</p></div>`;
-  const stepDone = () => { const d = S.done; return `<div class="panel"><h3 style="margin-top:0">Import finished</h3><div class="stats"><span class="pill ok">${d.created} created</span> <span class="pill ok">${d.updated} updated</span> <span class="pill ${d.failed ? 'bad' : ''}">${d.failed} failed</span></div>${d.failed ? `<p><a class="btn ghost" href="/api/admin/catalog/history/${d.importId}/errors.csv" download>⬇ Download error report</a></p>` : ''}${d.photos ? `<div class="panel" id="iph" style="margin:10px 0"><b>Photos</b> <span class="mu2">checking…</span></div>` : '<p class="mu2">Add photos by putting links in the Image URLs column, or by opening each product on the Products page.</p>'}<button class="btn" id="ireset">Import another file</button></div>`; };
+  const stepDone = () => { const d = S.done; return `<div class="panel"><h3 style="margin-top:0">${d.finder ? 'Finding photos' : 'Import finished'}</h3>${d.finder ? '' : `<div class="stats"><span class="pill ok">${d.created} created</span> <span class="pill ok">${d.updated} updated</span> <span class="pill ${d.failed ? 'bad' : ''}">${d.failed} failed</span></div>`}${d.failed ? `<p><a class="btn ghost" href="/api/admin/catalog/history/${d.importId}/errors.csv" download>⬇ Download error report</a></p>` : ''}${d.photos ? `<div class="panel" id="iph" style="margin:10px 0"><b>Photos</b> <span class="mu2">checking…</span></div>` : '<p class="mu2">Add photos by putting links in the Image URLs column, or by opening each product on the Products page.</p>'}<button class="btn" id="ireset">Import another file</button></div>`; };
+  const findBox = () => `<div class="panel"><h3 style="margin-top:0">Find photos by barcode</h3><p class="mu2">For every product that has a barcode and no photo, look it up in Open Food Facts (a free, open product database) and copy its front photo into your store. Works best for packaged goods. Products it cannot find are listed in a file you can download. Up to 2,000 at a time.</p><button class="btn" id="fpgo">Find photos for products without one</button></div>`;
   const exportBox = () => `<div class="panel"><h3 style="margin-top:0">Export products</h3><div class="tbar">
     <select id="xf">${Object.entries(FL).map(([k, v]) => `<option value="${k}">${e(v)}</option>`).join('')}</select>
     <select id="xc" style="display:none"><option value="">Choose category</option>${meta.lookups.categories.map((c) => `<option value="${c.id}">${e(c.name)} (${e(c.store)})</option>`).join('')}</select>
@@ -3148,7 +3149,7 @@ views.catalogio = async () => {
     else if (S.v) body = stepPreview();
     else if (S.parsed) body = stepMap();
     else body = stepFile();
-    mn(hd('Import & Export', '<a class="btn ghost sm" href="#/products">← Products</a>') + body + (S.prog || S.busy ? '' : exportBox() + histBox()));
+    mn(hd('Import & Export', '<a class="btn ghost sm" href="#/products">← Products</a>') + body + (S.prog || S.busy ? '' : findBox() + exportBox() + histBox()));
     wire();
   }
   function wire() {
@@ -3196,13 +3197,18 @@ views.catalogio = async () => {
       const draw = async () => {
         if (!document.body.contains(box)) return;
         const r = await api('/api/admin/catalog/history/' + id + '/photos');
-        box.innerHTML = `<b>Photos</b> <span class="pill ok">${r.done} copied</span> ${r.waiting ? `<span class="pill">${r.waiting} waiting</span>` : ''} ${r.failed ? `<span class="pill bad">${r.failed} failed</span>` : ''}${r.waiting ? '<p class="mu2" style="margin:6px 0 0">This runs in the background. You can leave this page; the photos keep arriving.</p>' : ''}${r.failures.length ? `<div style="overflow:auto;max-height:240px;margin-top:8px"><table class="tbl"><tr><th>Line</th><th>Product</th><th>Link</th><th>Problem</th></tr>${r.failures.map((f) => `<tr><td>${f.line}</td><td>${e(f.name)}</td><td style="word-break:break-all">${e(f.url.slice(0, 80))}</td><td>${e(f.error)}</td></tr>`).join('')}</table></div><button class="btn ghost sm" id="iphr" style="margin-top:8px">Try the failed photos again</button>` : ''}`;
+        box.innerHTML = `<b>Photos</b> <span class="pill ok">${r.done} copied</span> ${r.waiting ? `<span class="pill">${r.waiting} waiting</span>` : ''} ${r.failed ? `<span class="pill bad">${r.failed} failed</span>` : ''}${r.waiting ? '<p class="mu2" style="margin:6px 0 0">This runs in the background. You can leave this page; the photos keep arriving.</p>' : ''}${r.failures.length ? `<div style="overflow:auto;max-height:240px;margin-top:8px"><table class="tbl"><tr><th>Line</th><th>Product</th><th>Link</th><th>Problem</th></tr>${r.failures.map((f) => `<tr><td>${f.line}</td><td>${e(f.name)}</td><td style="word-break:break-all">${e(f.url.slice(0, 80))}</td><td>${e(f.error)}</td></tr>`).join('')}</table></div><button class="btn ghost sm" id="iphr" style="margin-top:8px">Try the failed photos again</button> <a class="btn ghost sm" style="margin-top:8px" href="/api/admin/catalog/history/${id}/photos.csv" download>⬇ Download the list not found</a>` : ''}`;
         const rb = $('#iphr'); if (rb) rb.addEventListener('click', guard(async () => { await api('/api/admin/catalog/history/' + id + '/photos/retry', { body: {} }); toast('Trying again'); draw(); }));
         if (r.waiting) setTimeout(() => draw().catch(() => {}), 4000);
       };
       draw().catch((er) => { box.innerHTML = `<span class="err">${e(er.message)}</span>`; });
     }
     on('#xf', 'change', (ev) => { const v = ev.target.value; $('#xc').style.display = v === 'category' ? '' : 'none'; $('#xb').style.display = v === 'brand' ? '' : 'none'; $('#xp').style.display = v === 'partner' ? '' : 'none'; });
+    on('#fpgo', 'click', guard(async () => {
+      const r = await api('/api/admin/catalog/find-photos', { body: {} });
+      if (!r.queued) return toast('Every product with a barcode already has a photo');
+      S.done = { importId: r.importId, created: 0, updated: 0, failed: 0, photos: r.queued, finder: true }; paint();
+    }));
     on('#xgo', 'click', guard(async () => {
       const f = $('#xf').value, q = new URLSearchParams({ filter: f, format: $('#xfmt').value });
       if (f === 'category') { if (!$('#xc').value) throw new Error('Choose a category.'); q.set('category', $('#xc').value); }
