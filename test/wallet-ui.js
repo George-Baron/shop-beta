@@ -87,6 +87,20 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
       await ap.click('#bcg'); await ap.waitForFunction(() => document.body.innerText.includes('Paste Test Aisle'), null, { timeout: 8000 });
       assert.strictEqual(Number((await q("SELECT COUNT(*) n FROM categories WHERE name IN ('Paste Test Aisle','Flour, Sugar & Paste Test')"))[0].n), 2);
     });
+    await test('view-only staff see the wallet page without the owner controls', async () => {
+      const role = (await call('GET', '/api/admin/staff', null, admin)).j.roles[0].id;
+      const r = await call('POST', '/api/admin/staff', { name: 'Viewer Staff', email: 'viewer@example.com', username: 'viewer.user', role_id: role, perms: ['wallet:view'] }, admin); assert.strictEqual(r.s, 200, r.t);
+      const sc = (await call('POST', '/api/auth/login', { email: 'viewer@example.com', password: r.j.temp_password })).c;
+      const sctx = await browser.newContext(); await sctx.addCookies([{ name: sc.split('=')[0], value: sc.split('=').slice(1).join('=').split(';')[0], url: base }]);
+      const sp = await sctx.newPage(); const serrs = []; sp.on('pageerror', (e) => serrs.push(e.message));
+      await sp.goto(`${base}/admin#/wallet`); await sp.waitForFunction(() => document.body.innerText.toLowerCase().includes('are the books balanced'), null, { timeout: 10000 });
+      assert.strictEqual(await sp.locator('#wssave, #lcsave, #cpadd').count(), 0, 'no switches, settings or campaign forms');
+      await sp.fill('#wcid', String(ann.id)); await sp.click('#wcgo'); await sp.waitForSelector('#wcbox h4', { timeout: 8000 });
+      assert.strictEqual(await sp.locator('#adgo, #wfz').count(), 0, 'no adjust or freeze for a viewer');
+      await sp.goto(`${base}/admin#/cards`); await sp.waitForFunction(() => document.body.innerText.includes('Applications'), null, { timeout: 10000 });
+      assert.deepStrictEqual(serrs, []);
+      await sctx.close();
+    });
     await test('no script errors on the admin pages', async () => assert.deepStrictEqual(aerrs, []));
     await browser.close();
   } finally {

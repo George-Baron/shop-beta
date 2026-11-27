@@ -49,3 +49,17 @@ Set on Render: `FLUTTERWAVE_SECRET_KEY` (Flutterwave dashboard > Settings > API)
 How it stays safe: the wallet is credited only after our server asks Flutterwave (`verify_by_reference`) and the reference, NGN currency and amount match; the webhook only says "look at this reference". Repeats, retries and the customer's own return credit once (same idempotency key as Paystack). Used for top-ups only, not for orders or refunds.
 
 **Status: tested against a stand-in for Flutterwave, not the live service.** Before announcing it, make a real ₦100 top-up with Flutterwave and check the wallet is credited once and the books-balanced check is green.
+
+## Staff access to the wallet pages
+
+Employees get a new area, **Wallet & rewards**, in Employees & roles (role or custom permissions). New roles are not created for you; add the area to a role as needed (for example support or finance staff).
+
+| Who | Can do |
+|---|---|
+| Owner | Everything |
+| **Edit** on Wallet & rewards | Look at everything below, plus freeze or unfreeze a wallet, block a card, reject a referral |
+| **View** on Wallet & rewards | See the books check, money summary, a customer's wallet, rewards report, top-up list, suspicious items, card applications, wallet transactions CSV |
+| **View** on Finance | The money reports only (summary, wallet, sales, rewards, gateways, transactions CSV), not the wallet pages |
+| Owner only, always | Balance adjustments (money or points), wallet/rewards/card switches and limits, tiers, campaigns, points-expiry run |
+
+Every freeze, unfreeze and block is recorded with the staff member's name in the staff-actions log. Changing a person's permissions signs them out at once. Their menu shows Wallet & rewards and VELTO-MART CARD only when their role includes the area, and the owner-only controls are hidden for them.
