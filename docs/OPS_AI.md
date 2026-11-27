@@ -71,9 +71,17 @@ Autonomy is earned, not switched on. The AI starts in Monitor mode.
 - **Suggested rollout**: Monitor for a few days -> Assisted for everything for 1-2 weeks (decide each proposal) -> run the safeguard test -> accept limits and make Riders Controlled -> after a week add Couriers and Retail -> keep Procurement, Refunds and Import/export in Assisted until you trust them. Financial stays with people.
 - Tests: `npm run test:ops-autonomy:unit`, `npm run test:ops-autonomy`.
 
+## Returns and refunds (AI Operations > Returns)
+- The store's own returns module (`lib/returns.js`) still owns approve, reject and settle. The AI layer (`lib/ops/returns-ops.js`, rules in `returns-assess.js`) only reads and recommends.
+- **Assessment** per open return: approve in full, reject, ask for evidence (a reported fault with no photo), or "a person decides" (no store rule, odd reason, repeat returner with 3+ refunds in 90 days). It names the amount, the approval level the amount needs under the refund thresholds, whether a partner is responsible (seller faults only) and that stock goes back on sale only after a person inspects it. It invents no policy: for a change of mind on an opened item it says a person decides.
+- **Recorded** through the gateway as `refund.recommend` (level 0), once per distinct result, so the audit log shows what was advised and why. The monitor records one for every open return on each run. Nothing is approved, paid or restocked by the AI.
+- **Exceptions**: return unreviewed over 24 h (high after 72 h), waiting on the owner over 48 h, approved refund unpaid over 72 h, a settlement error, a settlement stuck over 15 min (check the gateway before retrying, never pay twice).
+- Limits: wholesale returns are not covered yet; no customer messages are sent (no email or messaging service connected).
+- Tests: `npm run test:ops-returns:unit`, `npm run test:ops-returns`.
+
 ## Not built yet
 - **Needs credentials or a connection you must provide:** live DHL / UPS / FedEx APIs (booking and tracking are done by staff today), an email or messaging service (the AI only drafts supplier and customer messages), a supplier research source for discovery.
-- **Not built:** supplier discovery and quotation requests, split / multi-location fulfilment, returns and refund orchestration (the store's returns module works; the AI layer does not drive it), stock transfers and goods receiving across warehouses, warehouse checks (cycle counts, stock ageing, expiry, dead stock, capacity), the structured operational knowledge store (section 21 of the spec), connection tests in the integrations centre, command-centre filters by branch, warehouse, supplier, product and delivery provider.
+- **Not built:** supplier discovery and quotation requests, split / multi-location fulfilment, wholesale returns in the AI layer, stock transfers and goods receiving across warehouses, warehouse checks (cycle counts, stock ageing, expiry, dead stock, capacity), the structured operational knowledge store (section 21 of the spec), connection tests in the integrations centre, command-centre filters by branch, warehouse, supplier, product and delivery provider.
 - **Store gaps:** web versus app orders are not distinguished; partner fulfilment confirmation and rider pay are not recorded.
 
 ## Tests

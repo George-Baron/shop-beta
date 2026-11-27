@@ -4716,7 +4716,7 @@ async function importWizard() {
 }
 
 /* ---------------- VELTO AI Operations Command Centre (/admin#/opsai) ---------------- */
-const OPS = { tab: 'centre', ptab: 'requests', cmp: null, chat: null, msgs: [], f: { channel: '' }, sev: 'active', ast: '', lg: { order: '', weight: '' }, tr: { dir: '', open: null }, rp: { open: null, kind: '' }, ins: { days: 30 }, of: { channel: '', late: '' }, ow: null };
+const OPS = { tab: 'centre', rt: { open: null }, ptab: 'requests', cmp: null, chat: null, msgs: [], f: { channel: '' }, sev: 'active', ast: '', lg: { order: '', weight: '' }, tr: { dir: '', open: null }, rp: { open: null, kind: '' }, ins: { days: 30 }, of: { channel: '', late: '' }, ow: null };
 const OPSBASE = '/api/admin/ops-ai';
 const opsT = (t) => (t ? new Date(t * 1000).toLocaleString('en-GB', { timeZone: 'Africa/Lagos', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
 const opsStatus = { done: ['Done', 'ok'], recommended: ['Recommended (nothing changed)', ''], pending_approval: ['Waiting for approval', 'pending'], blocked: ['Blocked', 'bad'], failed: ['Failed', 'bad'], read: ['Looked up', ''] };
@@ -4726,7 +4726,7 @@ const opsStat = (l, v, s = '') => `<div class="stat"><div class="l">${e(l)}</div
 const opsSev = { critical: 'bad', high: 'bad', medium: 'pending', low: '', info: '' };
 
 views.opsai = async () => {
-  const tabs = [['centre', 'Command Centre'], ['assistant', 'Assistant'], ['orders', 'Orders'], ['logistics', 'Logistics'], ['trade', 'Import / export'], ['insights', 'Insights'], ['reports', 'Reports'], ['procurement', 'Procurement'], ['approvals', 'Approvals'], ['exceptions', 'Exceptions'], ['audit', 'Audit log'], ['golive', 'Go-live'], ['settings', 'Settings & agents']];
+  const tabs = [['centre', 'Command Centre'], ['assistant', 'Assistant'], ['orders', 'Orders'], ['logistics', 'Logistics'], ['trade', 'Import / export'], ['returns', 'Returns'], ['insights', 'Insights'], ['reports', 'Reports'], ['procurement', 'Procurement'], ['approvals', 'Approvals'], ['exceptions', 'Exceptions'], ['audit', 'Audit log'], ['golive', 'Go-live'], ['settings', 'Settings & agents']];
   const meOps = await api(OPSBASE + '/me');
   let body = '';
   if (OPS.tab === 'centre') {
@@ -4778,6 +4778,12 @@ views.opsai = async () => {
       <h4>Linked to</h4>${dt.links.map((l) => `<div>${e(l.kind.replace('_', ' '))} ${e(l.label || l.ref_id)}</div>`).join('') || '<div class="mu">Nothing yet.</div>'}<div class="tbar"><select id="otr-lk"><option value="order">Order</option><option value="wholesale">Wholesale order</option><option value="purchase_order">Purchase order</option></select> <input id="otr-lid" placeholder="Id"> <button class="btn sm" data-trl="${dt.shipment.id}">Link</button></div>
       ${dt.landed_cost ? `<h4>Landed cost (estimate)</h4><div class="mu">${e(dt.landed_cost.basis)}${dt.landed_cost.gaps.length ? ' Missing: ' + e(dt.landed_cost.gaps.join(', ')) + '.' : ''}</div>` : ''}
       <h4>Recent events</h4>${dt.events.slice(0, 8).map((v) => `<div>${opsT(Number(v.created))} · ${e(v.kind)} · ${e(v.note)} <span class="mu">${e(v.actor)}</span></div>`).join('') || '<div class="mu">None.</div>'}</div>` : ''}`;
+  } else if (OPS.tab === 'returns') {
+    const rb = await api(OPSBASE + '/returns'), one = OPS.rt && OPS.rt.open ? await api(OPSBASE + '/returns/' + OPS.rt.open).catch(() => null) : null;
+    const act = { approve_full: 'Approve', reject: 'Reject', ask_evidence: 'Ask for evidence', needs_decision: 'Person decides' };
+    body = `<p class="mu">The AI reads each open return and recommends. It never approves, rejects or pays a refund and never puts stock back on sale: people do that in Returns, at the approval level the amount needs. ${rb.open} open, ${rb.late} late.</p>
+    <div class="panel"><div class="tw"><table class="t"><tr><th>Return</th><th>Order</th><th>Status</th><th>Waiting</th><th>Requested</th><th>AI recommendation</th></tr>${rb.returns.map((r) => `<tr><td><a href="#" data-rto="${r.id}"><b>${e(r.ref)}</b></a><div class="mu">${e(r.customer || '')}</div></td><td>${e(r.order_ref || '')}</td><td>${e(r.status.replace('_', ' '))}${r.late ? ' <span class="pill">late</span>' : ''}${r.error ? '<div class="mu">' + e(r.error) + '</div>' : ''}</td><td>${r.waiting_hours == null ? '' : r.waiting_hours + ' h'}</td><td>₦${r.requested_ngn.toLocaleString()}</td><td>${r.recommendation ? e(act[r.recommendation.action] || '') + (r.recommendation.amount_ngn ? ' ₦' + r.recommendation.amount_ngn.toLocaleString() : '') + '<div class="mu">' + e(r.recommendation.approver) + '</div>' : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="mu">No open returns.</td></tr>'}</table></div></div>
+    ${one ? `<div class="panel"><b>${e(one.return.ref)}</b> · ${e(one.assessment.summary)}<ul>${one.assessment.reasons.map((x) => `<li>${e(x)}</li>`).join('')}${one.assessment.flags.map((x) => `<li><b>Check:</b> ${e(x)}</li>`).join('')}${one.assessment.evidence_missing.map((x) => `<li><b>Missing:</b> ${e(x)}</li>`).join('')}</ul><p class="mu">Approval needed from: ${e(one.assessment.approver)}. Stock: ${one.assessment.restock === 'inspect_then_restock' ? 'put back only after a person inspects it' : 'do not restock until a person inspects it'}. ${one.assessment.supplier_responsibility.charge_vendor ? 'Partner responsible: ' + e(one.assessment.supplier_responsibility.vendors.map((v) => v.name + ' ₦' + v.amount.toLocaleString()).join(', ')) + '.' : ''}</p><button class="btn sm" data-rta="${one.return.id}">Record this recommendation</button></div>` : ''}`;
   } else if (OPS.tab === 'insights') {
     const [fc, sc, pf, rk, pe] = await Promise.all([api(OPSBASE + '/intel/forecast?limit=25'), api(OPSBASE + '/intel/suppliers'), api(OPSBASE + '/intel/profitability'), api(OPSBASE + '/intel/at-risk'), api(OPSBASE + '/intel/performance?days=' + OPS.ins.days)]);
     const m = (x) => '₦' + Math.round(x).toLocaleString('en-NG'), pc = (x) => x == null ? '—' : x + '%';
@@ -4924,6 +4930,8 @@ views.opsai = async () => {
       await api(OPSBASE + '/settings', { method: 'PUT', body: { ...body, _override_reason: r } });
     }
     toast('Saved'); route(); });
+  onAll('[data-rto]', 'click', (el, ev) => { ev && ev.preventDefault && ev.preventDefault(); OPS.rt.open = el.dataset.rto; route(); });
+  onAll('[data-rta]', 'click', async (el) => { const r = await api(OPSBASE + '/returns/' + el.dataset.rta + '/assess', { body: {} }); toast(r.recorded ? 'Recommendation recorded' : 'Already recorded'); route(); });
   on('#glpause', 'click', async () => { const r = prompt('Why pause? (optional)') ; if (r === null) return; await api(OPSBASE + '/autonomy/pause', { body: { reason: r } }); toast('Autonomy paused'); route(); });
   on('#glresume', 'click', async () => { const r = prompt('What was fixed? (kept in the log)'); if (r === null) return; await api(OPSBASE + '/autonomy/resume', { body: { reason: r } }); toast('Autonomy resumed'); route(); });
   on('#glsafe', 'click', async () => { const r = await api(OPSBASE + '/autonomy/safeguards', { body: {} }); toast(r.ok ? 'Safeguard test passed' : 'Safeguard test FAILED'); route(); });
