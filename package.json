@@ -90,7 +90,9 @@
     "test:ops-autonomy:unit": "node test/ops-autonomy-unit.js",
     "test:ops-autonomy": "node test/ops-autonomy.js",
     "test:ops-returns:unit": "node test/ops-returns-unit.js",
-    "test:ops-returns": "node test/ops-returns.js"
+    "test:ops-returns": "node test/ops-returns.js",
+    "test:ops-gaps:unit": "node test/ops-gaps-unit.js",
+    "test:ops-gaps": "node test/ops-gaps.js"
   },
   "dependencies": {
     "compression": "^1.8.2",

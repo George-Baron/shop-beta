@@ -37,7 +37,7 @@ router.post('/logistics/providers/:id/status', ah(async (req, res) => { if (owne
 router.post('/logistics/providers/:id/rates', ah(async (req, res) => res.json({ id: await LG.addRate(req.user, req.params.id, req.body || {}) })));
 router.get('/logistics/compare', ah(async (req, res) => res.json(await LG.compareForOrder(req.query.order_id, { weight_kg: req.query.weight_kg }))));
 router.post('/logistics/shipments', ah(async (req, res) => { const b = req.body || {}; res.json(await LG.requestBooking({ agent: 'logistics', user: req.user, requestedByUser: true }, { order_id: b.order_id, rate_id: b.rate_id, weight_kg: b.weight_kg, justification: b.justification })); }));
-router.get('/logistics/shipments', ah(async (req, res) => res.json({ shipments: await LG.listShipments({ status: String(req.query.status || ''), open: req.query.open === '1' }) })));
+router.get('/logistics/shipments', ah(async (req, res) => res.json({ shipments: await LG.listShipments({ status: String(req.query.status || ''), open: req.query.open === '1', provider: String(req.query.provider || '') }) })));
 router.get('/logistics/shipments/:id', ah(async (req, res) => { const s = await LG.getShipment(req.params.id); if (!s) return res.status(404).json({ error: 'Shipment not found.' }); res.json(s); }));
 router.post('/logistics/shipments/:id/booking', ah(async (req, res) => res.json(await LG.recordBooking(req.user, req.params.id, req.body || {}))));
 router.post('/logistics/shipments/:id/events', ah(async (req, res) => res.json(await LG.addEvent(req.user, req.params.id, req.body || {}))));
@@ -156,19 +156,30 @@ router.post('/procurement/purchase-orders/:id/status', ah(async (req, res) => { 
 router.post('/procurement/purchase-orders/:id/receipt', ah(async (req, res) => { await PC.recordReceipt(req.user, req.params.id, req.body || {}); res.json({ ok: true }); }));
 router.get('/procurement/purchase-orders/:id/pdf', ah(async (req, res) => { const buf = await PC.poPdf(req.params.id); res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="purchase-order-${int(req.params.id)}.pdf"`, 'Cache-Control': 'private, no-store' }); res.send(buf); }));
 
-/* ---- integrations: honest status. Nothing is claimed as connected unless the store itself shows it is. ---- */
-router.get('/integrations', ah(async (req, res) => {
-  const env = (k) => !!process.env[k];
-  res.json({ integrations: [
-    { key: 'database', name: 'VELTO-MART database', status: 'connected', detail: 'Orders, stock, riders, suppliers and trade records are read directly.' },
-    { key: 'llm', name: 'AI model (assistant)', status: As.enabled() ? 'configured' : 'not_configured', detail: As.enabled() ? 'API key present. Not live-tested here.' : 'Set ANTHROPIC_API_KEY to switch on natural-language instructions.' },
-    { key: 'riders', name: 'Rider dispatch and GPS', status: 'connected', detail: 'Existing rider engine; its own manual/recommend/auto setting is respected.' },
-    { key: 'fx', name: 'Exchange rates', status: env('FX_FEED_URL') || env('FX_API_KEY') ? 'configured' : 'manual', detail: 'Foreign amounts without a recorded rate are treated as unknown value (highest approval level).' },
-    { key: 'dhl', name: 'DHL', status: 'not_connected', detail: 'No courier API is connected. Rates and tracking updates are recorded by staff (Logistics tab). Not claimed as connected until credentials are tested.' },
-    { key: 'ups', name: 'UPS', status: 'not_connected', detail: 'No courier API is connected. Staff record rates and tracking.' },
-    { key: 'fedex', name: 'FedEx', status: 'not_connected', detail: 'No courier API is connected. Staff record rates and tracking.' },
-    { key: 'email', name: 'Supplier email', status: 'not_connected', detail: 'AI does not email suppliers yet (planned: procurement phase).' },
-  ] });
-}));
+/* ---- knowledge, quotation requests, warehouse and transfers, integrations ---- */
+const KN = require('../lib/ops/knowledge'), RF = require('../lib/ops/rfq'), WO = require('../lib/ops/warehouse-ops'), INT = require('../lib/ops/integrations');
+router.get('/knowledge', ah(async (req, res) => res.json(await KN.search({ q: req.query.q, category: req.query.category, subject_type: req.query.subject_type, subject_ref: req.query.subject_ref, include_old: req.query.old === '1' }))));
+router.post('/knowledge', ah(async (req, res) => res.json({ note: await KN.add(req.user, req.body || {}) })));
+router.put('/knowledge/:id', ah(async (req, res) => res.json({ note: await KN.update(req.user, req.params.id, req.body || {}) })));
+router.get('/price-history', ah(async (req, res) => res.json({ quotations: await KN.priceHistory({ vendor_id: req.query.vendor_id, product_id: req.query.product_id }) })));
+
+router.get('/rfq', ah(async (req, res) => res.json({ rfqs: await RF.list(req.query.request_id) })));
+router.get('/rfq/candidates/:requestId', ah(async (req, res) => res.json(await RF.candidates(req.params.requestId))));
+router.post('/rfq', ah(async (req, res) => res.json({ rfq: await RF.draft((req.body || {}).request_id, (req.body || {}).vendor_id, who(req)) })));
+router.post('/rfq/:id/send', ah(async (req, res) => res.json(await G.perform({ agent: 'procurement', user: req.user }, 'supplier.enquiry', { related_type: 'rfq', related_id: String(req.params.id), summary: 'Send quotation request', payload: { rfq_id: Number(req.params.id) } }))));
+router.post('/rfq/:id/followup', ah(async (req, res) => res.json(await G.perform({ agent: 'procurement', user: req.user }, 'supplier.followup', { related_type: 'rfq', related_id: String(req.params.id), summary: 'Send quotation reminder', payload: { rfq_id: Number(req.params.id) } }))));
+router.post('/rfq/:id/mark-sent', ah(async (req, res) => res.json({ rfq: await RF.markSent(req.params.id, who(req)) })));
+router.post('/rfq/:id/cancel', ah(async (req, res) => res.json({ rfq: await RF.cancel(req.params.id) })));
+
+router.get('/warehouse/check', ah(async (req, res) => res.json(await WO.check())));
+router.get('/warehouse/suggestions', ah(async (req, res) => res.json(await WO.suggest())));
+router.get('/warehouse/transfers', ah(async (req, res) => res.json({ transfers: await WO.listTransfers(String(req.query.status || '')) })));
+router.post('/warehouse/transfers', ah(async (req, res) => { const b = req.body || {}, special = b.kind !== 'wholesale_to_wholesale'; res.json(await G.perform({ agent: 'inventory', user: req.user }, special ? 'stock.transfer_special' : 'stock.transfer_request', { related_type: 'product', related_id: String(b.product_id || ''), summary: `Stock transfer request (${String(b.kind || '').replace(/_/g, ' ')})`, payload: { ...b, by_user: true } })); }));
+router.post('/warehouse/transfers/:id/close', ah(async (req, res) => res.json({ transfer: await WO.completeTransfer(req.user, req.params.id, req.body || {}) })));
+router.get('/fulfilment-plan/:quoteId', ah(async (req, res) => res.json(await WO.planForQuote(req.params.quoteId))));
+
+/* ---- integrations: a service shows as connected only after a real test call succeeded ---- */
+router.get('/integrations', ah(async (req, res) => res.json({ integrations: await INT.status() })));
+router.post('/integrations/:key/test', ah(async (req, res) => { owner(req); res.json(await INT.test(req.params.key, who(req))); }));
 
 module.exports = router;
