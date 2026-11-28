@@ -111,6 +111,14 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
       assert.strictEqual((await q('SELECT status FROM wallet_funding WHERE ref=$1', [b.ref]))[0].status, 'failed');
       assert.strictEqual((await bal(fwu)).available_balance, before);
     });
+    await test('staff alerts: a mismatching top-up and a very large top-up notify the people who can see the wallet pages', async () => {
+      const n = async (like) => Number((await q("SELECT COUNT(*) n FROM notifications WHERE title LIKE $1", [like]))[0].n);
+      assert.ok(await n('Wallet top-up WF-% needs checking') >= 1, 'mismatch alert (from the test above)');
+      const r = await fwFund(fwu, 600000); fx.fwStatus[r.ref] = 'successful'; await call('GET', '/api/wallet/fund/' + r.ref, null, fwu.cookie);
+      assert.ok(await n('Large wallet top-up: %600,000') >= 1, 'large top-up alert');
+      const small = await n('Large wallet top-up%'), r2 = await fwFund(fwu, 2000); fx.fwStatus[r2.ref] = 'successful'; await call('GET', '/api/wallet/fund/' + r2.ref, null, fwu.cookie);
+      assert.strictEqual(await n('Large wallet top-up%'), small, 'ordinary top-ups do not alert');
+    });
     await test('Flutterwave: someone else cannot confirm my top-up, and an unknown gateway name falls back to Paystack', async () => {
       const r = await fwFund(fwu, 1000); assert.strictEqual((await call('GET', '/api/wallet/fund/' + r.ref, null, ann.cookie)).s, 404);
       const u = await call('POST', '/api/wallet/fund', { amount: 1000, gateway: 'nonsense' }, fwu.cookie); assert.strictEqual(u.j.gateway, 'paystack');
