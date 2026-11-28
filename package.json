@@ -78,6 +78,7 @@
     "test:return-photos": "node --disable-warning=ExperimentalWarning test/return-photos.js",
     "test:returns": "node --disable-warning=ExperimentalWarning test/returns.js",
     "test:roles": "node --disable-warning=ExperimentalWarning test/roles.js",
+    "test:push": "node --disable-warning=ExperimentalWarning test/push.js",
     "test:catalog-photos": "node test/catalog-photos.js",
     "test:catalog": "node --disable-warning=ExperimentalWarning test/catalog-io.js",
     "test:riders": "node --disable-warning=ExperimentalWarning test/riders.js",
@@ -103,7 +104,8 @@
     "fflate": "^0.8.3",
     "leaflet": "^1.9.4",
     "pdfkit": "^0.20.2",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "web-push": "^3.6.7"
   },
   "overrides": {
     "uuid": "^11.1.1"

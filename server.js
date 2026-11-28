@@ -133,6 +133,8 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
 /* ---------- robots & sitemap ---------- */
 // robots.txt, sitemaps, the Merchant Center feed and Search Console file verification live in lib/seo.js.
+// The service worker that shows push alerts. It must be served from the site root and never cached for long.
+app.get('/sw.js', (req, res) => res.set({ 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/', 'X-Content-Type-Options': 'nosniff' }).sendFile(path.join(__dirname, 'views', 'sw.js')));
 app.get('/robots.txt', (req, res) => res.set('Cache-Control', 'public, max-age=3600').type('text/plain').send(SEO.robotsTxt()));
 app.get('/sitemap.xml', ah(SEO.sitemapHandler));
 app.get(/^\/sitemap-(\d+)\.xml$/, ah(SEO.sitemapPartHandler));          // only exists once the catalogue is too big for one sitemap (then /sitemap.xml is an index)
