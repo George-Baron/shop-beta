@@ -217,7 +217,10 @@ const locs = (xml) => [...xml.matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => m[1].
     assert.ok(!JSON.stringify(d).includes(GSC), 'the verification token itself is never shown'); assert.ok(!/indexed:/i.test(JSON.stringify(Object.keys(d))), 'no indexing claims');
   });
   await test('the dashboard page script has the SEO section and the page loads', async () => {
-    const h = (await call('GET', '/admin')).t; assert.match(h, /views\.seo = async/); assert.match(h, /\['seo', '🔎', 'SEO'\]/);
+    let h = (await call('GET', '/admin')).t;
+    // the page script is served as a hashed file under /assets/ (not inline), so read it from there
+    for (const m of h.matchAll(/src="(\/assets\/[^"]+\.js)"/g)) h += '\n' + (await call('GET', m[1])).t;
+    assert.match(h, /views\.seo = async/); assert.match(h, /\['seo', '🔎', 'SEO'\]/);
   });
 
   console.log('\nDomain safety');

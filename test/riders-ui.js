@@ -120,7 +120,8 @@ const SHOTS = process.env.SHOTS_DIR || os.tmpdir();
     await rp.fill('.codein', '000000'); await rp.click('[data-act="complete"]'); await txt(rp, 'wrong', 8000).catch(() => {});
     await rp.fill('.codein', code); await rp.click('[data-act="complete"]');
     await until(async () => (await q("SELECT status FROM orders WHERE id=$1", [order.id]))[0].status === 'delivered', 15000);
-    const pr = (await q('SELECT otp_verified FROM delivery_proofs'))[0]; assert.strictEqual(pr.otp_verified, 1);
+    // the status flips just before the proof row can be read, so wait for it instead of reading at once (this was an occasional failure)
+    const pr = await until(async () => (await q('SELECT otp_verified FROM delivery_proofs'))[0], 10000); assert.strictEqual(pr.otp_verified, 1);
   });
   await test('the customer sees the star form on the delivered order and rating it is saved', async () => {
     const cctx = await browser.newContext({ viewport: { width: 390, height: 800 } }), cp = await cctx.newPage();

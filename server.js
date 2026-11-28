@@ -28,7 +28,7 @@ const worker = require('./lib/worker');
 const { esc, BASE_URL, getSettings, parseImages, naira } = S;
 const app = express();
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-// gzip pages and JSON (level 1: nearly the same size, several times less CPU). Pages carry a per-visitor security nonce, so they cannot be compressed once and reused;
+// gzip pages and JSON (level 1: nearly the same size, several times less CPU). The page itself is now a tiny shell and the big script and style files are compressed once at start-up (lib/assets.js);
 // when the request comes through Cloudflare (it adds cf-ray) we send pages uncompressed and let Cloudflare compress them at the edge, which saves a lot of CPU.
 app.use(compression({ threshold: 1024, level: 1, filter: (req, res) => !(req.headers['cf-ray'] && /text\/html/.test(String(res.getHeader('Content-Type') || ''))) && compression.filter(req, res) }));
 app.disable('x-powered-by');
@@ -38,6 +38,7 @@ app.use((req, res, next) => { req.clientIp = require('./lib/clientip').clientIp(
 const INSTANCE = process.env.INSTANCE_ID || process.env.RENDER_INSTANCE_ID || require('os').hostname();
 app.use((req, res, next) => { res.setHeader('X-Instance', INSTANCE); next(); }); // lets tests and load balancers see which instance answered
 app.use(log.requestLogger); // request id on every response and one log line per request
+app.use(require('./lib/overload').middleware); // when far too busy, new browsing requests get a polite 503 instead of running the server out of memory
 
 /* ---------- first admin from environment variables (optional) ---------- */
 async function bootstrapAdmin() {
@@ -84,9 +85,10 @@ if (storage.DRIVER === 'local') {
 
 /* ---------- health (for uptime checks and the load balancer) ---------- */
 // Deliberately tiny and public: only "the app is up and can reach the database". Details (queue, backups) are in Admin > Status.
-app.get('/health', async (req, res) => {
-  try { await Promise.race([health(), new Promise((_, rej) => setTimeout(() => rej(new Error('database timeout')), 4000))]); res.set('Cache-Control', 'no-store').json({ ok: true }); }
-  catch (e) { log.error('health check failed', { err: e }); res.status(503).set('Cache-Control', 'no-store').json({ ok: false }); }
+const healthy = require('./lib/overload').healthProbe(health);   // the database is checked in the background, so this answer never waits behind customers
+app.get('/health', (req, res) => {
+  if (healthy()) return res.set('Cache-Control', 'no-store').json({ ok: true });
+  res.status(503).set('Cache-Control', 'no-store').json({ ok: false });
 });
 
 /* ---------- API ---------- */
@@ -138,13 +140,16 @@ app.get('/feed/google-merchant.xml', ah(SEO.feedHandler));
 app.get(/^\/(google[a-z0-9]+\.html)$/, SEO.verificationFile);           // Search Console HTML-file check; answers only for the file named in GOOGLE_VERIFICATION_FILE
 
 /* ---------- pages (one HTML shell, filled in per URL for search engines and link previews) ---------- */
-const TEMPLATE = fs.readFileSync(path.join(__dirname, 'views', 'index.html'), 'utf8');
+// The big inline script and style blocks are moved out into hashed, pre-compressed files (see lib/assets.js), so the page itself is a tiny shell.
+const ASSETS = require('./lib/assets').build(fs.readFileSync(path.join(__dirname, 'views', 'index.html'), 'utf8'));
+const TEMPLATE = ASSETS.shell;
+app.get('/assets/:name', require('./lib/assets').handler(ASSETS.files));
 const PAGES = { about: 'About us', faq: 'Frequently asked questions', shipping: 'Shipping & Returns', privacy: 'Privacy policy', terms: 'Terms of service', contact: 'Contact us' };
 const NOINDEX = new Set(['rider', 'pharmacist', 'partner', 'supplier', 'wholesale', 'checkout', 'order', 'account', 'login', 'register', 'forgot', 'wishlist', 'track', 'admin']);
 const absUrl = (u) => (!u ? '' : /^https?:\/\//.test(u) ? u : BASE_URL + u);
 
-function pixelSnippet(id, nonce) {
-  return `<script nonce="${nonce}">!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${id}');</script>`;
+function pixelScript(id) {
+  return `!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${id}');`;
 }
 
 async function describe(req) {
@@ -241,7 +246,7 @@ async function describe(req) {
 }
 
 // The page head (title, description, structured data, plain-text body for search engines) is the same for everyone, so it is kept for 30 seconds.
-// Only successful pages are kept, so a flood of made-up addresses cannot fill the cache with 404s. The per-request nonce below is never cached.
+// Only successful pages are kept, so a flood of made-up addresses cannot fill the cache with 404s.
 // Only the parameters that change the page are part of the key, so tracking parameters (utm_source...) cannot multiply cache entries.
 const DESCRIBE_KEYS = ['store', ...SEO.FILTER_KEYS];
 const FILTERED = (query) => SEO.FILTER_KEYS.some((k) => query[k] !== undefined && String(query[k]) !== '');
@@ -251,19 +256,26 @@ const describeCached = (req) => {
   return cache.cached(key, 30000, () => describe(req), (d) => d.status === 200);
 };
 
-app.get(/^\/(?!api\/|uploads\/|health).*/, ah(async (req, res) => {
+// The Meta pixel start-up snippet, served as a small file (instead of inline in every page) so the page needs no per-visitor nonce.
+app.get('/px/:id.js', (req, res) => {
+  if (!/^[A-Za-z0-9_-]{1,40}$/.test(req.params.id)) return res.status(404).end();
+  res.set({ 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=3600', 'X-Content-Type-Options': 'nosniff' }).send(pixelScript(req.params.id));
+});
+
+app.get(/^\/(?!api\/|uploads\/|assets\/|px\/|health).*/, ah(async (req, res) => {
   const d = await describeCached(req);
-  const nonce = crypto.randomBytes(16).toString('base64');
   if (!d.noindex && SEO.onTemporaryHost(req)) { d.noindex = true; d.robots = 'noindex,nofollow'; } // the temporary Render address must not compete with the real domain
-  const tags = [SEO.headTags(d), d.S.meta_pixel_id && /^[A-Za-z0-9_-]+$/.test(d.S.meta_pixel_id) ? pixelSnippet(d.S.meta_pixel_id, nonce) : ''].join('\n');
+  const tags = [SEO.headTags(d), d.S.meta_pixel_id && /^[A-Za-z0-9_-]+$/.test(d.S.meta_pixel_id) ? `<script src="/px/${d.S.meta_pixel_id}.js"></script>` : ''].join('\n');
   // Public pages carry their text links inside the page itself (the script replaces them when it starts); private pages keep theirs in <noscript> only.
-  const html = TEMPLATE.replace(/<script>/g, `<script nonce="${nonce}">`)
+  const html = TEMPLATE
     .replace('<!--HTMLATTR-->', d.store && /^[a-z0-9-]+$/.test(d.store) ? ` data-store="${d.store}"` : '')
     .replace('<!--SEO-->', () => tags).replace('<!--SEOBODY-->', () => (d.noindex ? '' : `<div class="seo-static">${d.body}</div>`)).replace('<!--PRERENDER-->', () => (d.noindex ? d.body : ''));
   res.status(d.status).set({
-    'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache', ...(d.noindex ? { 'X-Robots-Tag': d.robots || 'noindex,nofollow' } : {}),
+    'Content-Type': 'text/html; charset=utf-8', ...(d.noindex ? { 'X-Robots-Tag': d.robots || 'noindex,nofollow' } : {}),
+    // The shell is the same for every visitor (the shop fills itself in from the API), so Cloudflare or any shared cache may keep it for a minute. Pages that are not meant for search engines (admin, account, checkout...) are never shared.
+    'Cache-Control': d.status === 200 && !d.noindex ? 'public, max-age=0, s-maxage=60, stale-while-revalidate=300' : 'no-cache',
     'Content-Security-Policy': [
-      "default-src 'self'", `script-src 'nonce-${nonce}' https://www.googletagmanager.com https://connect.facebook.net`,
+      "default-src 'self'", "script-src 'self' https://www.googletagmanager.com https://connect.facebook.net",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", 'font-src https://fonts.gstatic.com', "img-src 'self' data: https:",
       "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com https://www.facebook.com https://connect.facebook.net",
       "form-action 'self'", "frame-ancestors 'none'", "base-uri 'self'", "object-src 'none'",
@@ -277,6 +289,12 @@ app.use((err, req, res, next) => {
   if (err instanceof S.HttpError) return res.status(err.status).json({ error: err.message });
   if (err && err.type === 'entity.parse.failed') return res.status(400).json({ error: 'That request was not understood.' });
   if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'That upload is too large.' });
+  // Every database connection was busy for too long (a flood of orders): not a bug and not the customer's fault. Say "busy, try again" so the page retries by itself.
+  // Safe for checkout: a retry carries the same Idempotency-Key, so an order that did get created is returned, never doubled.
+  if (err && /timeout exceeded when trying to connect/.test(String(err.message))) {
+    log.warn('database connections exhausted', { id: req.id, method: req.method, path: String(req.originalUrl || '').split('?')[0] });
+    return res.status(503).set({ 'Retry-After': String(2 + Math.floor(Math.random() * 4)), 'Cache-Control': 'no-store' }).json({ error: 'We are very busy right now. Please try again in a few seconds.', code: 'busy', requestId: req.id });
+  }
   log.error('unhandled error', { id: req.id, method: req.method, path: String(req.originalUrl || '').split('?')[0], err });
   require('./lib/errors').record(err, { source: 'request', route: `${req.method} ${req.route && req.route.path ? req.baseUrl + req.route.path : String(req.path).replace(/\d+/g, ':n')}`, status: 500 });
   res.status(500).json({ error: 'Something went wrong on our side. Please try again.', requestId: req.id });
@@ -296,6 +314,7 @@ let server;
   await bootstrapAdmin();
   cache.watch(); // notice edits made on other instances
   server = app.listen(PORT, process.env.HOST || '0.0.0.0', async () => {
+    require('./lib/overload').configureServer(server);
     console.log(`\nVELTO-MART is running at ${BASE_URL}`);
     const hasAdmin = await get("SELECT 1 x FROM users WHERE role='admin'").catch(() => null);
     console.log(`Admin dashboard:   ${BASE_URL}/admin${hasAdmin ? '' : '   (open it now to create your admin account)'}`);

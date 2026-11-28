@@ -88,6 +88,7 @@
     "test:dropship-money": "node --disable-warning=ExperimentalWarning test/dropship-money.js",
     "test:seo": "node --disable-warning=ExperimentalWarning test/seo.js",
     "test:supplier-portal": "node --disable-warning=ExperimentalWarning test/supplier-portal.js",
+    "test:overload": "node --disable-warning=ExperimentalWarning test/overload.js",
     "test:ops-autonomy:unit": "node test/ops-autonomy-unit.js",
     "test:ops-autonomy": "node test/ops-autonomy.js",
     "test:ops-returns:unit": "node test/ops-returns-unit.js",
