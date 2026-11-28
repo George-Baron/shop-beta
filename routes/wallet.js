@@ -13,6 +13,7 @@ const customer = express.Router();
 customer.use(A.requireUser);
 customer.get('/', ah(async (req, res) => { res.set('Cache-Control', 'no-store'); res.json(await W.overview(req.user)); }));
 customer.get('/transactions', ah(async (req, res) => { res.set('Cache-Control', 'no-store'); res.json(await W.history(req.user, req.query)); }));
+customer.get('/statement.pdf', ah(async (req, res) => { const m = String(req.query.month || ''); const pdf = await W.statementPdf(req.user, m); res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="velto-wallet-${m}.pdf"`, 'Cache-Control': 'no-store' }).send(pdf); }));
 customer.get('/statement.csv', ah(async (req, res) => { res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="velto-wallet-statement.csv"', 'Cache-Control': 'no-store' }); res.send(await W.statement(req.user, req.query)); }));
 // Shows what the wallet would cover before the customer confirms. Display only; nothing is held or charged.
 customer.post('/preview', A.limiter('wallet-preview', 60, 600000), ah(async (req, res) => res.json(await W.preview(req.user, req.body || {}))));

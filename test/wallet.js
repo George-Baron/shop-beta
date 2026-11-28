@@ -119,6 +119,15 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
       const small = await n('Large wallet top-up%'), r2 = await fwFund(fwu, 2000); fx.fwStatus[r2.ref] = 'successful'; await call('GET', '/api/wallet/fund/' + r2.ref, null, fwu.cookie);
       assert.strictEqual(await n('Large wallet top-up%'), small, 'ordinary top-ups do not alert');
     });
+    await test('monthly PDF statement: opening and closing balances tie to the ledger, only my own entries, bad requests refused', async () => {
+      const mon = new Date(Date.now() + 3600e3).toISOString().slice(0, 7), N = (n) => 'N' + Number(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const r = await call('GET', '/api/wallet/statement.pdf?month=' + mon, null, fwu.cookie); assert.strictEqual(r.s, 200); assert.ok(r.t.startsWith('%PDF-1.4'));
+      const last = (await q('SELECT ref, balance_after FROM wallet_txns WHERE user_id=$1 ORDER BY id DESC LIMIT 1', [fwu.id]))[0], bal = Number(last.balance_after) / 100;
+      assert.ok(r.t.includes('Closing balance: ' + N(bal)), 'closing balance ' + N(bal) + ' in ' + (r.t.match(/Closing balance[^)]*/) || [''])[0]); assert.ok(r.t.includes(last.ref.slice(0, 14)), 'latest entry listed'); assert.ok(r.t.includes('Opening balance: N0.00'), 'new wallet opens at zero');
+      const old = await call('GET', '/api/wallet/statement.pdf?month=2020-01', null, fwu.cookie); assert.ok(old.t.includes('No wallet activity') && old.t.includes('Closing balance: N0.00'));
+      const other = await call('GET', '/api/wallet/statement.pdf?month=' + mon, null, ann.cookie); assert.ok(!other.t.includes(last.ref.slice(0, 14)), 'never shows another customer\'s entries');
+      assert.strictEqual((await call('GET', '/api/wallet/statement.pdf?month=2026-13', null, fwu.cookie)).s, 400); assert.strictEqual((await call('GET', '/api/wallet/statement.pdf?month=2026-11')).s, 401);
+    });
     await test('Flutterwave: someone else cannot confirm my top-up, and an unknown gateway name falls back to Paystack', async () => {
       const r = await fwFund(fwu, 1000); assert.strictEqual((await call('GET', '/api/wallet/fund/' + r.ref, null, ann.cookie)).s, 404);
       const u = await call('POST', '/api/wallet/fund', { amount: 1000, gateway: 'nonsense' }, fwu.cookie); assert.strictEqual(u.j.gateway, 'paystack');
