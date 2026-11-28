@@ -87,6 +87,21 @@ const bal = async (u) => (await call('GET', '/api/wallet', null, u.cookie)).j;
       await ap.click('#bcg'); await ap.waitForFunction(() => document.body.innerText.includes('Paste Test Aisle'), null, { timeout: 8000 });
       assert.strictEqual(Number((await q("SELECT COUNT(*) n FROM categories WHERE name IN ('Paste Test Aisle','Flour, Sugar & Paste Test')"))[0].n), 2);
     });
+    await test('owner can edit a tier and edit and switch off a campaign from the page', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const c = await call('POST', '/api/admin/loyalty/campaigns', { name: 'Weekend double', kind: 'multiplier', multiplier_pct: 200, starts: now - 3600, ends: now + 86400, description: 'old text' }, admin); assert.strictEqual(c.s, 200, c.t);
+      await ap.goto(`${base}/admin#/wallet`); await ap.waitForSelector('[data-tsave="Gold"]', { timeout: 10000 });
+      await ap.fill('[data-t="Gold"][data-k="multiplier_pct"]', '175'); await ap.fill('[data-t="Gold"][data-k="benefits"]', 'Free delivery on Fridays'); await ap.click('[data-tsave="Gold"]');
+      await ap.waitForFunction(() => document.body.innerText.includes('Gold saved'), null, { timeout: 8000 });
+      const cfg = (await call('GET', '/api/admin/loyalty/config', null, admin)).j.tiers.find((t) => t.name === 'Gold'); assert.strictEqual(Number(cfg.multiplier_pct), 175); assert.strictEqual(cfg.benefits, 'Free delivery on Fridays');
+      await ap.click(`[data-cedit="${c.j.campaign.id}"]`); assert.strictEqual(await ap.inputValue('#cpn'), 'Weekend double'); assert.strictEqual(await ap.inputValue('#cpd'), 'old text');
+      await ap.fill('#cpm', '250'); await ap.fill('#cpd', 'new text'); await ap.click('#cpadd');
+      await ap.waitForFunction(() => document.body.innerText.includes('×2.5'), null, { timeout: 8000 });
+      let row = (await call('GET', '/api/admin/loyalty/campaigns', null, admin)).j.campaigns.find((x) => x.id === c.j.campaign.id);
+      assert.strictEqual(Number(row.multiplier_pct), 250); assert.strictEqual(row.description, 'new text'); assert.ok(Number(row.starts) === now - 3600 || Math.abs(Number(row.starts) - (now - 3600)) < 61, 'times kept');
+      await ap.click(`[data-ctog="${c.j.campaign.id}"]`); await ap.waitForFunction(() => document.body.innerText.includes('Turn on'), null, { timeout: 8000 });
+      row = (await call('GET', '/api/admin/loyalty/campaigns', null, admin)).j.campaigns.find((x) => x.id === c.j.campaign.id); assert.ok(!row.active);
+    });
     await test('view-only staff see the wallet page without the owner controls', async () => {
       const role = (await call('GET', '/api/admin/staff', null, admin)).j.roles[0].id;
       const r = await call('POST', '/api/admin/staff', { name: 'Viewer Staff', email: 'viewer@example.com', username: 'viewer.user', role_id: role, perms: ['wallet:view'] }, admin); assert.strictEqual(r.s, 200, r.t);

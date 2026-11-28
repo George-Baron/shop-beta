@@ -48,3 +48,7 @@ Off by default. An administrator sets "Points expire after (months)" on the Wall
 - A reminder goes out once when points will expire within 30 days (at most one every 25 days per customer).
 - Points handed back (for example when an unpaid order is cancelled) count as new points from that day.
 - Runs in the existing 5-minute loyalty job and when a customer opens their rewards. Tell customers (and update the terms) before switching it on: expiry only takes effect from the day it is set, and it applies to points already earned.
+
+## Editing tiers and campaigns (admin)
+
+Wallet & rewards page, owner only. Each tier has its own row (lifetime points needed, multiplier %, checkout discount %, benefits text) with a Save button. Campaigns are listed with their status (Running, Scheduled, Finished, Off); **Edit** loads one into the form below (the weekday, minimum-tier and category settings are kept), **Turn off / Turn on** switches it without deleting.
