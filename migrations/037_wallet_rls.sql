@@ -1,0 +1,20 @@
+-- Row level security on every table added by the wallet, rewards, card and mobile work (the app connects as the table owner, so it is unaffected; the public database key can read nothing). Safe to run again.
+ALTER TABLE card_applications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE card_audit ENABLE ROW LEVEL SECURITY;
+ALTER TABLE card_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE card_status_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE card_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cards ENABLE ROW LEVEL SECURITY;
+ALTER TABLE device_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ledger_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ledger_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE loyalty_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE loyalty_campaigns ENABLE ROW LEVEL SECURITY;
+ALTER TABLE loyalty_ledger ENABLE ROW LEVEL SECURITY;
+ALTER TABLE loyalty_referrals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE loyalty_tiers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payment_preferences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wallet_audit ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wallet_funding ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wallet_reservations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wallet_txns ENABLE ROW LEVEL SECURITY;

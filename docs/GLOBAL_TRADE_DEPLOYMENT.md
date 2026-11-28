@@ -4,8 +4,8 @@ Read with `docs/GLOBAL_TRADE.md` (what each part does) and `docs/RESTORE.md` (ba
 
 ## 1. Before you deploy
 
-1. **Take a backup** (Admin > Settings > Backups, or wait for the nightly one). Migrations 030 to 035 (Global Trade) only ADD tables and columns. They do not change or delete existing retail, wholesale, pharmacy or rider data.
-2. Deploy the branch. Migrations run automatically at start-up, once each. Check the Render log for `Applied migration 035_trade_payments.sql`.
+1. **Take a backup** (Admin > Settings > Backups, or wait for the nightly one). Migrations 049 to 054 (Global Trade) only ADD tables and columns. They do not change or delete existing retail, wholesale, pharmacy or rider data.
+2. Deploy the branch. Migrations run automatically at start-up, once each. Check the Render log for `Applied migration 054_trade_payments.sql`.
 3. **Private storage bucket.** Create a PRIVATE Supabase Storage bucket named `trade-docs` (or set `SUPABASE_TRADE_BUCKET`). Leave "Public" off. Supplier invoices, customs files and shipping labels live there. Without Supabase, files go to the server's disk and are lost when Render restarts.
 4. Staff roles: give people "Trade & Logistics Manager" (can edit trade, can view money) or "Trade Analyst" (read only). Money changes (supplier payments, refunds) need Finance edit. Owner and Finance roles already have it.
 
@@ -100,7 +100,7 @@ Main also has a Dropshipping and "trade" module (supplier orders, supplier porta
 | Exchange rates | `FX_FEED_*` | `FX_API_URL`, `FX_API_KEY`, `FX_REFRESH` |
 | International cards | Stripe (if switched on) | Paystack in naira only |
 
-- Migrations: Global Trade's are 030 to 035 and run after main's 023 to 029.
+- Migrations: Global Trade's are 049 to 054 and run after main's earlier ones.
 - Both modules use the same private `trade-docs` storage bucket; file names do not clash.
 - Staff roles: Global Trade uses the `trade` permission, Dropshipping its own. Give each person only what they need.
 - Orders: Global Trade orders have delivery "international" and never go to riders; dropship orders are excluded by their own rule. Refunds and payment status for each follow their own module.

@@ -42,7 +42,7 @@ const canon = (parsed, mapping = parsed.mapping) => parsed.rows.map((r) => { con
   const cat = fields.lookups.categories[0], dept = (await q('SELECT name FROM stores WHERE slug=$1', [cat.store]))[0].name;
   const cat2 = fields.lookups.categories.find((c) => c.store !== cat.store);
   const before = Number((await q('SELECT COUNT(*) n FROM products'))[0].n);
-  const H = ['Product Name', 'Internal Reference', 'Barcode', 'Department', 'Category', 'Subcategory', 'Brand', 'Description', 'Cost Price', 'Selling Price', 'Wholesale Price', 'Quantity', 'Minimum Stock', 'Unit of Measure', 'Product Status', 'Tax', 'Weight', 'Partner'];
+  const H = ['Product Name', 'Internal Reference', 'Barcode', 'Department', 'Category', 'Subcategory', 'Brand', 'Description', 'Cost Price', 'Selling Price', 'Wholesale Price', 'Quantity', 'Minimum Stock', 'Unit of Measure', 'Product Status', 'Tax', 'Weight', 'Image URLs', 'Partner'];
   const good = (n, extra = {}) => ({ line: n + 1, name: 'Imp Product ' + n, sku: 'IMP-' + n, barcode: '', department: '', category: cat.name, price: '1500', stock: '10', ...extra });
 
   console.log('\nAccess');
@@ -67,7 +67,7 @@ const canon = (parsed, mapping = parsed.mapping) => parsed.rows.map((r) => { con
 
   console.log('\nReading files and mapping columns');
   await test('an .xlsx made from the template is read and its columns map automatically', async () => {
-    const r = await A('POST', '/parse', { filename: 'products.xlsx', data: await xlsxB64([H, ['Tea Pack', 'T-1', '600111', dept, cat.name, '', 'Lipton', 'Black tea', 800, 1200, 1000, 40, 5, 'pcs', 'Active', 7.5, 0.25, '']]) });
+    const r = await A('POST', '/parse', { filename: 'products.xlsx', data: await xlsxB64([H, ['Tea Pack', 'T-1', '600111', dept, cat.name, '', 'Lipton', 'Black tea', 800, 1200, 1000, 40, 5, 'pcs', 'Active', 7.5, 0.25, '', '']]) });
     assert.strictEqual(r.s, 200, r.t); assert.strictEqual(r.j.rows.length, 1);
     for (const f of fields.fields) assert.strictEqual(r.j.mapping[f.key], f.header, f.key);
   });
@@ -260,6 +260,20 @@ const canon = (parsed, mapping = parsed.mapping) => parsed.rows.map((r) => { con
     const rows = canon(parsed); let v = (await A('POST', '/validate', { rows, mode: 'update' })).j;
     assert.strictEqual(v.summary.error, 0, JSON.stringify(v.results.filter((x) => x.errors.length))); assert.strictEqual(v.summary.update, 0, 'nothing changed: ' + JSON.stringify(v.results.filter((x) => x.changes.length)));
     rows[0].price = String(Number(rows[0].price) + 50); v = (await A('POST', '/validate', { rows, mode: 'update' })).j; assert.strictEqual(v.summary.update, 1);
+  });
+
+  await test('categories named in a file but missing from the shop can be created under the right department', async () => {
+    const st = (await pg('SELECT slug, name FROM stores WHERE slug <> $1 ORDER BY sort LIMIT 1', ['pharmacy'], DB))[0];
+    const rows = [1, 2, 3].map((i) => ({ line: i + 1, name: 'Cat test ' + i, sku: 'CT-' + i, department: st.name, category: i === 3 ? 'Brand New Aisle B' : 'Brand New Aisle A', price: '500', stock: '5' }));
+    rows.push({ line: 5, name: 'Ghost', sku: 'CT-9', department: 'No Such Department', category: 'Whatever', price: '5', stock: '1' });
+    let v = (await A('POST', '/validate', { rows, mode: 'create' })).j; assert.ok(v.results.some((r) => /does not exist/.test(r.errors.join())));
+    const none = await call('POST', '/api/admin/catalog/missing-categories', { rows, create: true }, null); assert.ok([401, 403].includes(none.s), 'a signed-out visitor cannot create categories');
+    const pv = (await A('POST', '/missing-categories', { rows })).j; assert.strictEqual(pv.missing.length, 2); assert.strictEqual(pv.created, 0); assert.strictEqual(pv.unknownDepartments.length, 1);
+    assert.strictEqual(Number((await pg("SELECT COUNT(*) n FROM categories WHERE name LIKE 'Brand New Aisle%'", [], DB))[0].n), 0, 'the preview saves nothing');
+    const cr = (await A('POST', '/missing-categories', { rows, create: true })).j; assert.strictEqual(cr.created, 2);
+    const made = await pg("SELECT store, name FROM categories WHERE name LIKE 'Brand New Aisle%' ORDER BY name", [], DB); assert.deepStrictEqual(made.map((x) => x.store), [st.slug, st.slug]);
+    assert.strictEqual((await A('POST', '/missing-categories', { rows, create: true })).j.created, 0, 'running it again creates nothing twice');
+    v = (await A('POST', '/validate', { rows, mode: 'create' })).j; assert.strictEqual(v.results.filter((r) => !r.errors.length).length, 3, 'the three real rows now pass; the unknown department row still fails');
   });
 
   srv.kill(); await sleep(300);

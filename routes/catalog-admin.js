@@ -29,12 +29,18 @@ router.post('/parse', big, ah(async (req, res) => {
 }));
 // 2. check the rows (nothing is saved)
 router.post('/validate', big, ah(async (req, res) => res.json(await IO.validate(req.body && req.body.rows, req.body && req.body.mode))));
+// Categories named in the file that do not exist yet (create:true adds them under the department each row names). Administrator only; departments are never created.
+router.post('/missing-categories', big, ah(async (req, res) => {
+  const b = req.body || {}; const create = b.create === true;
+  if (create) cache.clear();
+  try { res.json(await IO.missingCategories(b.rows, { create })); } finally { if (create) cache.bump().catch((e) => console.error('Cache bump failed:', e.message)); }
+}));
 // 3. save the valid rows, a chunk at a time. Update mode needs the explicit confirmation, so nothing existing is changed silently.
 router.post('/commit', big, ah(async (req, res) => {
   const b = req.body || {};
   if (b.mode === 'update' && b.confirmUpdate !== true) fail(400, 'Please confirm that you want to change the existing products shown in the preview.');
   cache.clear();
-  try { res.json(await IO.commit(b.rows, b.mode, { importId: b.importId, filename: b.filename, total: b.total }, req.user)); }
+  try { res.json(await IO.commit(b.rows, b.mode, { importId: b.importId, filename: b.filename, total: b.total, photoMode: b.photoMode === 'link' ? 'link' : 'copy' }, req.user)); }
   finally { cache.bump().catch((e) => console.error('Cache bump failed:', e.message)); }
 }));
 
@@ -57,5 +63,15 @@ router.get('/history/:id/errors.csv', ah(async (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="import-${Number(req.params.id)}-errors.csv"`);
   res.send(await IO.errorReportCsv(req.params.id));
 }));
+
+// Photos named by link in the file are copied in the background: how many are done, waiting or failed, and a retry for the failed ones.
+router.get('/history/:id/photos', ah(async (req, res) => res.json(await IO.photoStatus(req.params.id))));
+router.get('/history/:id/photos.csv', ah(async (req, res) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="photos-${Number(req.params.id)}-not-found.csv"`);
+  res.send(await IO.photoFailuresCsv(req.params.id));
+}));
+router.post('/find-photos', ah(async (req, res) => res.json(await IO.findPhotosByBarcode(req.user))));
+router.post('/history/:id/photos/retry', ah(async (req, res) => res.json(await IO.retryPhotos(req.params.id))));
 
 module.exports = router;
