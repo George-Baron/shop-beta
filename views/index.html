@@ -569,7 +569,7 @@ function productCard(p) {
     </div></article>`;
 }
 
-// Cart and order lines grouped by who sells them ('' = Shop-Beta itself), in a stable order.
+// Cart and order lines grouped by who sells them ('' = VELTO-MART itself), in a stable order.
 function byStore(lines, nameOf = (l) => l.vendorName || l.store || '') {
   const m = new Map();
   for (const l of lines) { const k = nameOf(l); if (!m.has(k)) m.set(k, []); m.get(k).push(l); }
@@ -695,7 +695,7 @@ async function productView(main, slug, cfg) {
    <nav class="crumbs"><a href="/" data-link>Home</a> › <a href="/d/${e(p.store)}" data-link>${e(st ? st.name : p.store)}</a> › ${p.category ? `<a href="/shop?store=${e(p.store)}&category=${e(p.category_slug)}" data-link>${e(p.category)}</a> › ` : ''}${e(p.name)}</nav>
    <div class="pd"><div class="gal"><div class="main" id="gmain">${imgs.length ? `<img src="${e(imgs[0])}" alt="${e(p.name)}">` : tile(p)}</div>${imgs.length > 1 ? `<div class="thumbs">${imgs.map((s, i) => `<button class="${i ? '' : 'on'}" data-img="${e(s)}" aria-label="Image ${i + 1}"><img src="${e(s)}" alt=""></button>`).join('')}</div>` : ''}</div>
    <div><div class="mu" style="font-size:13px;font-weight:700">${e(p.brand)}</div><h1>${e(p.name)}</h1>
-     <div style="font-size:14px;margin:-4px 0 8px">Sold by ${p.vendor ? `<a href="/store/${e(p.vendor.slug)}" data-link style="color:var(--accent);font-weight:700">🏪 ${e(p.vendor.name)}</a>` : '<b>Shop-Beta</b>'}</div>
+     <div style="font-size:14px;margin:-4px 0 8px">Sold by ${p.vendor ? `<a href="/store/${e(p.vendor.slug)}" data-link style="color:var(--accent);font-weight:700">🏪 ${e(p.vendor.name)}</a>` : '<b>VELTO-MART</b>'}</div>
      <div>${p.rating_n ? stars(p.rating, p.rating_n + ' reviews') : '<span class="mu">No reviews yet</span>'}</div>
      <div class="price">${naira(p.price)}${p.compare_price > p.price ? `<s>${naira(p.compare_price)}</s><span class="save">Save ${p.off}%</span>` : ''}</div>
      ${sizes.length ? `<div class="opt-label">${e(p.size_label || 'Size')}</div><div class="chips" id="osize">${sizes.map((s) => `<button class="chip ${sel.size === s ? 'on' : ''}" data-size="${e(s)}">${e(s)}</button>`).join('')}</div>` : ''}
@@ -1408,7 +1408,7 @@ async function riderApp(main) {
   };
   const delTab = () => (S.orders.length ? S.orders.map(orderCard).join('') : '<div class="card"><p class="mu">No active deliveries. Accepted orders appear here with the map and the steps.</p></div>') + '<div id="hist"></div>';
   const msgHtml = (m) => `<div class="rd-msg ${m.from === 'rider' ? 'me' : ''}"><div class="who">${m.from === 'rider' ? 'You' : e(m.sender || (m.from === 'ai' ? S.ai : 'Operations desk'))}${m.from === 'ai' ? ' · AI' : ''}${m.order_ref ? ' · ' + e(m.order_ref) : ''}</div>${m.attachment ? `<a href="${e(m.attachment)}" target="_blank" rel="noopener"><img src="${e(m.attachment)}" alt="Photo" loading="lazy"></a>` : ''}<div>${e(m.text)}</div><div class="t">${hhmm(m.at)}${m.from === 'rider' ? (m.read ? ' ✓✓ read' : m.delivered ? ' ✓✓' : ' ✓') : ''}</div></div>`;
-  const chatTab = () => `<div class="card"><div class="mu" style="font-size:12px;margin-bottom:8px">Chat with the operations desk and the ${e(S.ai || 'Shopbeta AI Operations Manager')}.</div><div id="msgs" class="rd-msgs">${S.msgs.map(msgHtml).join('') || '<p class="mu">No messages yet.</p>'}</div>
+  const chatTab = () => `<div class="card"><div class="mu" style="font-size:12px;margin-bottom:8px">Chat with the operations desk and the ${e(S.ai || 'VELTO-MART AI Operations Manager')}.</div><div id="msgs" class="rd-msgs">${S.msgs.map(msgHtml).join('') || '<p class="mu">No messages yet.</p>'}</div>
     <form id="mf" class="rd-compose"><label class="btn ghost" style="cursor:pointer">📷<input type="file" id="mphoto" accept="image/*" hidden></label><input id="mt" maxlength="2000" placeholder="Type a message…" autocomplete="off"><button class="btn">Send</button></form>
     <div class="rd-quick">${['I accept', 'I have arrived at the warehouse', 'I am delayed', 'I need assistance'].map((t) => `<button class="btn ghost sm" data-q="${e(t)}">${e(t)}</button>`).join('')}</div></div>`;
   const profTab = () => {
@@ -1872,6 +1872,84 @@ let cfg;
 
 /* ---------- router ---------- */
 function go(url, replace) { if (replace) history.replaceState({}, '', url); else history.pushState({}, '', url); route(); window.scrollTo(0, 0); }
+/* ---------- International orders (Global Trade phase 3) ---------- */
+async function intlView(main, seg, u, cfg) {
+  const money = (n, c) => { try { return new Intl.NumberFormat('en', { style: 'currency', currency: c.code, minimumFractionDigits: c.decimals, maximumFractionDigits: c.decimals }).format(n); } catch { return c.symbol + Number(n).toFixed(c.decimals); } };
+  const wrap = (h) => { main.innerHTML = `<div class="wrap page" style="max-width:820px"><nav class="crumbs"><a href="/" data-link>Home</a> › International orders · <a href="/international/track" data-link>Track a parcel</a></nav>${h}</div>`; };
+  if (seg[1] === 'order' && seg[2]) {
+    const ref = seg[2], t = u.searchParams.get('t') || '';
+    let o; try { o = await api('/api/trade/orders/' + encodeURIComponent(ref) + '?t=' + encodeURIComponent(t)); } catch (er) { wrap(`<div class="card"><h1>Order not found</h1><p class="mu">${e(er.message)} Use the link in your order email.</p></div>`); return 'International order'; }
+    const c = { code: o.currency, symbol: o.currency, decimals: o.currency === 'JPY' ? 0 : 2 }, a = o.amounts, unpaid = o.payment_status !== 'paid' && o.status === 'pending';
+    wrap(`<div class="card"><h1 style="margin-top:0">Order ${e(o.ref)}</h1><p class="mu">Status: <b>${e(String(o.status).replace(/_/g, ' '))}</b> · Payment: <b>${e(o.payment_status)}</b></p>
+      ${unpaid && cfg.payments.demo ? '<div class="note"><b>Demo mode:</b> no real money is charged. <button class="btn sm" id="dpay">Pay now (demo)</button> <button class="btn ghost sm" id="dfail">Fail payment</button></div>' : ''}
+      ${unpaid && !cfg.payments.demo ? '<button class="btn" id="recheck">I have paid: check payment</button>' : ''}
+      <h3>Items</h3>${o.items.map((i) => `<div>${e(i.name)} × ${i.qty}</div>`).join('')}
+      <h3>Totals (${e(o.currency)})</h3><div class="sum"><span>Goods</span><span>${money(a.goods, c)}</span></div><div class="sum"><span>Shipping (${e(o.shipping.method)})</span><span>${money(a.shipping, c)}</span></div>
+      ${a.insurance ? `<div class="sum"><span>Insurance</span><span>${money(a.insurance, c)}</span></div>` : ''}${o.duties.collected ? `<div class="sum"><span>Duties and taxes (prepaid)</span><span>${money(a.duties, c)}</span></div>` : '<div class="sum"><span>Duties and taxes</span><span class="mu">Not included: payable on delivery if charged</span></div>'}
+      <div class="sum"><b>Total</b><b>${money(a.total, c)}</b></div><p class="mu" style="font-size:13px">You are charged ${naira(o.charged_ngn)} (NGN) at the rate fixed when you ordered. Your bank may show a different amount.</p>
+      <h3>Shipment</h3><p>To ${e(o.destination.name)}, ${e(o.destination.city)}, ${e(o.destination.country)}${o.shipping.carrier ? `<br>Carrier: ${e(o.shipping.carrier)}` : ''}${o.shipping.tracking_number ? `<br>Tracking number: <b>${e(o.shipping.tracking_number)}</b>` : ''}</p>
+      ${o.timeline.length ? o.timeline.map((x) => `<div style="margin-bottom:6px"><b>${e(String(x.stage).replace(/_/g, ' '))}</b> <span class="mu">· ${new Date(x.at * 1000).toLocaleString()}${x.location ? ' · ' + e(x.location) : ''}</span>${x.description ? '<br>' + e(x.description) : ''}</div>`).join('') : '<p class="mu">No updates yet.</p>'}</div>`);
+    const again = () => go(location.pathname + location.search, true);
+    const dp = $('#dpay'); if (dp) dp.addEventListener('click', async () => { try { await api('/api/pay/demo/' + o.ref, { body: { outcome: 'ok' } }); cart.clear(); toast('Payment received (demo)'); again(); } catch (er) { toast(er.message, 'bad'); } });
+    const df = $('#dfail'); if (df) df.addEventListener('click', async () => { try { await api('/api/pay/demo/' + o.ref, { body: { outcome: 'fail' } }); toast('Payment failed. The order was cancelled.', 'bad'); again(); } catch (er) { toast(er.message, 'bad'); } });
+    const rc = $('#recheck'); if (rc) rc.addEventListener('click', async () => { await api('/api/paystack/verify?reference=' + encodeURIComponent(o.ref)).catch(() => {}); again(); });
+    return 'Order ' + o.ref;
+  }
+  if (seg[1] === 'track') {
+    wrap(`<div class="card"><h1 style="margin-top:0">Track your parcel</h1><p class="mu">Enter your order or tracking number and the email you used at checkout.</p>
+      <form id="trf"><label class="f"><span class="mu2">Order or tracking number</span><input id="trq" required maxlength="60" autocomplete="off"></label><label class="f"><span class="mu2">Email</span><input id="tre" type="email" required maxlength="120" autocomplete="email"></label><button class="btn" id="trg">Track</button></form><div id="trr" style="margin-top:14px"></div></div>`);
+    $('#trf').addEventListener('submit', async (ev) => { ev.preventDefault(); const out = $('#trr'); out.innerHTML = '<span class="mu">Looking…</span>';
+      try {
+        const r = await api('/api/trade/track', { body: { query: $('#trq').value, email: $('#tre').value } });
+        out.innerHTML = `<h3 style="margin:0">Order ${e(r.order_ref)} · ${e(String(r.status).replace(/_/g, ' '))}</h3><p class="mu">To ${e(r.destination.city)}, ${e(r.destination.country)}${r.carrier ? ' · ' + e(r.carrier) : ''}${r.tracking_number ? ' · ' + e(r.tracking_number) : ''}${r.eta ? '<br>Estimated delivery: ' + e(r.eta) + ' (a carrier estimate, not a promise)' : ''}</p>${r.problem ? '<div class="note"><b>' + e(r.problem === 'customs_hold' ? 'Held at customs' : r.problem === 'delayed' ? 'Delayed' : 'There is a problem with delivery') + '.</b> Our team is on it. See the latest update below.</div>' : ''}
+          <div style="margin:10px 0">${r.stages.map((x) => `<div style="opacity:${x.reached ? 1 : .45}">${x.reached ? '●' : '○'} ${e(x.label)}</div>`).join('')}</div>
+          ${r.timeline.length ? r.timeline.slice().reverse().map((x) => `<div style="margin-bottom:6px"><b>${e(x.label)}</b> <span class="mu">· ${new Date(x.at * 1000).toLocaleString()}${x.location ? ' · ' + e(x.location) : ''}</span>${x.description ? '<br><span class="mu">' + e(x.description) + '</span>' : ''}</div>`).join('') : ''}<p class="mu" style="font-size:13px">${e(r.note)}</p>`;
+      } catch (er) { out.innerHTML = '<div class="note">' + e(er.message) + '</div>'; }
+    });
+    return 'Track your parcel';
+  }
+  const [cs, cu] = await Promise.all([api('/api/trade/countries'), api('/api/trade/currencies')]);
+  if (!cart.items.length) { wrap('<div class="card" style="text-align:center"><h1>International orders</h1><p class="mu">Your cart is empty. Add products, then come back here to see shipping to your country.</p><a class="btn" href="/shop" data-link>Browse the shop</a></div>'); return 'International orders'; }
+  if (!cs.countries.length) { wrap('<div class="card" style="text-align:center"><h1>International orders</h1><p class="mu">We are not shipping outside Nigeria yet. Please check back soon.</p></div>'); return 'International orders'; }
+  const saved = ls.get('sb_intl', {}), st = { quote: null, idem: null };
+  wrap(`<div class="card"><h1 style="margin-top:0">Ship outside Nigeria</h1><p class="mu">Choose where we should send your cart. Enter your address to see live carrier prices where available. Other options are estimates set by our team. All prices are shown before you pay.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px"><label class="f">Country<select id="ic">${cs.countries.map((c) => `<option value="${e(c.code)}" ${saved.country === c.code ? 'selected' : ''}>${e(c.name)}</option>`).join('')}</select></label>
+    <label class="f">Show prices in<select id="icu">${cu.currencies.map((c) => `<option value="${e(c.code)}" ${saved.currency === c.code ? 'selected' : ''}>${e(c.code)} · ${e(c.name)}</option>`).join('')}</select></label>
+    <label class="f">Postal / ZIP code<input id="ip" value="${e(saved.postal || '')}" maxlength="12"></label></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:10px"><label class="f" style="grid-column:1/-1">Street address<input id="a1" autocomplete="address-line1"></label><label class="f" style="grid-column:1/-1">Apartment, suite (optional)<input id="a2"></label><label class="f">City<input id="ac"></label><label class="f">State / province<input id="ar"></label></div>
+    <label style="display:block;margin:10px 0"><input type="checkbox" id="ii"> Insure the parcel when the method offers it</label><button class="btn" id="iq">Get shipping options</button><div id="ierr" class="mu" style="color:#b91c1c;margin-top:8px"></div></div><div id="iout"></div>`);
+  const g = (id) => ($('#' + id) ? $('#' + id).value.trim() : '');
+  const addrBody = () => ({ items: cart.items, country: g('ic'), currency: g('icu'), insurance: $('#ii').checked, address: { postal_code: g('ip'), line1: g('a1'), line2: g('a2'), city: g('ac'), region: g('ar') }, contact: { name: g('cn'), email: g('ce'), dial_code: g('cd'), phone: g('cph'), tax_id: g('ct') } });
+  const showErr = (m) => { $('#ierr').textContent = m || ''; };
+  $('#iq').addEventListener('click', async () => {
+    showErr(''); const b = $('#iq'); b.disabled = true;
+    try {
+      const q = await api('/api/trade/quote', { body: addrBody() }); st.quote = q; st.idem = null; ls.set('sb_intl', { country: g('ic'), currency: g('icu'), postal: g('ip') });
+      const c = q.currency, country = cs.countries.find((x) => x.code === q.country.code) || {};
+      $('#iout').innerHTML = `<div class="card" style="margin-top:14px"><h3 style="margin-top:0">Your items</h3>${q.items.map((i) => `<div>${e(i.name)} × ${i.qty} <span class="mu">· ${money(i.unit_price, c)} each</span></div>`).join('')}${q.issues.length ? `<p style="color:#b91c1c">${q.issues.map((i) => e(i.message)).join('<br>')}</p>` : ''}
+        ${q.live_note ? `<p class="note">${e(q.live_note)}</p>` : ''}${q.rate_stale ? '<p class="note">Exchange rates are a little out of date, so prices may change slightly at checkout.</p>' : ''}
+        <h3>Shipping method</h3>${q.options.length ? q.options.map((o, i) => `<label class="card" style="display:block;margin:8px 0;cursor:pointer"><input type="radio" name="isv" value="${o.service_id}" ${i === 0 ? 'checked' : ''}> <b>${e(o.label)}</b> ${o.source === 'api' ? '<span class="pill" style="background:#dcfce7;color:#166534">Live carrier price</span>' : '<span class="pill">Estimate</span>'}<br>
+          <span class="mu">${o.days.min != null ? `${o.days.min}-${o.days.max} days` : 'Delivery time not set'} · Shipping ${money(o.amounts.shipping, c)}${o.amounts.insurance ? ` · Insurance ${money(o.amounts.insurance, c)}` : ''} · <b>Total ${money(o.total, c)}</b></span><br><span class="mu" style="font-size:12px">${e(o.duties.message)}</span></label>`).join('') : `<p class="mu">${e(q.message)}</p>`}</div>
+        ${q.options.length ? `<div class="card" style="margin-top:14px"><h3 style="margin-top:0">Delivery details</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+          <label class="f">Full name<input id="cn" autocomplete="name"></label><label class="f">Email<input id="ce" type="email" autocomplete="email"></label>
+          <label class="f">Phone code<input id="cd" value="${e(country.dial_code || '')}" maxlength="4"></label><label class="f">Phone number<input id="cph" inputmode="tel"></label>
+          ${country.tax_id_required ? `<label class="f">${e(country.tax_id_label || 'Tax ID')}<input id="ct"></label>` : ''}</div>
+          <p class="mu" style="font-size:13px">You pay in Nigerian naira through our secure payment page. The amount in ${e(c.code)} is shown for your convenience.</p><div id="ierr2" style="color:#b91c1c"></div><button class="btn" id="ipl">Place order</button></div>` : ''}`;
+      const pl = $('#ipl'); if (pl) pl.addEventListener('click', async () => {
+        const er2 = $('#ierr2'); er2.textContent = ''; pl.disabled = true; pl.textContent = 'Placing order...';
+        if (!st.idem) st.idem = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, '').padEnd(16, '0');
+        const sv = Number(($('input[name=isv]:checked') || {}).value), opt = q.options.find((o) => o.service_id === sv);
+        try {
+          const r = await api('/api/trade/checkout', { body: { ...addrBody(), service_id: sv, quote_id: opt.quote_id, idempotencyKey: st.idem } });
+          try { sessionStorage.setItem('sb_last', JSON.stringify({ ref: r.ref, token: r.token || '' })); } catch { /* private mode */ }
+          if (r.next === 'paystack') { location.href = r.url; return; }
+          go('/international/order/' + r.ref + '?t=' + encodeURIComponent(r.token));
+        } catch (er) { if (er.status) st.idem = null; er2.textContent = er.message; pl.disabled = false; pl.textContent = 'Place order'; }
+      });
+    } catch (er) { showErr(er.message); } finally { b.disabled = false; }
+  });
+  return 'International orders';
+}
 async function route() {
   const u = new URL(location.href); const p = u.pathname.replace(/\/+$/, '') || '/'; const seg = p.split('/').filter(Boolean);
   let main = $('#main'); if (!main) return;
@@ -1890,6 +1968,7 @@ async function route() {
     else if (seg[0] === 'd' && seg.length === 2) title = await home(main, seg[1], cfg);
     else if (seg[0] === 'shop' || (seg[0] === 'd' && seg[2] === 'shop')) title = await shopView(main, u, cfg);
     else if (seg[0] === 'product' && seg[1]) title = await productView(main, seg[1], cfg);
+    else if (seg[0] === 'international' || (seg[0] === 'import-export' && seg.length === 1)) title = await intlView(main, seg[0] === 'international' ? seg : ['international'], u, cfg);
     else if (seg[0] === 'dropshipping' && seg.length === 1) title = await dropshippingPage(main, cfg);
     else if (seg[0] === 'import-export' && seg.length === 1) title = await importExportPage(main, cfg);
     else if (seg[0] === 'stores' && seg.length === 1) title = await storesView(main, u, cfg);
@@ -2655,8 +2734,8 @@ function loginForm(msg) {
 }
 
 /* ---------------- shell ---------------- */
-const NAV = [['dashboard', '📊', 'Dashboard'], ['commercial', '🧭', 'Commercial operations'], ['orders', '🧾', 'Orders'], ['returns', '↩️', 'Returns'], ['tradeenq', '🌍', 'Import & export enquiries'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['seo', '🔎', 'SEO'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['riders', '📍', 'Riders live'], ['opsai', '🤖', 'AI Operations'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['activity', '🕵️', 'Activity log'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['pharmacy', '💊', 'Pharmacy'], ['dropship', '🚚', 'Dropshipping'], ['staff', '👤', 'Employees & roles'], ['wallet', '👛', 'Wallet & rewards'], ['cards', '💳', 'VELTO-MART CARD'], ['notifications', '🔔', 'Notifications']];
-const NAVMOD = { wallet: 'wallet', cards: 'wallet', opsai: 'ops', tradeenq: 'rfq', returns: 'orders', dashboard: 'any', notifications: 'any', orders: 'orders', products: 'catalog', catalogio: 'catalog', categories: 'catalog', reviews: 'catalog', customers: 'customers', messages: 'customers', coupons: 'marketing', marketing: 'marketing', deliveries: 'delivery', riders: 'delivery', partners: 'delivery', vendors: 'partners', wholesale: 'wholesale', warehouse: 'warehouse', rfq: 'rfq' };
+const NAV = [['dashboard', '📊', 'Dashboard'], ['commercial', '🧭', 'Commercial operations'], ['orders', '🧾', 'Orders'], ['returns', '↩️', 'Returns'], ['tradeenq', '🌍', 'Import & export enquiries'], ['products', '📦', 'Products'], ['categories', '🗂', 'Departments'], ['customers', '👥', 'Customers'], ['coupons', '🏷', 'Coupons'], ['reviews', '⭐', 'Reviews'], ['seo', '🔎', 'SEO'], ['messages', '✉️', 'Messages'], ['deliveries', '🛵', 'Deliveries'], ['riders', '📍', 'Riders live'], ['opsai', '🤖', 'AI Operations'], ['partners', '🏬', 'Pickup points & riders'], ['marketing', '📣', 'Marketing'], ['settings', '⚙️', 'Settings'], ['activity', '🕵️', 'Activity log'], ['vendors', '🏪', 'Partner stores'], ['wholesale', '📦', 'Wholesale'], ['warehouse', '🏭', 'Warehouse'], ['rfq', '📝', 'Quotation requests'], ['catalogio', '📥', 'Import & Export'], ['trade', '🌍', 'Global Trade'], ['pharmacy', '💊', 'Pharmacy'], ['dropship', '🚚', 'Dropshipping'], ['staff', '👤', 'Employees & roles'], ['wallet', '👛', 'Wallet & rewards'], ['cards', '💳', 'VELTO-MART CARD'], ['notifications', '🔔', 'Notifications']];
+const NAVMOD = { wallet: 'wallet', cards: 'wallet', opsai: 'ops', tradeenq: 'rfq', returns: 'orders', dashboard: 'any', notifications: 'any', orders: 'orders', products: 'catalog', catalogio: 'catalog', trade: 'trade', categories: 'catalog', reviews: 'catalog', customers: 'customers', messages: 'customers', coupons: 'marketing', marketing: 'marketing', deliveries: 'delivery', riders: 'delivery', partners: 'delivery', vendors: 'partners', wholesale: 'wholesale', warehouse: 'warehouse', rfq: 'rfq' };
 const can = (m, w) => { const p = (me && me.perms) || []; return p.includes('*') || p.includes(m + (w ? ':edit' : ':view')); };
 const visible = (k) => k === 'commercial' ? !!(me && (me.role === 'admin' || can('partners') || can('rfq') || can('reports') || can('finance'))) : (me && me.role === 'admin') || (NAVMOD[k] === 'any') || (NAVMOD[k] && can(NAVMOD[k], false));
 async function shell(page, body, unread) {
@@ -2889,7 +2968,7 @@ async function orderModal(id) {
   const riders = o.delivery !== 'pickup' ? (await api('/api/admin/riders')).riders.filter((r) => r.active) : [];
   const paid = o.payment_status === 'paid';
   openModal(`<h2>Order ${e(o.ref)} ${pill(o.status)}</h2><div class="kv"><b>Customer</b><span>${e(o.name)} · ${e(o.phone)}<br>${e(o.email)}</span><b>Deliver to</b><span>${e(o.address)}${o.city ? ', ' + e(o.city) : ''}, ${e(o.state)}<br><span class="mu2">${e(o.delivery)}${o.notes ? ' · Note: ' + e(o.notes) : ''}</span></span><b>Payment</b><span>${o.payment_method === 'pod' ? 'Pay on delivery' : 'Paystack'} · ${paid ? 'Paid' : 'Not yet paid'}${o.paystack_ref ? '<br><span class="mu2">Ref ' + e(o.paystack_ref) + '</span>' : ''}</span><b>Placed</b><span>${dt(o.created)}</span></div>
-  <div class="tw"><table class="t" style="margin-top:12px"><tr><th>Item</th><th>Sold by</th><th>Qty</th><th>Price</th><th>Total</th><th>Our commission</th></tr>${o.items.map((i) => `<tr><td>${e(i.name)}<div class="mu2">${e(i.variant_label || '')}</div></td><td>${e(i.vendor_name || 'Shop-Beta')}</td><td>${i.qty}</td><td>${naira(i.price)}</td><td>${naira(i.price * i.qty)}</td><td>${i.vendor_id ? naira(i.commission) + ' <span class="mu2">(' + Number(i.commission_pct) + '%)</span>' : '—'}</td></tr>`).join('')}
+  <div class="tw"><table class="t" style="margin-top:12px"><tr><th>Item</th><th>Sold by</th><th>Qty</th><th>Price</th><th>Total</th><th>Our commission</th></tr>${o.items.map((i) => `<tr><td>${e(i.name)}<div class="mu2">${e(i.variant_label || '')}</div></td><td>${e(i.vendor_name || 'VELTO-MART')}</td><td>${i.qty}</td><td>${naira(i.price)}</td><td>${naira(i.price * i.qty)}</td><td>${i.vendor_id ? naira(i.commission) + ' <span class="mu2">(' + Number(i.commission_pct) + '%)</span>' : '—'}</td></tr>`).join('')}
   <tr><td colspan="3" class="mu2">Subtotal</td><td>${naira(o.subtotal)}</td></tr>${o.discount ? `<tr><td colspan="3" class="mu2">Discount ${e(o.coupon || '')}</td><td>−${naira(o.discount)}</td></tr>` : ''}<tr><td colspan="3" class="mu2">Delivery</td><td>${naira(o.delivery_fee)}</td></tr><tr><td colspan="3"><b>Total</b></td><td><b>${naira(o.total)}</b></td></tr></table></div>
   <h3 style="margin-top:14px">History</h3><ul class="tl">${o.events.map((x) => `<li><b>${e(x.status)}</b> · <span class="mu2">${dt(x.created)}</span>${x.note ? '<br>' + e(x.note) : ''}</li>`).join('')}</ul>
   ${o.status === 'refunded' ? '<p class="mu">This order is refunded and cannot be changed.</p>' : o.status === 'cancelled' && o.payment_status !== 'paid' ? '<p class="mu">This order is cancelled and cannot be changed.</p>' : `<div class="nop"><div class="fgrid"><label class="f">Update status<select id="ost">${STATUSES.map((s) => `<option ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label class="f">Note (optional, shown in history)<input id="onote" maxlength="300"></label></div></div>`}
@@ -3620,7 +3699,7 @@ function rkPerf(body) {
 /* ---- AI command centre ---- */
 function rkAi(body) {
   const eg = ['Show me all available riders', 'How many riders are online right now?', 'Show riders closest to the central warehouse', 'Find all riders currently on delivery', 'Show riders whose GPS has stopped updating', 'Show me all deliveries currently delayed', 'Show the current location of all active delivery riders'];
-  body.innerHTML = `<div class="panel"><h3>Shopbeta AI Operations Manager</h3><p class="mu2">Ask in plain words. Answers are read from the live rider records and show when they were read. Anything that changes an assignment asks you to confirm first.</p>
+  body.innerHTML = `<div class="panel"><h3>VELTO-MART AI Operations Manager</h3><p class="mu2">Ask in plain words. Answers are read from the live rider records and show when they were read. Anything that changes an assignment asks you to confirm first.</p>
    <form id="cf" class="tbar"><input id="ci" placeholder="e.g. Which rider is closest to order SB-1020?" style="flex:1" maxlength="300"><button class="btn">Ask</button></form><div class="rk-eg">${eg.map((t) => `<button class="btn ghost sm" data-eg="${e(t)}">${e(t)}</button>`).join('')}</div><div id="cout">${RS.cmd.map(rkCmdHtml).join('')}</div></div>`;
   const ask = guard(async (t) => { if (!t) return; $('#ci').value = ''; const r = await api(RIDER_API + '/command', { body: { text: t } }); RS.cmd.unshift({ q: t, r }); RS.cmd = RS.cmd.slice(0, 20); $('#cout').innerHTML = RS.cmd.map(rkCmdHtml).join(''); bindCmd(); });
   const bindCmd = () => $$('[data-confirm]', $('#cout')).forEach((b) => b.addEventListener('click', guard(async () => { const x = await api(RIDER_API + '/command/confirm', { body: { id: b.dataset.confirm } }); const it = RS.cmd.find((c) => c.r.pending && String(c.r.pending.id) === b.dataset.confirm); if (it) { it.r = { ...it.r, pending: null, reply: x.reply || 'Done.' }; } $('#cout').innerHTML = RS.cmd.map(rkCmdHtml).join(''); bindCmd(); })));
@@ -3690,7 +3769,7 @@ views.partners = async () => {
     }));
   };
   on('#padd', 'click', () => pform());
-  onAll('[data-pe]', 'click', (el) => pform(p.partners.find((x) => String(x.id) === el.dataset.pe)));
+  monAll('[data-pe]', 'click', (el) => pform(p.partners.find((x) => String(x.id) === el.dataset.pe)));
   on('#radd', 'click', () => {
     openModal(`<h2>Add rider</h2><div class="fgrid"><label class="f">Name<input id="rn" maxlength="80"></label><label class="f">Phone<input id="rph" maxlength="30"></label><label class="f">Email (their sign-in)<input id="rem" type="email"></label><label class="f">Password (min 8)<input id="rpw" type="text" autocomplete="off"></label><label class="f full">States they cover (empty = everywhere)<input id="rco" placeholder="Lagos, Ogun" maxlength="300"></label></div><div class="acts"><button class="btn ghost" id="rc">Cancel</button><button class="btn" id="rs">Create rider</button></div>`, true);
     $('#rc').addEventListener('click', closeModal);
@@ -3698,6 +3777,542 @@ views.partners = async () => {
   });
   onAll('[data-rc]', 'click', async (el) => { const x = r.riders.find((u) => String(u.id) === el.dataset.rc); const v = prompt('States this rider covers, separated by commas (empty = everywhere):', x.coverage); if (v === null) return; await api('/api/admin/riders/' + x.id, { method: 'PUT', body: { coverage: v, active: !!x.active } }); route(); });
   onAll('[data-rt]', 'click', async (el) => { const x = r.riders.find((u) => String(u.id) === el.dataset.rt); await api('/api/admin/riders/' + x.id, { method: 'PUT', body: { coverage: x.coverage, active: !x.active } }); toast(x.active ? 'Rider switched off and signed out' : 'Rider switched on'); route(); });
+};
+
+/* ---------- Global Trade (imports, exports, international shipping): phase 1-2 screens ---------- */
+const tradeState = { tab: 'overview', cq: '', pf: '', pq: '', pp: 1, of: '', oq: '' };
+views.trade = async () => {
+  const edit = can('trade', true), T = tradeState;
+  const tabs = [['overview', 'Overview'], ['countries', 'Countries'], ['rates', 'Currencies & rates'], ['products', 'Products'], ['suppliers', 'International suppliers'], ['purchase', 'Purchase orders'], ['imports', 'Import shipments'], ['shipping', 'Shipping & duties'], ['carriers', 'Carriers'], ['customs', 'Customs & docs'], ['orders', 'International orders'], ['tracking', 'Global tracking'], ...(can('finance') ? [['payments', 'Payments']] : []), ['reports', 'Reports'], ['assistant', 'Assistant'], ['notifications', 'Notifications'], ['settings', 'Settings'], ['audit', 'Activity']];
+  const ngn = (n) => naira(Math.round(Number(n || 0)));
+  const yn = (b) => (b ? '<span class="pill ok">Yes</span>' : '<span class="pill">No</span>');
+  const frame = (body) => mn(hd('GLOBAL TRADE &amp; LOGISTICS', '') + `<div class="tbar">${tabs.map(([k, t]) => `<button class="btn ${T.tab === k ? '' : 'ghost'} sm" data-tab="${k}">${t}</button>`).join('')}</div>` + body);
+  const wireTabs = () => onAll('[data-tab]', 'click', (el) => { T.tab = el.dataset.tab; views.trade(); });
+  const toB64 = (buf) => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
+
+  /* ---------- phase 4 helpers: a small form builder, file reading, document lists ---------- */
+  const closeModal = () => modal.classList.remove('on');
+  const monAll = (sel, ev, fn) => $$(sel, modal).forEach((el) => el.addEventListener(ev, guard((x) => fn(el, x))));
+  const tform = (title, specs, cur, onSave, after) => {
+    cur = cur || {};
+    const field = ([k, label, def, extra]) => {
+      const raw = cur[k] !== undefined && cur[k] !== null ? cur[k] : (def !== undefined ? def : ''), v = Array.isArray(raw) ? raw.join(', ') : raw;
+      if (extra === 'bool') return `<label style="display:block;margin:8px 0"><input type="checkbox" data-f="${k}" data-t="bool" ${v === true || v === 1 || v === '1' || v === 'true' ? 'checked' : ''}> ${e(label)}</label>`;
+      if (Array.isArray(extra)) return `<label class="f">${e(label)}<select data-f="${k}">${extra.map((o) => { const [val, text] = Array.isArray(o) ? o : [o, o]; return `<option value="${e(val)}" ${String(v) === String(val) ? 'selected' : ''}>${e(String(text).replace(/_/g, ' '))}</option>`; }).join('')}</select></label>`;
+      if (extra === 'area') return `<label class="f" style="grid-column:1/-1">${e(label)}<textarea data-f="${k}" rows="3">${e(v)}</textarea></label>`;
+      return `<label class="f">${e(label)}<input data-f="${k}" ${extra === 'date' ? 'type="date"' : ''} value="${e(v)}"></label>`;
+    };
+    openModal(`<h3 style="margin-top:0">${title}</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px">${specs.map(field).join('')}</div><div id="tferr" style="color:#b91c1c;margin-top:8px"></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><button class="btn" id="tfsv">Save</button><button class="btn ghost" id="tfcx">Cancel</button></div>`, true);
+    $('#tfcx').addEventListener('click', () => (after ? after() : closeModal()));
+    $('#tfsv').addEventListener('click', async () => {
+      const body = {}; document.querySelectorAll('[data-f]').forEach((el) => { body[el.dataset.f] = el.dataset.t === 'bool' ? el.checked : el.value; });
+      try { await onSave(body); } catch (er) { $('#tferr').textContent = er.message; }
+    });
+  };
+  const pickFile = (accept) => new Promise((res) => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept || ''; i.onchange = async () => { const f = i.files[0]; if (!f) return res(null); if (f.size > 8 * 1024 * 1024) { toast('That file is larger than 8 MB.', 'bad'); return res(null); } res({ filename: f.name, data: toB64(await f.arrayBuffer()) }); }; i.click(); });
+  const DOCT = ['supplier_invoice', 'purchase_agreement', 'proforma_invoice', 'packing_list', 'certificate_of_origin', 'bill_of_lading', 'air_waybill', 'insurance_certificate', 'import_permit', 'customs_declaration', 'other'];
+  const docsHtml = (docs) => `<h4>Documents</h4>${docs.length ? docs.map((d) => `<div style="font-size:13px"><a href="/api/admin/trade/documents/${d.id}" download>${e(d.file_name)}</a> · ${e(d.doc_type.replace(/_/g, ' '))}${d.number ? ' · ' + e(d.number) : ''} · ${Math.max(1, Math.round(d.size_bytes / 1024))} KB${d.status === 'void' ? ' · <i>superseded</i>' : ''} ${edit && d.origin !== 'generated' ? `<button class="btn ghost sm" data-deldoc="${d.id}">Remove</button>` : ''}</div>`).join('') : '<div class="mu2">None attached.</div>'}${edit ? `<div style="margin-top:6px"><select id="dty">${DOCT.map((t) => `<option value="${t}">${t.replace(/_/g, ' ')}</option>`).join('')}</select> <input id="dnum" placeholder="Number (optional)" style="max-width:150px"> <button class="btn ghost sm" id="dup">Attach a file</button></div>` : ''}`;
+  const wireDocs = (url, reload) => {
+    const u = $('#dup'); if (u) u.addEventListener('click', guard(async () => { const f = await pickFile('.pdf,.png,.jpg,.jpeg,.xlsx,.csv,.docx'); if (!f) return; await api(url, { body: { ...f, doc_type: $('#dty').value, number: $('#dnum').value } }); toast('Attached'); reload(); }));
+    monAll('[data-deldoc]', 'click', guard(async (b) => { if (!confirm('Remove this document?')) return; await api('/api/admin/trade/documents/' + b.dataset.deldoc, { method: 'DELETE' }); toast('Removed'); reload(); }));
+  };
+  const money = (n, c) => `${e(c)} ${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}`;
+  const stPill = (s) => `<span class="pill">${e(String(s).replace(/_/g, ' '))}</span>`;
+  const cc = (await api('/api/admin/trade/countries').catch(() => ({ countries: [] }))).countries || [];
+  const ccOpts = [['', 'Choose...'], ...cc.map((c) => [c.code, c.name])];
+  const curOpts = (await api('/api/admin/trade/currencies').catch(() => ({ currencies: [] }))).currencies || [];
+  const curList = curOpts.map((c) => c.code);
+  const INCO = ['', 'EXW', 'FCA', 'FAS', 'FOB', 'CFR', 'CIF', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP'];
+  let openSupplier, openPO, openImport, openDecl;
+
+  /* ----- purchase order form ----- */
+  const poForm = async (supplierId, po) => {
+    const g = await api('/api/admin/trade/suppliers/' + supplierId), s = g.supplier, cat = g.products.filter((p) => p.active), o = po ? po.order : { currency: s.currency, destination_country: 'NG', incoterm: s.incoterm }, lines = po ? po.items.map((i) => ({ ...i })) : [{}];
+    const row = (l, i) => `<tr data-l="${i}"><td><select data-k="supplier_product_id"><option value="">Other product</option>${cat.map((p) => `<option value="${p.id}" ${Number(l.supplier_product_id) === p.id ? 'selected' : ''}>${e(p.name)} (${money(p.unit_cost, p.currency)}, min ${p.moq})</option>`).join('')}</select></td><td><input data-k="description" value="${e(l.description || '')}" placeholder="Description"></td><td><input data-k="hs_code" value="${e(l.hs_code || '')}" style="width:90px"></td><td><input data-k="qty" type="number" min="1" value="${e(l.qty || '')}" style="width:80px"></td><td><input data-k="unit_cost" type="number" step="any" value="${e(l.unit_cost == null ? '' : l.unit_cost)}" style="width:90px"></td><td><button class="btn ghost sm" data-rm="${i}">×</button></td></tr>`;
+    const draw = () => {
+      openModal(`<h3 style="margin-top:0">${po ? 'Edit ' + e(o.po_number) : 'New purchase order'} · ${e(s.name)}</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+        <label class="f">Currency<select id="pcu">${curList.map((c) => `<option ${o.currency === c ? 'selected' : ''}>${e(c)}</option>`).join('')}</select></label><label class="f">Destination country<select id="pdc">${ccOpts.map(([c, n]) => `<option value="${e(c)}" ${o.destination_country === c ? 'selected' : ''}>${e(n)}</option>`).join('')}</select></label>
+        <label class="f">Incoterm<select id="pin">${INCO.map((c) => `<option ${o.incoterm === c ? 'selected' : ''}>${e(c)}</option>`).join('')}</select></label><label class="f">Expected dispatch<input id="ped" type="date" value="${e(o.expected_dispatch || '')}"></label><label class="f">Expected arrival<input id="pea" type="date" value="${e(o.expected_arrival || '')}"></label></div>
+        <div class="tw" style="margin-top:10px"><table class="t"><tr><th>Catalogue item</th><th>Description</th><th>HS code</th><th>Qty</th><th>Unit cost</th><th></th></tr>${lines.map(row).join('')}</table></div><button class="btn ghost sm" id="padd" style="margin-top:6px">Add line</button>
+        <label class="f" style="margin-top:8px">Notes<textarea id="pnt" rows="2">${e(o.notes || '')}</textarea></label><div class="mu2">The total is worked out by the server from the lines. Catalogue lines must be in the order currency and meet the supplier's minimum order quantity.</div><div id="perr" style="color:#b91c1c;margin-top:6px"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><button class="btn" id="psv">Save order</button><button class="btn ghost" id="pcx">Cancel</button></div>`, true);
+      const read = () => { document.querySelectorAll('[data-l]').forEach((tr) => { const l = lines[Number(tr.dataset.l)]; tr.querySelectorAll('[data-k]').forEach((el) => { l[el.dataset.k] = el.value; }); }); o.currency = $('#pcu').value; o.destination_country = $('#pdc').value; o.incoterm = $('#pin').value; o.expected_dispatch = $('#ped').value; o.expected_arrival = $('#pea').value; o.notes = $('#pnt').value; };
+      document.querySelectorAll('[data-l] select[data-k=supplier_product_id]').forEach((sel) => sel.addEventListener('change', () => { read(); const l = lines[Number(sel.closest('tr').dataset.l)], p = cat.find((x) => String(x.id) === sel.value); if (p) { l.description = p.name; l.hs_code = p.hs_code; l.unit_cost = p.unit_cost; if (!l.qty) l.qty = p.moq; o.currency = p.currency; } draw(); }));
+      $('#padd').addEventListener('click', () => { read(); lines.push({}); draw(); });
+      monAll('[data-rm]', 'click', (b) => { read(); lines.splice(Number(b.dataset.rm), 1); if (!lines.length) lines.push({}); draw(); });
+      $('#pcx').addEventListener('click', () => (po ? openPO(po.order.id) : openSupplier(supplierId)));
+      $('#psv').addEventListener('click', async () => {
+        read();
+        try { const r = await api('/api/admin/trade/purchase-orders' + (po ? '/' + po.order.id : ''), { method: po ? 'PUT' : 'POST', body: { supplier_id: supplierId, ...o, items: lines.filter((l) => l.description || l.supplier_product_id || l.qty).map((l) => ({ supplier_product_id: l.supplier_product_id || undefined, description: l.description, hs_code: l.hs_code, qty: l.qty, unit_cost: l.unit_cost })) } }); toast('Saved'); openPO(r.order.id); } catch (er) { $('#perr').textContent = er.message; }
+      });
+    };
+    draw();
+  };
+
+  /* ----- purchase order detail ----- */
+  openPO = async (id) => {
+    const d = await api('/api/admin/trade/purchase-orders/' + id), o = d.order, st = o.status;
+    openModal(`<h3 style="margin-top:0">${e(o.po_number)} ${stPill(st)}</h3><div class="mu2">${e(o.supplier)} · to ${e(o.destination_country)} · ${e(o.incoterm || 'no Incoterm')} · dispatch ${e(o.expected_dispatch || '?')} · arrival ${e(o.expected_arrival || '?')}</div>
+      <div class="tw"><table class="t"><tr><th>Item</th><th>HS</th><th>Qty</th><th>Unit</th><th>Total</th></tr>${d.items.map((i) => `<tr><td>${e(i.description)}</td><td>${e(i.hs_code)}</td><td>${i.qty}</td><td>${money(i.unit_cost, o.currency)}</td><td>${money(i.line_total, o.currency)}</td></tr>`).join('')}<tr><td colspan="4"><b>Total</b></td><td><b>${money(o.total, o.currency)}</b></td></tr></table></div>
+      ${st === 'approved' ? `<div class="mu2">Paid ${money(o.paid, o.currency)} · Balance ${money(o.balance, o.currency)}${o.shipment_ref ? ` · Shipment <a href="#" data-ship="${e(o.shipment_ref)}">${e(o.shipment_ref)}</a> (${e(String(o.shipment_status).replace(/_/g, ' '))})` : ''}</div>` : ''}
+      ${o.notes ? `<p class="mu2">${e(o.notes)}</p>` : ''}
+      ${edit ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">${d.editable ? '<button class="btn ghost sm" id="poedit">Edit order</button>' : ''}${st === 'draft' ? `<label class="mu2"><input type="checkbox" id="pomail" ${o.supplier_email ? '' : 'disabled'}> email the supplier</label> <button class="btn sm" id="porfq">Request quotation</button>` : ''}${d.editable ? '<button class="btn sm" id="poapp">Approve order</button>' : ''}${st !== 'cancelled' ? '<button class="btn danger sm" id="pocan">Cancel order</button>' : ''}</div>` : ''}
+      ${docsHtml(d.documents)}<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" id="poclose">Close</button></div>`, true);
+    $('#poclose').addEventListener('click', () => { closeModal(); views.trade(); });
+    const ps = document.querySelector('[data-ship]'); if (ps) ps.addEventListener('click', (ev) => { ev.preventDefault(); openImport(ps.dataset.ship); });
+    const on1 = (sel, fn) => { const x = $(sel); if (x) x.addEventListener('click', guard(fn)); };
+    on1('#poedit', async () => poForm(o.supplier_id, d));
+    on1('#porfq', async () => { const r = await api(`/api/admin/trade/purchase-orders/${id}/request-quotation`, { body: { send_email: $('#pomail').checked } }); toast(r.emailed ? 'Quotation request emailed to the supplier' : 'Marked as quotation requested'); openPO(id); });
+    on1('#poapp', async () => { if (!confirm(`Approve ${o.po_number} for ${money(o.total, o.currency)}? This creates the import shipment.`)) return; await api(`/api/admin/trade/purchase-orders/${id}/approve`, { body: {} }); toast('Approved'); openPO(id); });
+    on1('#pocan', async () => { if (!confirm('Cancel this purchase order?')) return; await api(`/api/admin/trade/purchase-orders/${id}/cancel`, { body: {} }); toast('Cancelled'); openPO(id); });
+    wireDocs(`/api/admin/trade/purchase-orders/${id}/documents`, () => openPO(id));
+  };
+
+  /* ----- import shipment detail ----- */
+  const COSTK = [['freight', 'Freight'], ['insurance', 'Insurance'], ['customs_duties', 'Customs duties'], ['import_taxes', 'Import taxes'], ['clearing_fees', 'Clearing & forwarding'], ['port_charges', 'Port charges'], ['inland_transport', 'Inland transport'], ['other_charges', 'Other charges']];
+  openImport = async (ref) => {
+    const d = await api('/api/admin/trade/imports/' + encodeURIComponent(ref)), h = d.shipment, ro = edit ? '' : 'disabled';
+    openModal(`<h3 style="margin-top:0">${e(h.import_ref)} ${stPill(h.status)} ${h.delayed ? '<span class="pill" style="background:#fde2e2">Late</span>' : ''}</h3>
+      <div class="mu2">${e(h.supplier)} (${e(h.supplier_country)}) → ${e(h.destination_country)} · ${h.po_number ? 'PO ' + e(h.po_number) : ''} · ${e(h.incoterm || 'no Incoterm')}</div>
+      <div class="tw"><table class="t"><tr><th>Item</th><th>HS</th><th>Ordered</th><th>Unit cost</th><th>Total</th></tr>${d.items.map((i) => `<tr><td>${e(i.description)}</td><td>${e(i.hs_code)}</td><td>${i.qty_ordered}</td><td>${money(i.unit_cost, h.currency)}</td><td>${money(i.line_total, h.currency)}</td></tr>`).join('')}</table></div>
+      <h4>Shipping details</h4><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px"><label class="f">Carrier / forwarder<input id="icar" value="${e(h.carrier)}" ${ro}></label><label class="f">Tracking / B/L number<input id="itr" value="${e(h.tracking_number)}" ${ro}></label><label class="f">Expected arrival<input id="ieta" type="date" value="${e(h.eta || '')}" ${ro}></label></div>
+      <h4>Costs (${e(h.currency)}) <span class="mu2">Entered from supplier and agent invoices. The exchange rate is frozen when the first cost is saved${h.fx_rate_to_ngn ? ` (1 ${e(h.currency)} = ${Number(h.fx_rate_to_ngn).toFixed(4)} NGN)` : ''}.</span></h4>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">${COSTK.map(([k, l]) => `<label class="f">${l}<input data-c="${k}" type="number" step="any" min="0" value="${h.costs[k] || ''}" ${ro}></label>`).join('')}</div>
+      <div style="margin-top:6px"><b>Purchase value ${money(h.purchase_value, h.currency)} · Landed cost ${money(h.landed_cost, h.currency)}${h.landed_cost_ngn != null ? ' = ' + ngn(h.landed_cost_ngn) : ''}</b></div>
+      ${edit ? '<button class="btn ghost sm" id="isave" style="margin-top:6px">Save details and costs</button>' : ''}
+      ${edit && d.next.length ? `<h4>Move to the next stage</h4><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px"><label class="f">Note<input id="inote"></label><label class="f">Location<input id="iloc"></label></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${d.next.map((s) => `<button class="btn sm" data-go="${s}">${e(s.replace(/_/g, ' '))}</button>`).join('')}</div>` : ''}
+      <div class="mu2" style="margin-top:6px">${e(d.receiving_note)}</div>
+      <div id="irx"></div>
+      ${edit ? '<button class="btn ghost sm" id="icus" style="margin-top:6px">Customs declaration &amp; documents</button>' : ''}
+      <h4>Progress</h4>${d.events.length ? d.events.map((x) => `<div style="font-size:13px">${new Date(x.occurred_at * 1000).toLocaleString()} · <b>${e(String(x.stage).replace(/_/g, ' '))}</b> ${e(x.location)} ${e(x.description)}</div>`).join('') : '<div class="mu2">None yet.</div>'}
+      ${edit ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><select id="evs">${['delayed', 'exception', 'customs_hold', 'in_transit', 'departed_origin', 'arrived_destination', 'export_customs', 'import_customs', 'customs_released', 'processing'].map((s) => `<option value="${s}">${s.replace(/_/g, ' ')}</option>`).join('')}</select><input id="evd" placeholder="Note" style="max-width:220px"><input id="evl" placeholder="Location" style="max-width:160px"><button class="btn ghost sm" id="evadd">Add update</button></div>` : ''}
+      ${docsHtml(d.documents)}<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" id="iclose">Close</button></div>`, true);
+    $('#iclose').addEventListener('click', () => { closeModal(); views.trade(); });
+    const on1 = (sel, fn) => { const x = $(sel); if (x) x.addEventListener('click', guard(fn)); };
+    const base = '/api/admin/trade/imports/' + encodeURIComponent(ref);
+    on1('#isave', async () => { const body = { carrier: $('#icar').value, tracking_number: $('#itr').value, eta: $('#ieta').value || null }; document.querySelectorAll('[data-c]').forEach((el) => { body[el.dataset.c] = el.value; }); await api(base, { method: 'PUT', body }); toast('Saved'); openImport(ref); });
+    monAll('[data-go]', 'click', guard(async (b) => { await api(base + '/status', { body: { status: b.dataset.go, carrier: $('#icar').value, tracking_number: $('#itr').value, eta: $('#ieta').value || undefined, note: $('#inote').value, location: $('#iloc').value } }); toast('Updated'); openImport(ref); }));
+    on1('#evadd', async () => { await api(base + '/event', { body: { stage: $('#evs').value, description: $('#evd').value, location: $('#evl').value } }); toast('Added'); openImport(ref); });
+    wireDocs(base + '/documents', () => openImport(ref));
+    on1('#icus', async () => { const r = await api('/api/admin/trade/customs/from-import/' + encodeURIComponent(ref), { body: {} }); openDecl(r.declaration.id, () => openImport(ref)); });
+    // receiving goods into stock and landed cost (phase 6)
+    const rx = $('#irx', modal); if (!rx) return;
+    const done = ['stock_received', 'completed'].includes(h.status);
+    if (done) {
+      const L = await api(base + '/landed');
+      rx.innerHTML = `<h4>Stock received · ${e(L.grn)}</h4><div class="mu2">Total landed cost ${ngn(L.total_ngn)}. Shared across the items by the basis chosen when the stock was received; damaged and missing units are carried by the units that went into stock.</div>
+        <div class="tw"><table class="t"><tr><th>Item</th><th>Ordered</th><th>Received</th><th>Damaged</th><th>Short</th><th>To stock</th><th>Landed / unit</th></tr>${L.items.map((i) => `<tr><td>${e(i.description)}</td><td>${i.qty_ordered}</td><td>${i.qty_received}</td><td>${i.qty_damaged}</td><td>${i.shortage}</td><td>${i.qty_sellable ?? ''}</td><td>${i.landed_unit_cost_ngn == null ? '—' : ngn(i.landed_unit_cost_ngn)}</td></tr>`).join('')}</table></div>`;
+      return;
+    }
+    if (h.status !== 'delivered_warehouse' || !edit) return;
+    rx.innerHTML = `<h4>Receive stock</h4><div class="mu2">Count what arrived. Only the undamaged units are added to stock. Link every item to a Velto-Mart product first; set a weight per unit if you want to share costs by weight.</div>
+      <div class="tw"><table class="t"><tr><th>Item</th><th>Ordered</th><th>Received</th><th>Damaged</th><th>Product ID</th><th>kg / unit</th></tr>${d.items.map((i) => `<tr data-rx="${i.id}"><td>${e(i.description)}</td><td>${i.qty_ordered}</td><td><input data-r="qty_received" value="${i.qty_ordered}" style="width:70px"></td><td><input data-r="qty_damaged" value="0" style="width:70px"></td><td><input data-r="product_id" value="${i.product_id ?? ''}" style="width:80px"></td><td><input data-r="weight_kg" value="${i.weight_kg ?? ''}" style="width:70px"></td></tr>`).join('')}</table></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:6px"><label class="f">Share costs by<select id="rxb"><option value="value">Value</option><option value="weight">Weight</option><option value="quantity">Quantity</option></select></label><label class="f">Put stock in<select id="rxt"><option value="retail">Retail store</option><option value="warehouse">Wholesale warehouse</option></select></label></div>
+      <div style="display:flex;gap:6px;margin-top:6px"><button class="btn ghost sm" id="rxp">Calculate landed cost</button></div><div id="rxo"></div>`;
+    const counts = () => [...rx.querySelectorAll('[data-rx]')].map((tr) => { const o = { id: Number(tr.dataset.rx) }; tr.querySelectorAll('[data-r]').forEach((el) => { o[el.dataset.r] = el.value; }); return o; });
+    const saveItems = async () => { for (const c of counts()) await api(base + '/items/' + c.id, { method: 'PUT', body: { product_id: c.product_id, weight_kg: c.weight_kg } }); };
+    const payload = () => ({ items: counts().map((c) => ({ id: c.id, qty_received: Number(c.qty_received), qty_damaged: Number(c.qty_damaged || 0) })), basis: $('#rxb').value, to: $('#rxt').value });
+    $('#rxp').addEventListener('click', guard(async () => {
+      await saveItems(); const r = await api(base + '/receive-preview', { body: payload() });
+      $('#rxo').innerHTML = `<div class="tw" style="margin-top:6px"><table class="t"><tr><th>Item</th><th>To stock</th><th>Short</th><th>Purchase</th><th>Extra costs</th><th>Landed</th><th>Per unit</th></tr>${r.lines.map((l) => `<tr><td>${e(l.description)}</td><td>${l.qty_sellable}</td><td>${l.shortage}</td><td>${ngn(l.purchase_ngn)}</td><td>${ngn(l.extra_ngn)}</td><td>${ngn(l.landed_ngn)}</td><td>${l.unit_cost_ngn == null ? '—' : ngn(l.unit_cost_ngn)}</td></tr>`).join('')}</table></div>
+        <div><b>Total landed cost ${ngn(r.total_ngn)}</b> <span class="mu2">at ${Number(r.rate_to_ngn).toFixed(4)} NGN per ${e(h.currency)}</span></div>${r.blockers.length ? `<div style="color:#b91c1c;font-size:13px">${r.blockers.map(e).join('<br>')}</div>` : '<button class="btn sm" id="rxgo" style="margin-top:6px">Receive into stock</button>'}`;
+      const go = $('#rxgo', modal); if (go) go.addEventListener('click', guard(async () => { if (!confirm('Add the undamaged units to stock? This can only be done once.')) return; go.disabled = true; try { const x = await api(base + '/receive', { body: payload() }); toast('Stock received · ' + x.grn); openImport(ref); } catch (er) { go.disabled = false; throw er; } }));
+    }));
+  };
+
+  /* ----- customs declaration (phase 6) ----- */
+  openDecl = async (id, after) => {
+    const d = await api('/api/admin/trade/customs/' + id), c = d.declaration, ro = edit && d.editable ? '' : 'disabled', isExp = c.direction === 'export', ref = isExp ? c.export_ref : c.import_ref;
+    const GEN = isExp ? ['commercial_invoice', 'proforma_invoice', 'packing_list', 'certificate_of_origin', 'export_declaration', 'customs_declaration'] : ['customs_declaration'];
+    const iss = d.readiness.issues;
+    openModal(`<h3 style="margin-top:0">${e(c.ref)} ${stPill(c.status)} <span class="mu2">${isExp ? 'Export order ' : 'Import shipment '}${e(ref)} · ${e(c.export_country)} → ${e(c.import_country)}</span></h3>
+      <div class="mu2">Prepare and check the declaration here. This system does not file with customs: file it with your broker or the customs portal, then record the entry number.</div>
+      ${iss.length ? `<div class="panel" style="margin:8px 0">${iss.map((x) => `<div style="color:${x.level === 'block' ? '#b91c1c' : '#8a6100'};font-size:13px">${x.level === 'block' ? '● Must fix: ' : '○ Note: '}${e(x.message)}</div>`).join('')}</div>` : '<div class="pill ok" style="margin:8px 0">Ready to file</div>'}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px"><label class="f">Gross weight (kg)<input id="cdg" value="${c.gross_weight_kg ?? ''}" ${ro}></label><label class="f">Net weight (kg)<input id="cdn" value="${c.net_weight_kg ?? ''}" ${ro}></label><label class="f">Packages<input id="cdp" value="${c.packages ?? ''}" ${ro}></label>
+        <label class="f">Dimensions<input id="cdd" value="${e(c.dimensions)}" placeholder="30x25x6 cm" ${ro}></label><label class="f">Incoterm<select id="cdi" ${ro}>${INCO.map((x) => `<option ${c.incoterm === x ? 'selected' : ''}>${e(x)}</option>`).join('')}</select></label><label class="f">Entry number (from customs / broker)<input id="cde" value="${e(c.entry_number)}" ${edit ? '' : 'disabled'}></label></div>
+      <label class="f" style="margin-top:6px">Restrictions note<input id="cdr" value="${e(c.restrictions_note)}" ${ro}></label>
+      <h4>Goods (${e(c.currency)})</h4><div class="tw"><table class="t"><tr><th>Description</th><th>HS code</th><th>Origin</th><th>Qty</th><th>Value</th><th>Total kg</th></tr>${c.lines.map((l, i) => `<tr data-ln="${i}"><td><input data-k="description" value="${e(l.description)}" ${ro}></td><td><input data-k="hs_code" value="${e(l.hs_code)}" style="width:100px" ${ro}></td><td><input data-k="origin_country" value="${e(l.origin_country)}" style="width:50px" maxlength="2" ${ro}></td><td><input data-k="qty" value="${l.qty}" style="width:60px" ${ro}></td><td><input data-k="value" value="${l.value}" style="width:100px" ${ro}></td><td><input data-k="weight_kg" value="${l.weight_kg ?? ''}" style="width:70px" ${ro}></td></tr>`).join('')}</table></div>
+      <div style="margin:6px 0"><b>Declared value ${money(c.declared_value, c.currency)}</b></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${edit && d.editable ? '<button class="btn sm" id="cdsave">Save declaration</button>' : ''}${edit ? d.next.map((s2) => `<button class="btn ${s2 === 'rejected' ? 'danger' : 'ghost'} sm" data-cds="${s2}">${s2 === 'submitted' ? 'Record as filed' : s2 === 'draft' ? 'Reopen' : 'Mark ' + e(s2)}</button>`).join('') : ''}</div>
+      <h4>Documents</h4>${d.documents.length ? d.documents.map((x) => `<div style="font-size:13px"><a href="/api/admin/trade/documents/${x.id}" download>${e(x.number || x.file_name)}</a> · ${e(x.doc_type.replace(/_/g, ' '))} · ${x.origin}${x.status === 'void' ? ' · <i>superseded</i>' : ''}</div>`).join('') : '<div class="mu2">None yet.</div>'}
+      ${edit ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${GEN.map((t) => `<button class="btn ghost sm" data-gen="${t}">Create ${e(t.replace(/_/g, ' '))} (PDF)</button>`).join('')}</div><div class="mu2" style="margin-top:4px">Generated documents are built from your records. The certificate of origin is a draft until an authorised body certifies it; air waybills, bills of lading and permits are uploaded where the order or shipment is opened.</div>` : ''}
+      <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" id="cdclose">Close</button></div>`, true);
+    $('#cdclose').addEventListener('click', () => { closeModal(); if (after) after(); });
+    const reopen = () => openDecl(id, after), body = () => ({ gross_weight_kg: $('#cdg').value, net_weight_kg: $('#cdn').value, packages: $('#cdp').value, dimensions: $('#cdd').value, incoterm: $('#cdi').value, restrictions_note: $('#cdr').value, entry_number: $('#cde').value, lines: [...modal.querySelectorAll('[data-ln]')].map((tr) => { const o = {}; tr.querySelectorAll('[data-k]').forEach((el) => { o[el.dataset.k] = el.value; }); const orig = c.lines[Number(tr.dataset.ln)]; return { ...o, product_id: orig.product_id }; }) });
+    const sv = $('#cdsave'); if (sv) sv.addEventListener('click', guard(async () => { await api('/api/admin/trade/customs/' + id, { method: 'PUT', body: body() }); toast('Saved'); reopen(); }));
+    monAll('[data-cds]', 'click', guard(async (b) => { const ent = $('#cde').value; await api('/api/admin/trade/customs/' + id + '/status', { body: { status: b.dataset.cds, entry_number: ent } }); toast('Updated'); reopen(); }));
+    monAll('[data-gen]', 'click', guard(async (b) => { await api('/api/admin/trade/' + (isExp ? 'orders' : 'imports') + '/' + encodeURIComponent(ref) + '/documents/generate', { body: { doc_type: b.dataset.gen } }); toast('Document created'); reopen(); }));
+  };
+
+  /* ----- supplier detail ----- */
+  const SUPF = [['name', 'Supplier name'], ['country_code', 'Country', '', ccOpts], ['contact_person', 'Contact person'], ['email', 'Email'], ['phone', 'Phone'], ['website', 'Website (https://)'], ['address', 'Address'], ['currency', 'Currency', 'USD', curList], ['incoterm', 'Usual Incoterm', '', INCO], ['payment_terms', 'Payment terms'], ['shipping_terms', 'Shipping terms'], ['rating', 'Rating (0 to 5)'], ['status', 'Status', 'active', ['active', 'paused', 'blocked']], ['notes', 'Notes', '', 'area']];
+  const PRF = [['supplier_sku', 'Supplier SKU'], ['name', 'Product name'], ['description', 'Description'], ['hs_code', 'HS code'], ['unit_cost', 'Unit cost'], ['currency', 'Currency', '', curList], ['moq', 'Minimum order quantity', 1], ['lead_time_days', 'Lead time (days)', 0], ['product_id', 'Linked Velto-Mart product ID (optional)'], ['active', 'Active in catalogue', true, 'bool']];
+  openSupplier = async (id) => {
+    const d = await api('/api/admin/trade/suppliers/' + id), s = d.supplier, hide = d.money_hidden;
+    openModal(`<h3 style="margin-top:0">${e(s.name)} ${stPill(s.status)} ${s.rating != null ? '<span class="mu2">★ ' + s.rating + '</span>' : ''}</h3>
+      <div class="mu2">${e(s.country)} · ${e(s.contact_person)} ${e(s.email)} ${e(s.phone)}<br>${e(s.payment_terms)}${s.shipping_terms ? ' · ' + e(s.shipping_terms) : ''} · ${e(s.currency)} ${s.incoterm ? '· ' + e(s.incoterm) : ''}</div>
+      ${edit ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"><button class="btn ghost sm" id="sedit">Edit profile</button><button class="btn sm" id="snewpo">New purchase order</button><button class="btn ghost sm" id="sbank">Bank details</button><button class="btn danger sm" id="sdel">Delete</button></div>` : ''}
+      <h4>Catalogue (${d.products.length}) ${edit ? '<button class="btn ghost sm" id="padd1">Add product</button> <button class="btn ghost sm" id="pupl">Upload Excel/CSV</button> <a class="mu2" href="/api/admin/trade/suppliers/catalogue-template?format=xlsx">template</a>' : ''}</h4>
+      ${d.products.length ? `<div class="tw"><table class="t"><tr><th>SKU</th><th>Product</th><th>HS</th><th>Unit cost</th><th>Min qty</th><th>Lead</th><th>Linked</th><th></th></tr>${d.products.map((p) => `<tr style="${p.active ? '' : 'opacity:.5'}"><td>${e(p.supplier_sku)}</td><td>${e(p.name)}</td><td>${e(p.hs_code)}</td><td>${money(p.unit_cost, p.currency)}</td><td>${p.moq}</td><td>${p.lead_time_days}d</td><td>${e(p.product_name || '')}</td><td>${edit ? `<button class="btn ghost sm" data-pe="${p.id}">Edit</button> <button class="btn ghost sm" data-pd="${p.id}">Remove</button>` : ''}</td></tr>`).join('')}</table></div>` : '<div class="mu2">No catalogue yet.</div>'}
+      <h4>Purchase history</h4>${d.purchase_history.length ? d.purchase_history.map((p) => `<div style="font-size:13px"><a href="#" data-po="${p.id}">${e(p.po_number)}</a> · ${stPill(p.status)} · ${money(p.total, p.currency)}</div>`).join('') : '<div class="mu2">No orders yet.</div>'}
+      ${hide ? '' : `<h4>Money</h4>${d.balances.length ? d.balances.map((b) => `<div style="font-size:13px">${e(b.currency)}: ordered ${Number(b.ordered).toLocaleString()} · paid ${Number(b.paid).toLocaleString()} · <b>outstanding ${Number(b.outstanding).toLocaleString()}</b></div>`).join('') : '<div class="mu2">Nothing owed.</div>'}
+        ${d.payments.map((p) => `<div style="font-size:13px">${e(p.paid_on)} · ${money(p.amount, p.currency)}${p.amount_ngn != null ? ' (' + ngn(p.amount_ngn) + ')' : ''} · ${e(p.method.replace(/_/g, ' '))} ${e(p.reference)} ${edit ? `<button class="btn ghost sm" data-pdel="${p.id}">Remove</button>` : ''}</div>`).join('')}
+        <div class="mu2">These are records of payments you made yourself. Velto-Mart does not send money to suppliers.</div>${edit ? '<button class="btn ghost sm" id="spay" style="margin-top:4px">Record a payment</button>' : ''}`}
+      ${docsHtml(d.documents)}<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" id="sclose">Close</button></div>`, true);
+    const on1 = (sel, fn) => { const x = $(sel); if (x) x.addEventListener('click', guard(fn)); };
+    $('#sclose').addEventListener('click', () => { closeModal(); views.trade(); });
+    const reload = () => openSupplier(id), A4 = '/api/admin/trade/suppliers/' + id;
+    monAll('[data-po]', 'click', (a, ev) => { ev.preventDefault(); openPO(a.dataset.po); });
+    on1('#sedit', async () => tform('Edit supplier', SUPF, s, async (b) => { await api(A4, { method: 'PUT', body: b }); toast('Saved'); reload(); }, reload));
+    on1('#snewpo', async () => poForm(id));
+    on1('#sdel', async () => { if (!confirm('Delete this supplier and its catalogue?')) return; await api(A4, { method: 'DELETE' }); toast('Deleted'); closeModal(); views.trade(); });
+    on1('#sbank', async () => {
+      let cur = ''; try { cur = (await api(A4 + '/bank')).details; } catch (er) { toast(er.message, 'bad'); if (/permission|Only people/i.test(er.message)) return; }
+      tform('Bank details (stored encrypted, visible to Finance only)', [['details', 'Bank name, account, SWIFT/IBAN, notes', '', 'area']], { details: cur }, async (b) => { await api(A4 + '/bank', { method: 'PUT', body: { details: b.details } }); toast('Saved'); reload(); }, reload);
+    });
+    on1('#padd1', async () => tform('Add catalogue product', PRF, { currency: s.currency }, async (b) => { await api(A4 + '/products', { body: b }); toast('Saved'); reload(); }, reload));
+    monAll('[data-pe]', 'click', (b) => tform('Edit catalogue product', PRF, d.products.find((p) => String(p.id) === b.dataset.pe), async (v) => { await api(A4 + '/products/' + b.dataset.pe, { method: 'PUT', body: v }); toast('Saved'); reload(); }, reload));
+    monAll('[data-pd]', 'click', guard(async (b) => { if (!confirm('Remove this product?')) return; await api(A4 + '/products/' + b.dataset.pd, { method: 'DELETE' }); toast('Removed'); reload(); }));
+    on1('#pupl', async () => {
+      const f = await pickFile('.xlsx,.csv'); if (!f) return; const pv = await api(A4 + '/catalogue/preview', { body: f });
+      if (!confirm(`${pv.ok} of ${pv.total} rows are ready to import.${pv.errors.length ? '\n\nProblems:\n' + pv.errors.slice(0, 8).map((x) => `Row ${x.row}: ${x.error}`).join('\n') : ''}\n\nImport the good rows?`)) return;
+      const r = await api(A4 + '/catalogue/commit', { body: f }); toast(`${r.created} added, ${r.updated} updated${r.skipped ? ', ' + r.skipped + ' skipped' : ''}`); reload();
+    });
+    on1('#spay', async () => tform('Record a supplier payment', [['amount', 'Amount paid'], ['currency', 'Currency', s.currency, curList], ['paid_on', 'Date paid', '', 'date'], ['fx_rate_to_ngn', 'Rate your bank gave (NGN per 1 unit, optional)'], ['method', 'Method', 'bank_transfer', ['bank_transfer', 'card', 'cash', 'letter_of_credit', 'other']], ['reference', 'Reference'], ['po_id', 'Purchase order (optional)', '', [['', 'Not for one order'], ...d.purchase_history.filter((p) => p.status === 'approved').map((p) => [p.id, p.po_number])]], ['note', 'Note']], {}, async (b) => { await api('/api/admin/trade/payments/suppliers/' + id, { body: b }); toast('Recorded'); reload(); }, reload));
+    monAll('[data-pdel]', 'click', guard(async (b) => { if (!confirm('Remove this payment record?')) return; await api('/api/admin/trade/payments/suppliers/payment/' + b.dataset.pdel, { method: 'DELETE' }); toast('Removed'); reload(); }));
+    wireDocs(A4 + '/documents', reload);
+  };
+
+  if (T.tab === 'suppliers') {
+    const d = await api('/api/admin/trade/suppliers?q=' + encodeURIComponent(T.sq || '') + '&country=' + encodeURIComponent(T.sc || ''));
+    frame(`<div class="panel"><div class="mu2" style="margin-bottom:8px">Overseas suppliers you buy from. Turn on the supplier's country under Countries (&ldquo;buy from&rdquo;) before raising orders.</div>
+      <input id="sq" placeholder="Search name, contact, email" value="${e(T.sq || '')}" style="max-width:240px"> <select id="sc">${ccOpts.map(([c, n]) => `<option value="${e(c)}" ${T.sc === c ? 'selected' : ''}>${c ? e(n) : 'All countries'}</option>`).join('')}</select> <button class="btn ghost sm" id="sgo">Search</button> ${edit ? '<button class="btn sm" id="sadd">Add supplier</button>' : ''}
+      <div class="tw" style="margin-top:10px">${d.suppliers.length ? `<table class="t"><tr><th>Supplier</th><th>Country</th><th>Contact</th><th>Currency</th><th>Rating</th><th>Products</th><th>Orders</th><th>Status</th></tr>${d.suppliers.map((s) => `<tr data-s="${s.id}" style="cursor:pointer"><td>${e(s.name)}</td><td>${e(s.country)}</td><td>${e(s.contact_person)}</td><td>${e(s.currency)}</td><td>${s.rating == null ? '' : s.rating}</td><td>${s.product_count}</td><td>${s.po_count}</td><td>${stPill(s.status)}</td></tr>`).join('')}</table>` : '<div class="mu2">No suppliers yet.</div>'}</div></div>
+      <div class="panel"><h3 style="margin-top:0">Compare supplier prices</h3><input id="cmq" placeholder="Product name, supplier SKU or HS code" style="max-width:280px"> <button class="btn ghost sm" id="cmgo">Compare</button><div id="cmout" class="tw" style="margin-top:8px"></div></div>`);
+    wireTabs();
+    on('#sgo', 'click', () => { T.sq = $('#sq').value.trim(); T.sc = $('#sc').value; views.trade(); });
+    on('#sadd', 'click', () => tform('Add supplier', SUPF, {}, async (b) => { const r = await api('/api/admin/trade/suppliers', { body: b }); toast('Saved'); openSupplier(r.supplier.id); }, () => closeModal()));
+    onAll('[data-s]', 'click', guard(async (el) => openSupplier(el.dataset.s)));
+    on('#cmgo', 'click', guard(async () => {
+      const r = await api('/api/admin/trade/suppliers/compare?q=' + encodeURIComponent($('#cmq').value));
+      $('#cmout').innerHTML = r.items.length ? `<table class="t"><tr><th>Supplier</th><th>Product</th><th>Unit cost</th><th>In NGN</th><th>Min qty</th><th>Lead</th><th>Rating</th></tr>${r.items.map((i) => `<tr><td>${e(i.supplier)} (${e(i.supplier_country)})</td><td>${e(i.name)}</td><td>${money(i.unit_cost, i.currency)}</td><td>${i.unit_cost_ngn != null ? ngn(i.unit_cost_ngn) : '<span class="mu2">no rate</span>'}</td><td>${i.moq}</td><td>${i.lead_time_days}d</td><td>${i.supplier_rating == null ? '' : i.supplier_rating}</td></tr>`).join('')}</table><div class="mu2">${e(r.note)}</div>` : '<div class="mu2">Nothing found.</div>';
+    }));
+    return;
+  }
+  if (T.tab === 'purchase') {
+    const d = await api('/api/admin/trade/purchase-orders?status=' + encodeURIComponent(T.ps || '') + '&q=' + encodeURIComponent(T.pq2 || '')), sl = edit ? (await api('/api/admin/trade/suppliers?per=100')).suppliers : [];
+    frame(`<div class="panel"><div class="mu2" style="margin-bottom:8px">Orders to overseas suppliers. Approving an order creates its import shipment.</div>
+      <select id="pss">${['', 'draft', 'quotation_requested', 'approved', 'cancelled'].map((s) => `<option value="${s}" ${T.ps === s ? 'selected' : ''}>${s ? s.replace(/_/g, ' ') : 'All statuses'}</option>`).join('')}</select> <input id="pq2" placeholder="PO number or supplier" value="${e(T.pq2 || '')}" style="max-width:220px"> <button class="btn ghost sm" id="pgo">Search</button>
+      ${edit ? `<select id="pns"><option value="">New order for...</option>${sl.filter((s) => s.status === 'active').map((s) => `<option value="${s.id}">${e(s.name)}</option>`).join('')}</select>` : ''}
+      <div class="tw" style="margin-top:10px">${d.orders.length ? `<table class="t"><tr><th>Order</th><th>Supplier</th><th>To</th><th>Total</th><th>Arrival</th><th>Shipment</th><th>Status</th></tr>${d.orders.map((o) => `<tr data-p="${o.id}" style="cursor:pointer"><td>${e(o.po_number)}</td><td>${e(o.supplier)}</td><td>${e(o.destination_country)}</td><td>${money(o.total, o.currency)}</td><td>${e(o.expected_arrival || '')}</td><td>${e(o.shipment_ref || '')}</td><td>${stPill(o.status)}</td></tr>`).join('')}</table>` : '<div class="mu2">No purchase orders yet.</div>'}</div></div>`);
+    wireTabs(); on('#pgo', 'click', () => { T.ps = $('#pss').value; T.pq2 = $('#pq2').value.trim(); views.trade(); }); on('#pss', 'change', () => { T.ps = $('#pss').value; views.trade(); });
+    on('#pns', 'change', guard(async () => { const v = $('#pns').value; if (v) poForm(Number(v)); }));
+    onAll('[data-p]', 'click', guard(async (el) => openPO(el.dataset.p)));
+    return;
+  }
+  if (T.tab === 'imports') {
+    const d = await api('/api/admin/trade/imports?status=' + encodeURIComponent(T.is || '') + '&q=' + encodeURIComponent(T.iq || ''));
+    const stat = ['', 'po_approved', 'supplier_processing', 'ready_for_collection', 'dispatched', 'in_transit', 'arrived_port', 'customs_clearance', 'customs_hold', 'released', 'local_transit', 'delivered_warehouse', 'stock_received', 'completed'];
+    frame(`<div class="panel"><div class="mu2" style="margin-bottom:8px">One import shipment per approved purchase order. Record the supplier's progress, the carrier and the costs. When the goods are delivered to the warehouse, open the shipment to count them in and see the landed cost.</div>
+      <select id="iss">${stat.map((s) => `<option value="${s}" ${T.is === s ? 'selected' : ''}>${s ? s.replace(/_/g, ' ') : 'All statuses'}</option>`).join('')}</select> <input id="iq" placeholder="Reference, tracking, supplier, PO" value="${e(T.iq || '')}" style="max-width:240px"> <button class="btn ghost sm" id="igo">Search</button>
+      <div class="tw" style="margin-top:10px">${d.shipments.length ? `<table class="t"><tr><th>Shipment</th><th>Supplier</th><th>PO</th><th>Carrier / tracking</th><th>ETA</th><th>Purchase value</th><th>Landed cost</th><th>Status</th></tr>${d.shipments.map((h) => `<tr data-i="${e(h.import_ref)}" style="cursor:pointer"><td>${e(h.import_ref)}</td><td>${e(h.supplier)}</td><td>${e(h.po_number || '')}</td><td>${e(h.carrier)} ${e(h.tracking_number)}</td><td>${e(h.eta || '')} ${h.delayed ? '<span class="pill" style="background:#fde2e2">Late</span>' : ''}</td><td>${money(h.purchase_value, h.currency)}</td><td>${money(h.landed_cost, h.currency)}</td><td>${stPill(h.status)}</td></tr>`).join('')}</table>` : '<div class="mu2">No import shipments yet. Approve a purchase order to create one.</div>'}</div></div>`);
+    wireTabs(); on('#igo', 'click', () => { T.is = $('#iss').value; T.iq = $('#iq').value.trim(); views.trade(); }); on('#iss', 'change', () => { T.is = $('#iss').value; views.trade(); });
+    onAll('[data-i]', 'click', guard(async (el) => openImport(el.dataset.i)));
+    return;
+  }
+  if (T.tab === 'overview') {
+    const d = await api('/api/admin/trade/dashboard'), k = d.kpi;
+    const card = (l, v) => `<div class="panel" style="margin:0"><div class="mu2">${l}</div><div style="font-size:22px;font-weight:800">${v}</div></div>`;
+    frame(`<div class="mu2" style="margin:8px 0">Last 90 days. Every figure is read from real orders and shipments, so a new module shows zeros until the first international order. Amounts are in NGN.</div>
+      ${d.rates_attention.length ? `<div class="panel" style="border-color:#e0a800"><b>Exchange rates need attention:</b> ${d.rates_attention.map((r) => e(r.code) + (r.missing ? ' (no rate yet)' : ' (out of date)')).join(', ')}. Open "Currencies &amp; rates".</div>` : ''}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin:10px 0">
+        ${card('International sales', ngn(k.international_sales_ngn))}${card('Export orders', k.export_orders)}${card('Import shipments', k.import_orders)}${card('In transit', k.in_transit)}
+        ${card('Delivered', k.delivered)}${card('At customs', k.pending_customs)}${card('Delayed', k.delayed)}${card('Import cost (landed)', ngn(k.import_cost_ngn))}
+        ${card('Shipping expense', ngn(k.shipping_expense_ngn))}${card('Duties and taxes paid', ngn(k.duties_taxes_ngn))}${card('Owed to suppliers', ngn(k.outstanding_supplier_ngn))}</div>
+      <div class="panel"><h3 style="margin-top:0">Sales by country</h3>${d.sales_by_country.length ? `<div class="tw"><table class="t"><tr><th>Country</th><th>Orders</th><th>Revenue</th></tr>${d.sales_by_country.map((c) => `<tr><td>${e(c.name)}</td><td>${c.orders}</td><td>${ngn(c.revenue_ngn)}</td></tr>`).join('')}</table></div>` : '<p class="mu2">No international orders yet.</p>'}</div>
+      <div class="panel"><h3 style="margin-top:0">Where to start</h3><ol class="mu2"><li>Countries: switch on the countries you want to ship to.</li><li>Currencies &amp; rates: refresh the exchange rates.</li><li>Products: add the HS code, origin, weight and size to each product you will export.</li></ol></div>`);
+    return wireTabs();
+  }
+  if (T.tab === 'countries') {
+    const d = await api('/api/admin/trade/countries?q=' + encodeURIComponent(T.cq));
+    const flag = (c, f) => `<input type="checkbox" data-c="${e(c.code)}" data-f="${f}" ${c[f] ? 'checked' : ''} ${edit ? '' : 'disabled'}>`;
+    frame(`<div class="panel"><div class="mu2" style="margin-bottom:8px">Every country starts switched off. "Ship to" lets customers there order; "Buy from" lets you add suppliers there.</div>
+      <input id="cq" placeholder="Search country or code" value="${e(T.cq)}" style="max-width:260px"> <button class="btn ghost sm" id="cgo">Search</button>
+      <div class="tw" style="margin-top:10px"><table class="t"><tr><th>Country</th><th>Currency</th><th>Ship to</th><th>Ship from</th><th>Buy from</th><th>Import into</th><th>Tax ID needed</th></tr>
+      ${d.countries.map((c) => `<tr><td>${e(c.name)} <span class="mu2">${e(c.code)}</span></td><td>${e(c.currency_code)}</td><td>${flag(c, 'export_to')}</td><td>${flag(c, 'export_from')}</td><td>${flag(c, 'import_from')}</td><td>${flag(c, 'import_to')}</td><td>${flag(c, 'tax_id_required')}</td></tr>`).join('')}</table></div></div>`);
+    wireTabs(); on('#cgo', 'click', () => { T.cq = $('#cq').value.trim(); views.trade(); });
+    onAll('input[data-c]', 'change', async (el) => { await api('/api/admin/trade/countries/' + el.dataset.c, { method: 'PUT', body: { [el.dataset.f]: el.checked } }); toast('Saved'); });
+    return;
+  }
+  if (T.tab === 'rates') {
+    const [r, cur] = await Promise.all([api('/api/admin/trade/rates'), api('/api/admin/trade/currencies')]);
+    const when = (t) => (t ? new Date(t * 1000).toLocaleString('en-NG', { dateStyle: 'medium', timeStyle: 'short' }) : 'never');
+    frame(`<div class="panel"><h3 style="margin-top:0">Exchange rates</h3><p class="mu2">Real rates only. If a rate is missing or too old, customers are not shown prices in that currency. ${r.auto_refresh ? 'Automatic refresh is ON (every 6 hours).' : 'Automatic refresh is OFF: turn it on in Settings, or refresh by hand.'}</p>
+      ${edit ? '<button class="btn" id="rfresh">Refresh rates now</button>' : ''}
+      <div class="tw" style="margin-top:10px"><table class="t"><tr><th>Currency</th><th>1 unit is worth</th><th>Source</th><th>Updated</th><th>Status</th></tr>${r.rates.map((x) => `<tr><td>${e(x.code)} <span class="mu2">${e(x.name)}</span></td><td>${x.is_base ? '₦1' : x.ngn_per_unit == null ? '—' : '₦' + Number(x.ngn_per_unit).toLocaleString('en-NG', { maximumFractionDigits: 4 })}</td><td>${e(x.source)}${x.manual ? ' <span class="pill">manual</span>' : ''}</td><td>${x.is_base ? '' : when(x.fetched_at)}</td><td>${x.is_base ? '' : x.missing ? '<span class="pill bad">no rate</span>' : x.blocked ? '<span class="pill bad">too old</span>' : x.stale ? '<span class="pill">stale</span>' : '<span class="pill ok">fresh</span>'}</td></tr>`).join('')}</table></div>
+      ${edit ? `<h4>Set a rate by hand</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><select id="mq">${r.rates.filter((x) => !x.is_base).map((x) => `<option>${e(x.code)}</option>`).join('')}</select><input id="mr" placeholder="Units of that currency for ₦1 (e.g. 0.00065)" style="min-width:260px"><input id="mnote" placeholder="Note (e.g. bank rate)"><button class="btn ghost" id="mset">Save rate</button></div>` : ''}</div>
+      <div class="panel"><h3 style="margin-top:0">Currencies customers can see</h3><div style="display:flex;gap:10px;flex-wrap:wrap">${cur.currencies.map((c) => `<label class="pill ${c.active ? 'ok' : ''}" style="cursor:pointer"><input type="checkbox" data-cur="${e(c.code)}" ${c.active ? 'checked' : ''} ${c.is_base || !edit ? 'disabled' : ''}> ${e(c.code)}</label>`).join('')}</div></div>`);
+    wireTabs();
+    on('#rfresh', 'click', async () => { const x = await api('/api/admin/trade/rates/refresh', { body: {} }); toast(`Updated ${x.stored} rates` + (x.missing.length ? ` (no data for ${x.missing.join(', ')})` : '')); views.trade(); });
+    on('#mset', 'click', async () => { await api('/api/admin/trade/rates/manual', { body: { quote: $('#mq').value, rate: $('#mr').value, note: $("#mnote").value } }); toast('Rate saved'); views.trade(); });
+    onAll('input[data-cur]', 'change', async (el) => { await api('/api/admin/trade/currencies/' + el.dataset.cur, { method: 'PUT', body: { active: el.checked } }); toast('Saved'); views.trade(); });
+    return;
+  }
+  if (T.tab === 'products') {
+    const d = await api(`/api/admin/trade/products?page=${T.pp}&per=25&filter=${encodeURIComponent(T.pf)}&q=${encodeURIComponent(T.pq)}`);
+    frame(`<div class="panel"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input id="pq" placeholder="Search products" value="${e(T.pq)}" style="max-width:240px">
+      <select id="pf">${[['', 'All products'], ['export', 'Export enabled'], ['import', 'Import enabled'], ['incomplete', 'Export on, data missing'], ['unset', 'Not set up yet']].map(([v, t]) => `<option value="${v}" ${T.pf === v ? 'selected' : ''}>${t}</option>`).join('')}</select><button class="btn ghost sm" id="pgo">Filter</button>
+      <span style="flex:1"></span><a class="btn ghost sm" href="/api/admin/trade/products/template.xlsx" download>⬇ Template</a> <a class="btn ghost sm" href="/api/admin/trade/products/export?format=xlsx" download>⬇ Export Excel</a> <a class="btn ghost sm" href="/api/admin/trade/products/export?format=csv" download>⬇ CSV</a>
+      ${edit ? '<label class="btn sm">Upload file<input type="file" id="pfile" class="sr" accept=".xlsx,.csv"></label>' : ''}</div>
+      <div id="pres"></div>
+      <div class="tw" style="margin-top:10px"><table class="t"><tr><th>Product</th><th>Export</th><th>Import</th><th>HS code</th><th>Origin</th><th>Still needed</th><th></th></tr>${d.products.map((p) => `<tr><td>${e(p.name)}${p.pharmacy ? ' <span class="pill bad">medicine</span>' : ''}<div class="mu2">${e(p.sku)}</div></td><td>${yn(p.export_enabled)}</td><td>${yn(p.import_enabled)}</td><td>${e(p.hs_code)}</td><td>${e(p.origin_country)}</td><td class="mu2">${p.export_enabled && p.missing.length ? e(p.missing.join(', ')) : ''}</td><td>${p.pharmacy ? '' : `<button class="btn ghost sm" data-p="${p.id}">${edit ? 'Edit' : 'View'}</button>`}</td></tr>`).join('')}</table></div>
+      <div class="mu2" style="margin-top:8px">${d.total.toLocaleString('en')} products · page ${d.page} <button class="btn ghost sm" id="pprev" ${d.page <= 1 ? 'disabled' : ''}>‹ Prev</button> <button class="btn ghost sm" id="pnext" ${d.page * d.per >= d.total ? 'disabled' : ''}>Next ›</button></div></div>`);
+    wireTabs();
+    on('#pgo', 'click', () => { T.pq = $('#pq').value.trim(); T.pf = $('#pf').value; T.pp = 1; views.trade(); });
+    on('#pprev', 'click', () => { T.pp = Math.max(1, T.pp - 1); views.trade(); }); on('#pnext', 'click', () => { T.pp++; views.trade(); });
+    on('#pfile', 'change', async (ev) => {
+      const f = ev.target.files[0]; if (!f) return; const data = toB64(await f.arrayBuffer());
+      const p = await api('/api/admin/trade/products/import/preview', { body: { filename: f.name, data } });
+      $('#pres').innerHTML = `<div class="panel"><b>${p.ok} of ${p.total} rows are ready.</b> Nothing is saved yet.${p.errors.length ? `<div class="tw" style="max-height:220px;overflow:auto"><table class="t"><tr><th>Row</th><th>Problem</th></tr>${p.errors.slice(0, 100).map((x) => `<tr><td>${x.row}</td><td>${e(x.message)}</td></tr>`).join('')}</table></div>` : ''}<div style="margin-top:8px"><button class="btn" id="pcommit" ${p.ok ? '' : 'disabled'}>Save ${p.ok} rows</button> <button class="btn ghost" id="pcancel">Cancel</button></div></div>`;
+      on('#pcancel', 'click', () => { $('#pres').innerHTML = ''; });
+      on('#pcommit', 'click', async () => { const r = await api('/api/admin/trade/products/import/commit', { body: { filename: f.name, data } }); toast(`Saved ${r.saved} rows` + (r.errors.length ? `, ${r.errors.length} skipped` : '')); views.trade(); });
+    });
+    onAll('[data-p]', 'click', async (el) => {
+      const d2 = await api('/api/admin/trade/products/' + el.dataset.p), t = d2.trade, dis = edit ? '' : 'disabled', num = (v) => (v == null ? '' : v);
+      openModal(`<h3 style="margin-top:0">${e(d2.product.name)}</h3><div class="mu2">${d2.missing.length ? 'Needed before export: ' + e(d2.missing.join(', ')) : 'Customs data is complete.'}</div>
+        <div class="grid2" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:10px">
+        <label class="f">Country of origin (code)<input id="t_oc" value="${e(t.origin_country)}" maxlength="2" ${dis}></label><label class="f">HS code<input id="t_hs" value="${e(t.hs_code)}" ${dis}></label>
+        <label class="f full" style="grid-column:1/-1">Customs description<input id="t_cd" value="${e(t.customs_description)}" ${dis}></label>
+        <label class="f">Weight (kg)<input id="t_w" value="${num(t.weight_kg)}" ${dis}></label><label class="f">Length (cm)<input id="t_l" value="${num(t.length_cm)}" ${dis}></label><label class="f">Width (cm)<input id="t_wd" value="${num(t.width_cm)}" ${dis}></label><label class="f">Height (cm)<input id="t_h" value="${num(t.height_cm)}" ${dis}></label>
+        <label class="f">Shipping category<select id="t_sc" ${dis}>${['general', 'clothing', 'footwear', 'electronics', 'cosmetics', 'food', 'household', 'books', 'accessories', 'bulky', 'other'].map((c) => `<option ${t.shipping_category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+        <label class="f">Never export to (codes, comma separated)<input id="t_bx" value="${e(d2.restrictions.filter((r) => r.direction === 'export').map((r) => r.country).join(', '))}" ${dis}></label></div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin:10px 0">${[['t_ex', 'export_enabled', 'Available for export'], ['t_ie', 'intl_eligible', 'International shipping approved'], ['t_im', 'import_enabled', 'Available for import'], ['t_fr', 'fragile', 'Fragile'], ['t_dg', 'dangerous_goods', 'Dangerous goods'], ['t_tc', 'temperature_controlled', 'Temperature controlled']].map(([id, k, l]) => `<label><input type="checkbox" id="${id}" ${t[k] ? 'checked' : ''} ${dis}> ${l}</label>`).join('')}</div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">${edit ? '<button class="btn" id="tsave">Save</button>' : ''}<button class="btn ghost" id="tclose">Close</button></div>`, true);
+      $('#tclose').addEventListener('click', () => modal.classList.remove('on'));
+      if (edit) $('#tsave').addEventListener('click', guard(async () => {
+        const other = d2.restrictions.filter((r) => r.direction === 'import'), bx = $('#t_bx').value.split(/[,;\s]+/).filter(Boolean).map((c) => ({ country: c, direction: 'export', reason: '' }));
+        await api('/api/admin/trade/products/' + d2.product.id, { method: 'PUT', body: { origin_country: $('#t_oc').value, hs_code: $('#t_hs').value, customs_description: $('#t_cd').value, weight_kg: $('#t_w').value, length_cm: $('#t_l').value, width_cm: $('#t_wd').value, height_cm: $('#t_h').value, shipping_category: $('#t_sc').value,
+          export_enabled: $('#t_ex').checked, intl_eligible: $('#t_ie').checked, import_enabled: $('#t_im').checked, fragile: $('#t_fr').checked, dangerous_goods: $('#t_dg').checked, temperature_controlled: $('#t_tc').checked, restrictions: [...bx, ...other] } });
+        modal.classList.remove('on'); toast('Saved'); views.trade();
+      }));
+    });
+    return;
+  }
+  if (T.tab === 'orders') {
+    const d = await api('/api/admin/trade/orders?status=' + encodeURIComponent(T.of || '') + '&q=' + encodeURIComponent(T.oq || ''));
+    const stat = ['', 'pending', 'confirmed', 'processing', 'packed', 'dispatched', 'in_transit', 'customs', 'out_for_delivery', 'delivered', 'cancelled', 'returned'];
+    frame(`<div class="panel"><div class="mu2" style="margin-bottom:8px">Orders placed from the international checkout. Customers pay in NGN; the amount in their currency is shown for reference.</div>
+      <select id="ofs">${stat.map((s) => `<option value="${s}" ${T.of === s ? 'selected' : ''}>${s ? s.replace(/_/g, ' ') : 'All statuses'}</option>`).join('')}</select> <input id="oq" placeholder="Order, name, email, tracking" value="${e(T.oq || '')}" style="max-width:240px"> <button class="btn ghost sm" id="ogo">Search</button>
+      <div class="tw" style="margin-top:10px">${d.orders.length ? `<table class="t"><tr><th>Order</th><th>Customer</th><th>To</th><th>Method</th><th>Total</th><th>Charged</th><th>Status</th></tr>${d.orders.map((o) => `<tr data-o="${e(o.ref)}" style="cursor:pointer"><td>${e(o.ref)}<br><span class="mu2">${e(o.order_ref)}</span></td><td>${e(o.ship_name)}</td><td>${e(o.destination_country)}</td><td>${e(o.service_label)}</td><td>${e(o.currency)} ${Number(o.total).toLocaleString()}</td><td>${ngn(o.total_ngn)}<br><span class="mu2">${e(o.payment_status)}</span></td><td><span class="pill">${e(String(o.status).replace(/_/g, ' '))}</span></td></tr>`).join('')}</table>` : '<div class="mu2">No international orders yet.</div>'}</div></div>`);
+    wireTabs(); on('#ogo', 'click', () => { T.of = $('#ofs').value; T.oq = $('#oq').value.trim(); views.trade(); }); on('#ofs', 'change', () => { T.of = $('#ofs').value; views.trade(); });
+    onAll('[data-o]', 'click', guard(async (el) => {
+      const d2 = await api('/api/admin/trade/orders/' + encodeURIComponent(el.dataset.o)), o = d2.order, dis = edit ? '' : 'disabled';
+      const packable = ['confirmed', 'processing'].includes(o.status);
+      openModal(`<h3 style="margin-top:0">${e(o.ref)} <span class="pill">${e(String(o.status).replace(/_/g, ' '))}</span></h3>
+        <div class="mu2">${e(o.ship_name)} · ${e(o.ship_email)} · ${e(o.ship_phone || '')}<br>${e([o.address_line1, o.address_line2, o.city, o.region, o.postal_code, o.destination_country].filter(Boolean).join(', '))}</div>
+        <div class="mu2" style="margin:6px 0">${e(o.service_label)} (${o.quote_source === 'api' ? 'live carrier price at checkout' : 'manual estimate'}) · ${e(o.duty_arrangement)}${Number(o.duties_collected) ? ' · duties prepaid' : ' · duties paid by the customer on delivery'} · Total ${e(o.currency)} ${Number(o.total).toLocaleString()} = ${ngn(o.total_ngn)} at ${Number(o.fx_rate_to_ngn)} NGN per ${e(o.currency)}</div>
+        <div class="tw"><table class="t"><tr><th>Item</th><th>HS</th><th>Qty</th><th>Packed</th></tr>${d2.items.map((i) => `<tr><td>${e(i.description)}</td><td>${e(i.hs_code)}</td><td>${i.qty}</td><td>${packable && edit ? `<input type="number" min="0" max="${i.qty}" value="${i.packed_qty}" data-pk="${i.id}" style="width:70px">` : i.packed_qty}</td></tr>`).join('')}</table></div>
+        ${packable && edit ? '<button class="btn ghost sm" id="opack" style="margin-top:6px">Save packed quantities</button>' : ''}
+        ${edit && d2.next.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:12px"><label class="f">Carrier<input id="ocar" value="${e(o.carrier || '')}"></label><label class="f">Tracking number<input id="otr" value="${e(o.tracking_number || '')}"></label><label class="f">Note<input id="onote"></label></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${d2.next.map((s) => `<button class="btn ${s === 'cancelled' ? 'danger' : ''} sm" data-go="${s}">${e(s.replace(/_/g, ' '))}</button>`).join('')}</div>` : ''}
+        <div id="obk"></div>
+        <div id="odc"></div>
+        <h4>Shipment updates</h4>${d2.events.length ? d2.events.map((x) => `<div style="font-size:13px">${new Date(x.occurred_at * 1000).toLocaleString()} · <b>${e(String(x.stage).replace(/_/g, ' '))}</b> ${e(x.location || '')} ${e(x.description || '')}</div>`).join('') : '<div class="mu2">None yet.</div>'}
+        ${d2.payments.length ? `<h4>Verified payments</h4>${d2.payments.map((p) => `<div style="font-size:13px">${e(p.provider)} ${e(p.provider_ref)} · ${e(p.currency)} ${Number(p.amount).toLocaleString()} · ${p.verified ? 'verified' : 'unverified'}</div>`).join('')}` : ''}
+        <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn ghost" id="oclose">Close</button></div>`, true);
+      $('#oclose').addEventListener('click', () => modal.classList.remove('on'));
+      const reopen = () => { modal.classList.remove('on'); views.trade(); };
+      const pk = $('#opack'); if (pk) pk.addEventListener('click', guard(async () => { await api('/api/admin/trade/orders/' + o.ref + '/pack', { body: { items: [...document.querySelectorAll('[data-pk]')].map((i) => ({ id: Number(i.dataset.pk), packed_qty: Number(i.value) })) } }); toast('Saved'); reopen(); }));
+      {
+        const dc = $('#odc', modal), base = '/api/admin/trade/orders/' + encodeURIComponent(o.ref);
+        const drawDocs = async () => {
+          const r = await api(base + '/documents');
+          dc.innerHTML = `${edit ? '<button class="btn ghost sm" id="ocd" style="margin-top:8px">Customs declaration</button>' : ''}${docsHtml(r.documents)}${edit ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${r.generate.map((t) => `<button class="btn ghost sm" data-ogen="${t}">Create ${e(t.replace(/_/g, ' '))}</button>`).join('')}</div>` : ''}`;
+          const cb = $('#ocd', modal); if (cb) cb.addEventListener('click', guard(async () => { const x = await api('/api/admin/trade/customs/from-order/' + encodeURIComponent(o.ref), { body: {} }); openDecl(x.declaration.id, () => views.trade()); }));
+          monAll('[data-ogen]', 'click', guard(async (b) => { await api(base + '/documents/generate', { body: { doc_type: b.dataset.ogen } }); toast('Document created'); drawDocs(); }));
+          wireDocs(base + '/documents', drawDocs);
+        };
+        drawDocs().catch(() => {});
+      }
+      if (edit && !['cancelled', 'returned', 'pending'].includes(o.status)) {
+        const bk = $('#obk', modal), key = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, '').padEnd(16, '0');
+        let rates = null, bkey = null; const BL = { requested: 'Waiting for carrier', booked: 'Booked', failed: 'Failed', cancel_requested: 'Cancellation requested', cancelled: 'Cancelled' };
+        const drawBk = async () => {
+          let r; try { r = await api('/api/admin/trade/orders/' + o.ref + '/bookings'); } catch (er) { bk.innerHTML = ''; return; }
+          const live = r.bookings.find((b) => ['requested', 'booked', 'cancel_requested'].includes(b.status));
+          bk.innerHTML = `<h4>Carrier booking</h4>${r.bookings.map((b) => `<div style="font-size:13px;margin:4px 0"><b>${e(BL[b.status] || b.status)}</b> · ${e(b.carrier)} ${e(b.service)} ${b.tracking_number ? '· tracking <b>' + e(b.tracking_number) + '</b>' : ''} ${b.cost != null ? '· cost ' + e(b.currency) + ' ' + b.cost : ''} ${b.refund_status ? '· refund ' + e(b.refund_status) : ''}${b.error ? `<br><span style="color:#b91c1c">${e(b.error)}</span>` : ''}
+            ${b.label_document_id ? ` <a class="btn ghost sm" href="/api/admin/trade/documents/${b.label_document_id}" download>Download label</a>` : ''} ${['requested', 'booked', 'cancel_requested'].includes(b.status) ? `<button class="btn ghost sm" data-bref="${b.id}">Refresh</button>` : ''} ${b.status === 'booked' ? `<button class="btn danger sm" data-bcan="${b.id}">Cancel label</button>` : ''}</div>`).join('') || '<div class="mu2">No carrier booking yet.</div>'}
+            ${!live && o.status === 'packed' && r.carriers.length ? `<div class="mu2" style="margin:6px 0">Enter the packed parcel, then fetch the carrier's own prices. ${r.origin.complete ? '' : '<b style="color:#b91c1c">Sender address is missing: fill it under Settings.</b>'}</div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px"><label class="f">Weight kg<input id="bw"></label><label class="f">Length cm<input id="bl"></label><label class="f">Width cm<input id="bwd"></label><label class="f">Height cm<input id="bh"></label></div>
+              <button class="btn ghost sm" id="bget" style="margin-top:6px">Get carrier prices</button><div id="brates" style="margin-top:6px"></div>` : (!live && !r.carriers.length ? '<div class="mu2">No carrier is connected for this destination (see the Carriers tab). Dispatch manually below.</div>' : '')}`;
+          const g = (id) => ($('#' + id, modal) || {}).value;
+          const gt = $('#bget', modal); if (gt) gt.addEventListener('click', guard(async () => {
+            rates = await api('/api/admin/trade/orders/' + o.ref + '/rates', { body: { parcel: { weight_kg: g('bw'), length_cm: g('bl'), width_cm: g('bwd'), height_cm: g('bh') } } }); bkey = key();
+            $('#brates', modal).innerHTML = (rates.rates.length ? rates.rates.map((x, i) => `<label style="display:block;margin:4px 0"><input type="radio" name="brt" value="${x.quote_id}" ${i === 0 ? 'checked' : ''}> ${e(x.carrier)} ${e(x.service)} · ${e(x.currency)} ${x.amount}${x.amount_ngn != null ? ' (about ' + ngn(x.amount_ngn) + ')' : ''}${x.days != null ? ' · ' + x.days + ' days' : ''}</label>`).join('') : '<div class="mu2">The carrier returned no prices for this parcel.</div>') +
+              (rates.customer_paid_shipping_ngn != null ? `<div class="mu2">Customer paid ${ngn(rates.customer_paid_shipping_ngn)} for shipping.</div>` : '') + (rates.rates.length ? '<label style="display:block;margin:6px 0"><input type="checkbox" id="bins"> Insure for the declared value</label><button class="btn sm" id="bbook">Book and buy label</button>' : '');
+            const bb = $('#bbook', modal); if (bb) bb.addEventListener('click', guard(async () => { bb.disabled = true; try { const r2 = await api('/api/admin/trade/orders/' + o.ref + '/book', { body: { quote_id: Number(($('input[name=brt]:checked', modal) || {}).value), idempotency_key: bkey, insure: $('#bins', modal).checked } }); toast(r2.label_error || 'Booked'); reopen(); } catch (er) { toast(er.message + ' Press Refresh to check before trying again.', 'bad'); drawBk(); } }));
+          }));
+          monAll('[data-bref]', 'click', guard(async (b) => { const r3 = await api('/api/admin/trade/bookings/' + b.dataset.bref + '/refresh', { body: {} }); toast(r3.label_error || 'Updated'); reopen(); }));
+          monAll('[data-bcan]', 'click', guard(async (b) => { if (!confirm('Ask the carrier to cancel this label and refund it?')) return; await api('/api/admin/trade/bookings/' + b.dataset.bcan + '/cancel', { body: {} }); toast('Cancellation requested'); reopen(); }));
+        };
+        drawBk();
+      }
+      monAll('[data-go]', 'click', guard(async (b) => { await api('/api/admin/trade/orders/' + o.ref + '/status', { body: { status: b.dataset.go, carrier: $('#ocar').value, tracking_number: $('#otr').value, note: $('#onote').value } }); toast('Updated'); reopen(); }));
+    }));
+    return;
+  }
+  if (T.tab === 'carriers') {
+    const d = await api('/api/admin/trade/providers'), hook = location.origin;
+    const tone = { ready: 'ok', disabled: '', awaiting_configuration: '', not_integrated: '' };
+    frame(`<div class="note" style="margin:8px 0">Carrier accounts give <b>live prices</b>, <b>booking</b>, <b>labels</b> and <b>tracking</b>. Keys are kept in the server settings, never in this screen or in the website code. A carrier that is not connected is never used and no price is invented for it.</div>
+      ${d.origin.complete ? '' : `<div class="note" style="margin:8px 0;border-color:#f59e0b">Sender address is incomplete (${e(d.origin.missing.map((k) => k.replace('origin_', '')).join(', '))}). Fill it under <b>Settings</b> before live prices or booking can work.</div>`}
+      ${d.providers.map((p) => `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h3 style="margin:0">${e(p.name)} <span class="pill ${tone[p.status] || ''}">${e(p.status_label)}</span></h3>
+        ${edit && p.adapter !== 'none' ? `<div><button class="btn ghost sm" data-ptest="${e(p.code)}">Test connection</button> <button class="btn sm" data-ptog="${e(p.code)}" data-on="${p.enabled ? 0 : 1}">${p.enabled ? 'Switch off' : 'Switch on'}</button></div>` : ''}</div>
+        <div class="mu2" style="margin:6px 0">${e(p.help)}</div>
+        ${p.env.length ? `<div class="mu2">Server settings: ${p.env.map((x) => `<code>${e(x.name)}</code> ${x.set ? '<span class="pill ok">set</span>' : `<span class="pill">${x.required ? 'missing' : 'not set'}</span>`}`).join(' · ')}</div>` : ''}
+        ${p.webhook_path ? `<div class="mu2" style="margin-top:4px">Tracking webhook address for your EasyPost dashboard: <code>${e(hook + p.webhook_path)}</code></div>` : ''}
+        ${p.adapter !== 'none' ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:8px"><label class="f">Priority (1 first)<input data-pp="${e(p.code)}" value="${p.priority}" ${edit ? '' : 'disabled'}></label><label class="f">Only these countries (blank = all)<input data-pc="${e(p.code)}" value="${e(p.supported_countries.join(', '))}" ${edit ? '' : 'disabled'}></label>
+          <label class="f">Customs signer name<input data-pcs="${e(p.code)}" value="${e(p.customs_defaults.customs_signer || '')}" ${edit ? '' : 'disabled'}></label></div>${edit ? `<button class="btn ghost sm" data-psave="${e(p.code)}" style="margin-top:8px">Save</button>` : ''}
+        <div class="mu2" style="margin-top:6px">Pickup scheduling is not supported yet: arrange collection with the carrier.</div>` : ''}</div>`).join('')}`);
+    wireTabs();
+    onAll('[data-ptest]', 'click', async (el) => { try { const r = await api('/api/admin/trade/providers/' + el.dataset.ptest + '/test', { body: {} }); toast('Connected. ' + (r.carrier_accounts ? r.carrier_accounts.length + ' carrier account(s) found.' : '')); } catch (er) { toast(er.message, 'bad'); } });
+    onAll('[data-ptog]', 'click', async (el) => { try { await api('/api/admin/trade/providers/' + el.dataset.ptog, { method: 'PUT', body: { enabled: el.dataset.on === '1' } }); toast('Saved'); views.trade(); } catch (er) { toast(er.message, 'bad'); } });
+    onAll('[data-psave]', 'click', async (el) => { const c = el.dataset.psave, q = (a) => document.querySelector(`[${a}="${c}"]`).value; try { await api('/api/admin/trade/providers/' + c, { method: 'PUT', body: { priority: q('data-pp'), supported_countries: q('data-pc'), customs_defaults: { customs_signer: q('data-pcs') } } }); toast('Saved'); views.trade(); } catch (er) { toast(er.message, 'bad'); } });
+    return;
+  }
+  if (T.tab === 'customs') {
+    const d = await api('/api/admin/trade/customs?direction=' + encodeURIComponent(T.cd || '') + '&status=' + encodeURIComponent(T.cs || '') + '&q=' + encodeURIComponent(T.cq2 || ''));
+    const cal = T.calc || (T.calc = { destination_country: '', currency: 'USD', freight: '', insurance: '', lines: [{ hs_code: '', origin_country: '', value: '' }], out: null });
+    const sts = ['', 'draft', 'incomplete', 'ready', 'submitted', 'held', 'cleared', 'rejected'];
+    frame(`<div class="panel"><h3 style="margin-top:0">Customs declarations</h3><div class="mu2" style="margin-bottom:8px">Open an international order or an import shipment and choose "Customs declaration" to create one. Here you can find and review them.</div>
+      <select id="cdd2"><option value="">Export and import</option><option value="export" ${T.cd === 'export' ? 'selected' : ''}>Export</option><option value="import" ${T.cd === 'import' ? 'selected' : ''}>Import</option></select> <select id="cds2">${sts.map((x) => `<option value="${x}" ${T.cs === x ? 'selected' : ''}>${x || 'All statuses'}</option>`).join('')}</select> <input id="cdq" placeholder="Declaration, order, shipment, entry no." value="${e(T.cq2 || '')}" style="max-width:260px"> <button class="btn ghost sm" id="cdgo">Search</button>
+      <div class="tw" style="margin-top:10px">${d.declarations.length ? `<table class="t"><tr><th>Declaration</th><th>For</th><th>Route</th><th>Value</th><th>Entry no.</th><th>Status</th></tr>${d.declarations.map((c) => `<tr data-cd="${c.id}" style="cursor:pointer"><td>${e(c.ref)}</td><td>${e(c.export_ref || c.import_ref || '')}</td><td>${e(c.export_country)} → ${e(c.import_country)}</td><td>${e(c.currency)} ${Number(c.declared_value).toLocaleString()}</td><td>${e(c.entry_number)}</td><td>${stPill(c.status)}</td></tr>`).join('')}</table>` : '<div class="mu2">No declarations yet.</div>'}</div></div>
+      <div class="panel"><h3 style="margin-top:0">Duty and tax calculator</h3><div class="mu2" style="margin-bottom:8px">Uses only the duty rules saved under Shipping &amp; duties. If there is no rule, nothing is calculated. Estimates must be confirmed with customs or your broker.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px"><label class="f">Destination country<select id="kc">${ccOpts.map(([v, n]) => `<option value="${e(v)}" ${cal.destination_country === v ? 'selected' : ''}>${e(n)}</option>`).join('')}</select></label><label class="f">Currency of the values<select id="kcu">${curList.map((x) => `<option ${cal.currency === x ? 'selected' : ''}>${e(x)}</option>`).join('')}</select></label><label class="f">Freight<input id="kf" value="${e(cal.freight)}"></label><label class="f">Insurance<input id="ki" value="${e(cal.insurance)}"></label></div>
+      <div class="tw" style="margin-top:6px"><table class="t"><tr><th>HS code</th><th>Origin</th><th>Value</th></tr>${cal.lines.map((l, i) => `<tr data-kl="${i}"><td><input data-k="hs_code" value="${e(l.hs_code)}"></td><td><input data-k="origin_country" value="${e(l.origin_country)}" maxlength="2" style="width:60px"></td><td><input data-k="value" value="${e(l.value)}"></td></tr>`).join('')}</table></div>
+      <div style="display:flex;gap:6px;margin-top:6px"><button class="btn ghost sm" id="kadd">Add line</button><button class="btn sm" id="kgo">Calculate</button></div>
+      ${cal.out ? `<div style="margin-top:8px"><span class="pill ${cal.out.status === 'verified' ? 'ok' : ''}">${e(cal.out.status.replace('_', ' '))}</span> <span class="mu2">${e(cal.out.note)}</span>${cal.out.status !== 'not_available' ? `<div style="margin-top:6px">Duty ${ngn(cal.out.totals.duty_ngn)} · VAT / consumption tax ${ngn(cal.out.totals.vat_ngn)} · Other levies ${ngn(cal.out.totals.levy_ngn)} · <b>Total ${ngn(cal.out.totals.total_ngn)}</b>${cal.out.currency !== 'NGN' ? ` (about ${e(cal.out.currency)} ${cal.out.totals.total.toLocaleString()})` : ''}</div>${cal.out.de_minimis ? '<div class="mu2">Below the de-minimis limit in the rule: nothing is payable.</div>' : ''}` : ''}</div>` : ''}</div>
+      ${edit ? '' : ''}`);
+    wireTabs();
+    const readCal = () => { cal.destination_country = $('#kc').value; cal.currency = $('#kcu').value; cal.freight = $('#kf').value; cal.insurance = $('#ki').value; document.querySelectorAll('[data-kl]').forEach((tr) => { const l = cal.lines[Number(tr.dataset.kl)]; tr.querySelectorAll('[data-k]').forEach((el) => { l[el.dataset.k] = el.value; }); }); };
+    on('#cdgo', 'click', () => { T.cd = $('#cdd2').value; T.cs = $('#cds2').value; T.cq2 = $('#cdq').value.trim(); views.trade(); });
+    on('#kadd', 'click', () => { readCal(); cal.lines.push({ hs_code: '', origin_country: '', value: '' }); views.trade(); });
+    on('#kgo', 'click', async () => { readCal(); try { cal.out = await api('/api/admin/trade/customs/calc', { body: { destination_country: cal.destination_country, currency: cal.currency, freight: cal.freight, insurance: cal.insurance, lines: cal.lines } }); } catch (er) { cal.out = null; toast(er.message, 'bad'); } views.trade(); });
+    onAll('[data-cd]', 'click', guard(async (el) => openDecl(el.dataset.cd, () => views.trade())));
+    return;
+  }
+  if (T.tab === 'shipping') {
+    const [zs, ss, rs, ds] = await Promise.all(['zones', 'services', 'rates', 'duty-rules'].map((k) => api('/api/admin/trade/shipping/' + k)));
+    const dis = edit ? '' : 'disabled';
+    const sec = (title, hint, key, head, rows, addBtn) => `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">${title}</h3>${edit ? `<button class="btn sm" data-add="${key}">${addBtn}</button>` : ''}</div><div class="mu2" style="margin:6px 0">${hint}</div><div class="tw">${rows.length ? `<table class="t"><tr>${head.map((h) => `<th>${h}</th>`).join('')}<th></th></tr>${rows.join('')}</table>` : '<div class="mu2">None yet.</div>'}</div></div>`;
+    const act = (key, id) => `<td style="white-space:nowrap">${edit ? `<button class="btn ghost sm" data-edit="${key}:${id}">Edit</button> <button class="btn ghost sm" data-del="${key}:${id}">Delete</button>` : ''}</td>`;
+    frame(`<div class="note" style="margin:8px 0">Every shipping price here is a manual estimate that you set. Live carrier prices come only from the Carriers tab, once an account is connected. Duty rates are used only if you enter them; mark a rule verified only after checking the official source.</div>
+      ${sec('Zones', 'Groups of destination countries that share prices.', 'zones', ['Name', 'Ships from', 'Countries', 'Active'], zs.items.map((z) => `<tr><td>${e(z.name)}</td><td>${e(z.origin_country)}</td><td>${e(z.countries.join(', '))}</td><td>${yn(z.active)}</td>${act('zones', z.id)}</tr>`), 'Add zone')}
+      ${sec('Shipping methods', 'What customers choose at checkout.', 'services', ['Name', 'Type', 'Days', 'Insurance', 'Duties prepaid', 'Active'], ss.items.map((s) => `<tr><td>${e(s.name)}</td><td>${e(s.method.replace(/_/g, ' '))}</td><td>${s.est_days_min ?? ''}-${s.est_days_max ?? ''}</td><td>${yn(s.supports_insurance)}</td><td>${yn(s.supports_ddp)}</td><td>${yn(s.active)}</td>${act('services', s.id)}</tr>`), 'Add method')}
+      ${sec('Weight rates', 'Price = base + per kg × chargeable weight (the larger of real and size-based weight), then fuel %, remote surcharge, handling and margin.', 'rates', ['Zone', 'Method', 'From kg', 'To kg', 'Base', 'Per kg', 'Currency', 'Active'], rs.items.map((r) => `<tr><td>${e(r.zone)}</td><td>${e(r.service || 'All')}</td><td>${r.min_kg}</td><td>${r.max_kg ?? '∞'}</td><td>${r.base_amount}</td><td>${r.per_kg}</td><td>${e(r.currency)}</td><td>${yn(r.active)}</td>${act('rates', r.id)}</tr>`), 'Add rate')}
+      ${sec('Duty and tax rules', 'Used to estimate import charges. Unverified rules are shown to customers as estimates only and never collected at checkout.', 'duty-rules', ['Country', 'HS prefix', 'Duty %', 'VAT %', 'Source', 'Verified'], ds.items.map((r) => `<tr><td>${e(r.destination_country)}</td><td>${e(r.hs_prefix || 'All')}</td><td>${r.duty_pct}</td><td>${r.vat_pct}</td><td>${e(r.source || '')}</td><td>${yn(r.verified)}</td>${act('duty-rules', r.id)}</tr>`), 'Add rule')}`);
+    wireTabs();
+    const specs = {
+      zones: [['name', 'Name'], ['origin_country', 'Ships from (country code)', 'NG'], ['countries', 'Destination countries (codes, comma separated)', '', 'list'], ['remote_area_postcodes', 'Remote-area postcodes (optional)', '', 'list'], ['active', 'Active', true, 'bool']],
+      services: [['name', 'Name'], ['method', 'Type', 'standard', ['express', 'standard', 'economy', 'air_freight', 'sea_freight', 'consolidated', 'customer_arranged']], ['est_days_min', 'Minimum days'], ['est_days_max', 'Maximum days'], ['supports_insurance', 'Offers insurance', false, 'bool'], ['supports_ddp', 'Can prepay duties', false, 'bool'], ['active', 'Active', true, 'bool']],
+      rates: [['zone_id', 'Zone', '', zs.items.map((z) => [z.id, z.name])], ['service_id', 'Method (empty = all)', '', [['', 'All methods'], ...ss.items.map((s) => [s.id, s.name])]], ['min_kg', 'From kg', 0], ['max_kg', 'Up to kg (empty = no limit)'], ['base_amount', 'Base amount'], ['per_kg', 'Price per kg'], ['currency', 'Currency', 'NGN'], ['fuel_surcharge_pct', 'Fuel surcharge %', 0], ['remote_surcharge', 'Remote-area surcharge', 0], ['handling_fee', 'Handling fee', 0], ['margin_pct', 'Margin %', 0], ['volumetric_divisor', 'Volumetric divisor', 5000], ['weight_step', 'Round weight up to (kg)', 0.5], ['active', 'Active', true, 'bool']],
+      'duty-rules': [['destination_country', 'Destination country (code)'], ['hs_prefix', 'HS prefix (empty = all)'], ['origin_country', 'Origin country (optional)'], ['duty_pct', 'Import duty %', 0], ['vat_pct', 'VAT / sales tax %', 0], ['other_levy_pct', 'Other levy %', 0], ['valuation', 'Valued as', 'CIF', ['FOB', 'CIF', 'CIP']], ['de_minimis', 'De-minimis limit (optional)'], ['de_minimis_currency', 'De-minimis currency', 'USD'], ['source', 'Where the rate comes from'], ['source_url', 'Source link (https://)'], ['verified', 'Verified against the source', false, 'bool']],
+    };
+    const lists = { zones: zs, services: ss, rates: rs, 'duty-rules': ds };
+    const open = (key, id) => {
+      const cur = id ? lists[key].items.find((x) => String(x.id) === String(id)) : {};
+      const field = ([k, label, def, extra]) => {
+        const v = cur[k] !== undefined && cur[k] !== null ? (Array.isArray(cur[k]) ? cur[k].join(', ') : cur[k]) : (def !== undefined ? def : '');
+        if (extra === 'bool') return `<label style="display:block;margin:8px 0"><input type="checkbox" data-f="${k}" data-t="bool" ${v === true || v === 1 || v === '1' || v === 'true' ? 'checked' : ''}> ${e(label)}</label>`;
+        if (Array.isArray(extra)) return `<label class="f">${e(label)}<select data-f="${k}">${extra.map((o) => { const [val, text] = Array.isArray(o) ? o : [o, o]; return `<option value="${e(val)}" ${String(v) === String(val) ? 'selected' : ''}>${e(String(text).replace(/_/g, ' '))}</option>`; }).join('')}</select></label>`;
+        return `<label class="f">${e(label)}<input data-f="${k}" ${extra === 'list' ? 'data-t="list"' : ''} value="${e(v)}"></label>`;
+      };
+      openModal(`<h3 style="margin-top:0">${id ? 'Edit' : 'Add'}</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">${specs[key].map(field).join('')}</div><div id="serr" style="color:#b91c1c;margin-top:8px"></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><button class="btn" id="sv">Save</button><button class="btn ghost" id="sc">Cancel</button></div>`, true);
+      $('#sc').addEventListener('click', () => modal.classList.remove('on'));
+      $('#sv').addEventListener('click', async () => {
+        const body = {}; document.querySelectorAll('[data-f]').forEach((el) => { body[el.dataset.f] = el.dataset.t === 'bool' ? el.checked : el.dataset.t === 'list' ? el.value.split(/[,;\s]+/).filter(Boolean) : el.value; });
+        try { await api('/api/admin/trade/shipping/' + key + (id ? '/' + id : ''), { method: id ? 'PUT' : 'POST', body }); modal.classList.remove('on'); toast('Saved'); views.trade(); } catch (er) { $('#serr').textContent = er.message; }
+      });
+    };
+    onAll('[data-add]', 'click', (el) => open(el.dataset.add, 0));
+    onAll('[data-edit]', 'click', (el) => { const [k, id] = el.dataset.edit.split(':'); open(k, id); });
+    onAll('[data-del]', 'click', guard(async (el) => { const [k, id] = el.dataset.del.split(':'); if (!confirm('Delete this?')) return; await api('/api/admin/trade/shipping/' + k + '/' + id, { method: 'DELETE' }); toast('Deleted'); views.trade(); }));
+    return;
+  }
+  if (T.tab === 'tracking') {
+    const d = await api('/api/admin/trade/tracking');
+    const fl = { problem: '<span class="pill bad">Problem</span>', no_recent_update: '<span class="pill warn">No recent update</span>', ok: '<span class="pill ok">On track</span>' };
+    frame(`<div class="panel"><div class="mu2" style="margin-bottom:8px">Parcels on their way. Updates come from carriers or are entered by staff on the order. Nothing here is estimated: a parcel with no recent update is flagged, not assumed to be moving.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px"><span class="pill">${d.counts.in_flight} on the way</span><span class="pill bad">${d.counts.problems} with a problem</span><span class="pill warn">${d.counts.stale} with no update for ${d.stale_days}+ days</span></div>
+      <div class="tw">${d.shipments.length ? `<table class="t"><tr><th>Order</th><th>To</th><th>Carrier / tracking</th><th>Last update</th><th>ETA</th><th></th></tr>${d.shipments.map((x) => `<tr><td>${e(x.ref)}<br><span class="mu2">${e(x.customer)}</span></td><td>${e(x.country)}</td><td>${e(x.carrier || '')}<br><span class="mu2">${e(x.tracking_number || '')}</span></td><td>${x.last_stage ? e(String(x.last_stage).replace(/_/g, ' ')) + '<br><span class="mu2">' + dt(x.last_at) + ' · ' + e(x.last_source) + '</span>' : '<span class="mu2">none yet</span>'}</td><td>${e(x.eta || '')}</td><td>${fl[x.flag]}</td></tr>`).join('')}</table>` : '<div class="mu2">No international parcels are on the way.</div>'}</div></div>`);
+    wireTabs(); return;
+  }
+  if (T.tab === 'payments') {
+    const pv = await api('/api/admin/trade/payments/providers'), d = await api('/api/admin/trade/payments?kind=' + encodeURIComponent(T.pk || '') + '&q=' + encodeURIComponent(T.pq || '')), rc = T.prec ? await api('/api/admin/trade/payments/reconciliation') : null;
+    const sp = (x) => x.status === 'succeeded' || x.status === 'refunded' || x.status === 'partially_refunded' ? 'ok' : x.status === 'failed' ? 'bad' : 'warn';
+    frame(`<div class="panel"><h3 style="margin-top:0">Payment providers</h3>${pv.providers.map((p2) => `<div style="margin:6px 0"><b>${e(p2.name)}</b> <span class="pill ${p2.status === 'ready' ? 'ok' : 'warn'}">${e(p2.status_label)}</span><div class="mu2">${e(p2.note)}</div></div>`).join('')}</div>
+      <div class="panel"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><select id="pk"><option value="">Payments and refunds</option><option value="charge" ${T.pk === 'charge' ? 'selected' : ''}>Payments</option><option value="refund" ${T.pk === 'refund' ? 'selected' : ''}>Refunds</option></select><input id="pq" placeholder="Order or payment reference" value="${e(T.pq || '')}" style="max-width:240px"><button class="btn ghost sm" id="pgo">Search</button><button class="btn ghost sm" id="prec">${T.prec ? 'Hide' : 'Show'} reconciliation</button></div>
+      <div class="tw" style="margin-top:10px">${d.payments.length ? `<table class="t"><tr><th>When</th><th>Order</th><th>Type</th><th>Amount</th><th>Reference</th><th>Status</th><th></th></tr>${d.payments.map((x) => `<tr><td>${dt(x.created)}</td><td>${e(x.order_ref)}</td><td>${e(x.kind)}${x.reason ? '<br><span class="mu2">' + e(x.reason) + '</span>' : ''}</td><td>${naira(x.amount)}${x.fee ? '<br><span class="mu2">fee ' + naira(x.fee) + '</span>' : ''}</td><td class="mu2">${e(x.provider_ref)}</td><td><span class="pill ${sp(x)}">${e(String(x.status).replace(/_/g, ' '))}</span>${x.kind === 'refund' && x.status === 'pending' ? '<br><span class="mu2">Paystack: ' + e(x.provider_status || 'waiting') + '</span>' : ''}</td><td>${edit && x.kind === 'refund' && x.status === 'pending' ? `<button class="btn ghost sm" data-chk="${x.id}">Check with Paystack</button>` : ''}${edit && x.kind === 'charge' && ['succeeded', 'partially_refunded'].includes(x.status) && x.refundable > 0 && x.verified ? `<button class="btn ghost sm" data-rf="${x.id}" data-max="${x.refundable}" data-ref="${e(x.order_ref)}">Refund</button>` : ''}</td></tr>`).join('')}</table>` : '<div class="mu2">No international payments yet.</div>'}</div></div>
+      ${rc ? `<div class="panel"><h3 style="margin-top:0">Reconciliation</h3><div class="mu2" style="margin-bottom:8px">${e(rc.note)}</div><div style="margin-bottom:8px"><b>Charged</b> ${ngn(rc.totals.charged)} · <b>Fees</b> ${ngn(rc.totals.fees)} · <b>Refunded</b> ${ngn(rc.totals.refunded)} · <b>Net</b> ${ngn(rc.totals.net)} · <b>Orders to look at</b> ${rc.totals.flagged}</div><div class="tw"><table class="t"><tr><th>Order</th><th>Currency</th><th>Ordered</th><th>Charged</th><th>Refunded</th><th>Exchange difference</th><th>Check</th></tr>${rc.rows.map((r) => `<tr><td>${e(r.export_ref)}</td><td>${e(r.currency)} ${Number(r.total).toLocaleString()}</td><td>${ngn(r.ordered_ngn)}</td><td>${ngn(r.charged_ngn)}</td><td>${ngn(r.refunded_ngn)}${r.refund_pending_ngn ? '<br><span class="mu2">' + ngn(r.refund_pending_ngn) + ' waiting</span>' : ''}</td><td>${r.fx_difference_ngn == null ? '<span class="mu2">rate unavailable</span>' : ngn(r.fx_difference_ngn)}</td><td><span class="pill ${r.flag === 'ok' ? 'ok' : 'warn'}">${e(r.flag.replace(/_/g, ' '))}</span></td></tr>`).join('') || '<tr><td colspan="7" class="mu2">No paid international orders.</td></tr>'}</table></div></div>` : ''}`);
+    wireTabs(); on('#pgo', 'click', () => { T.pk = $('#pk').value; T.pq = $('#pq').value.trim(); views.trade(); }); on('#pk', 'change', () => { T.pk = $('#pk').value; views.trade(); });
+    on('#prec', 'click', () => { T.prec = !T.prec; views.trade(); });
+    onAll('[data-chk]', 'click', guard(async (el) => { const r = await api('/api/admin/trade/payments/' + el.dataset.chk + '/refresh', { method: 'POST', body: {} }); toast(r.note || 'Refund is now: ' + r.payment.status); views.trade(); }));
+    onAll('[data-rf]', 'click', (el) => {
+      const key = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40).padEnd(16, 'x');
+      openModal(`<h3 style="margin-top:0">Refund order ${e(el.dataset.ref)}</h3><p class="mu2">Refunds go back to the customer through Paystack in naira. It is shown as done only after Paystack confirms. You can refund up to ${naira(el.dataset.max)}.</p>
+        <label class="f"><span class="mu2">Amount (NGN)</span><input id="rfa" type="number" step="0.01" min="0.01" max="${e(el.dataset.max)}" value="${e(el.dataset.max)}"></label><label class="f"><span class="mu2">Reason</span><input id="rfr" maxlength="200"></label><button class="btn" id="rfgo">Send refund to Paystack</button>`);
+      monAll('#rfgo', 'click', async () => { const r = await api('/api/admin/trade/payments/' + el.dataset.rf + '/refund', { method: 'POST', body: { amount_ngn: Number($('#rfa', modal).value), reason: $('#rfr', modal).value, idempotency_key: key } }); closeModal(); toast(r.payment.status === 'succeeded' ? 'Refund confirmed by Paystack' : 'Refund sent. Waiting for Paystack to confirm.'); views.trade(); });
+    });
+    return;
+  }
+  if (T.tab === 'reports') {
+    const lst = (await api('/api/admin/trade/reports')).reports.filter((r) => !r.finance || can('finance'));
+    T.rk = lst.some((r) => r.key === T.rk) ? T.rk : lst[0].key;
+    const qs = new URLSearchParams({ ...(T.rf ? { from: T.rf } : {}), ...(T.rt ? { to: T.rt } : {}), ...(T.rc ? { country: T.rc } : {}) });
+    const d = await api('/api/admin/trade/reports/' + T.rk + (qs.toString() ? '?' + qs : ''));
+    const fmt = (c, v) => (v == null || v === '' ? '<span class="mu2">–</span>' : c.type === 'ngn' ? ngn(v) : c.type === 'num' || c.type === 'int' ? Number(v).toLocaleString() : e(v));
+    frame(`<div class="panel"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><label class="f"><span class="mu2">Report</span><br><select id="rk">${lst.map((r) => `<option value="${r.key}" ${r.key === T.rk ? 'selected' : ''}>${e(r.title)}</option>`).join('')}</select></label>
+      <label class="f"><span class="mu2">From</span><br><input id="rf" type="date" value="${e(T.rf || '')}"></label><label class="f"><span class="mu2">To</span><br><input id="rt" type="date" value="${e(T.rt || '')}"></label><label class="f"><span class="mu2">Country code</span><br><input id="rc" maxlength="2" value="${e(T.rc || '')}" style="width:70px"></label><button class="btn sm" id="rgo">Show</button></div>
+      <div style="margin:10px 0"><b>${e(d.title)}</b> · ${['xlsx', 'csv', 'pdf'].map((k) => `<a class="btn ghost sm" href="/api/admin/trade/reports/${T.rk}/export?${new URLSearchParams({ format: k, ...Object.fromEntries(qs) })}" download>${k === 'xlsx' ? 'Excel' : k.toUpperCase()}</a>`).join(' ')}</div>
+      ${d.summary ? `<div class="mu2" style="margin-bottom:8px">${Object.entries(d.summary).map(([k, v]) => e(k.replace(/_/g, ' ')) + ': <b>' + Number(v).toLocaleString() + '</b>').join(' · ')}</div>` : ''}
+      <div class="tw">${d.rows.length ? `<table class="t"><tr>${d.columns.map((c) => `<th>${e(c.label)}</th>`).join('')}</tr>${d.rows.map((r) => `<tr>${d.columns.map((c) => `<td>${fmt(c, r[c.key])}</td>`).join('')}</tr>`).join('')}</table>` : '<div class="mu2">Nothing to show for these filters.</div>'}</div>
+      ${(d.notes || []).map((n) => `<div class="mu2" style="margin-top:8px">${e(n)}</div>`).join('')}</div>`);
+    wireTabs(); on('#rk', 'change', () => { T.rk = $('#rk').value; views.trade(); });
+    on('#rgo', 'click', () => { T.rf = $('#rf').value; T.rt = $('#rt').value; T.rc = $('#rc').value.trim().toUpperCase(); T.rk = $('#rk').value; views.trade(); });
+    return;
+  }
+  if (T.tab === 'assistant') {
+    const d = await api('/api/admin/trade/assistant'), sev = { high: 'bad', medium: 'warn', info: '' };
+    frame(`<div class="panel"><h3 style="margin-top:0">Global Trade Assistant <span class="pill">advice only</span></h3><div class="mu2">${e(d.status.note)} It cannot approve customs, release shipments, pay or change anything. A person always decides.</div>
+      ${edit ? `<label style="display:block;margin:8px 0"><input type="checkbox" id="aion" ${d.status.enabled ? 'checked' : ''}> Switch the assistant chat on</label>` : ''}
+      ${d.status.chat_available ? '<div style="margin-top:10px"><input id="aiq" maxlength="1000" placeholder="Ask about delays, freight, suppliers, sales…" style="width:70%"> <button class="btn sm" id="aigo">Ask</button><div id="aia" class="mu" style="margin-top:8px;white-space:pre-wrap"></div></div>' : ''}</div>
+      <div class="panel"><h3 style="margin-top:0">Things to look at (${d.count})</h3>${d.insights.length ? d.insights.map((i) => `<div style="margin:8px 0"><span class="pill ${sev[i.severity]}">${e(i.severity)}</span> <b>${e(i.title)}</b><div class="mu2">${e(i.detail)}${i.basis ? ' · basis: ' + e(i.basis) : ''}</div></div>`).join('') : '<div class="mu2">Nothing needs attention right now.</div>'}<div class="mu2" style="margin-top:8px">${e(d.note)}</div></div>`);
+    wireTabs();
+    on('#aion', 'change', async () => { await api('/api/admin/trade/settings', { method: 'PUT', body: { ai_assistant_enabled: $('#aion').checked } }); views.trade(); });
+    on('#aigo', 'click', async () => { const out = $('#aia'); out.textContent = 'Thinking…'; try { const r = await api('/api/admin/trade/assistant/chat', { method: 'POST', body: { messages: [{ role: 'user', content: $('#aiq').value }] } }); out.textContent = r.reply; } catch (er) { out.textContent = er.message; } });
+    return;
+  }
+  if (T.tab === 'notifications') {
+    const d = await api('/api/admin/trade/notifications?audience=' + encodeURIComponent(T.na || '')), st = { sent: 'ok', skipped: 'warn', failed: 'bad', queued: '' };
+    frame(`<div class="panel"><div class="mu2" style="margin-bottom:8px">Email: ${e(d.channels.email)}. SMS: ${e(d.channels.sms)}. WhatsApp: ${e(d.channels.whatsapp)}. "Sent" means handed to the email service; "skipped" means no email service is connected or customer emails are switched off in Settings.</div>
+      <select id="na"><option value="">Customers and staff</option><option value="customer" ${T.na === 'customer' ? 'selected' : ''}>Customers</option><option value="admin" ${T.na === 'admin' ? 'selected' : ''}>Staff alerts</option></select> ${edit ? '<button class="btn ghost sm" id="nsw">Check for new updates now</button>' : ''}
+      <div class="tw" style="margin-top:10px">${d.notifications.length ? `<table class="t"><tr><th>When</th><th>For</th><th>Message</th><th>Order</th><th>Status</th></tr>${d.notifications.map((n) => `<tr><td>${dt(n.created)}</td><td>${e(n.audience)}${n.recipient ? '<br><span class="mu2">' + e(n.recipient) + '</span>' : ''}</td><td>${e(n.subject)}</td><td>${e(n.export_ref || n.import_ref || '')}</td><td><span class="pill ${st[n.status]}">${e(n.status)}</span></td></tr>`).join('')}</table>` : '<div class="mu2">No notifications yet.</div>'}</div></div>`);
+    wireTabs(); on('#na', 'change', () => { T.na = $('#na').value; views.trade(); }); on('#nsw', 'click', async () => { const r = await api('/api/admin/trade/notifications/sweep', { method: 'POST', body: {} }); toast(r.created + ' new'); views.trade(); });
+    return;
+  }
+  if (T.tab === 'settings') {
+    const d = await api('/api/admin/trade/settings');
+    frame(`<div class="panel"><div class="mu2" style="margin-bottom:8px">Safe defaults: nothing risky is on until you switch it on.</div>${Object.entries(d.schema).filter(([k]) => k !== 'ai_assistant_enabled').map(([k, s]) => {
+      const v = d.settings[k], f = s.type === 'bool' ? `<input type="checkbox" data-s="${k}" ${v === '1' ? 'checked' : ''} ${edit ? '' : 'disabled'}>` : s.type === 'enum' ? `<select data-s="${k}" ${edit ? '' : 'disabled'}>${s.options.map((o) => `<option ${o === v ? 'selected' : ''}>${o}</option>`).join('')}</select>` : `<input data-s="${k}" value="${e(v)}" ${edit ? '' : 'disabled'}>`;
+      return `<label class="f" style="display:block;margin:10px 0"><span class="mu2">${e(s.label)}</span><br>${f}</label>`;
+    }).join('')}${edit ? '<button class="btn" id="ssave">Save settings</button>' : ''}</div>`);
+    wireTabs();
+    on('#ssave', 'click', async () => { const body = {}; $$('[data-s]', $('#mn')).forEach((el) => { body[el.dataset.s] = el.type === 'checkbox' ? el.checked : el.value; }); await api('/api/admin/trade/settings', { method: 'PUT', body }); toast('Settings saved'); });
+    return;
+  }
+  const a = await api('/api/admin/trade/audit?per=50');
+  frame(`<div class="panel"><div class="tw"><table class="t"><tr><th>When</th><th>Who</th><th>What</th><th>Record</th></tr>${a.rows.map((r) => `<tr><td>${dt(r.created)}</td><td>${e(r.user_name)}</td><td>${e(r.action)}</td><td>${e(r.entity)} ${e(r.entity_id)}</td></tr>`).join('') || '<tr><td colspan="4" class="mu2">Nothing recorded yet.</td></tr>'}</table></div></div>`);
+  wireTabs();
 };
 
 views.settings = async () => {
@@ -4058,7 +4673,7 @@ views.pharmacy = async () => {
   on('#ph_save', 'click', async () => { await P('/settings', { method: 'PUT', body: { pharm_pcn_logo: $('#ph_logo', $('#mn')).value, pharm_aggregator_licence: $('#ph_agg', $('#mn')).value, pharm_statement: $('#ph_stm', $('#mn')).value, pharm_large_qty: $('#ph_lq', $('#mn')).value, pharm_unverified_hours: $('#ph_uh', $('#mn')).value, pharm_return_days: $('#ph_rd', $('#mn')).value } }); toast('Saved'); route(); });
   onAll('[data-manual]', 'change', async (el) => { await P('/settings', { method: 'PUT', body: { [el.dataset.manual]: el.checked } }); route(); });
   on('#pn_add', 'click', async () => { const v = (i) => $('#' + i, $('#mn')).value; await P('/pharmacies', { body: { partner_id: v('pn_partner'), pharmacy_name: v('pn_name'), premises_licence_no: v('pn_pl'), epharmacy_licence_no: v('pn_el'), superintendent_name: v('pn_sn'), superintendent_reg_no: v('pn_sr'), licence_year: v('pn_yr') } }); toast('Added'); route(); });
-  onAll('[data-pe]', 'click', async (el) => { const p = ph.pharmacies.find((x) => x.id == el.dataset.pe); const a = (q, d) => prompt(q, d || ''); const n = a('Pharmacy name', p.pharmacy_name); if (n === null) return; const pl = a('Premises licence no.', p.premises_licence_no); if (pl === null) return; const ep = a('E-pharmacy licence no.', p.epharmacy_licence_no); if (ep === null) return; const sn = a('Superintendent pharmacist', p.superintendent_name); if (sn === null) return; const sr = a('Superintendent PCN reg. no.', p.superintendent_reg_no); if (sr === null) return; const yr = a('Licence year', p.licence_year || new Date().getFullYear()); if (yr === null) return; await P('/pharmacies/' + p.id, { method: 'PUT', body: { pharmacy_name: n, premises_licence_no: pl, epharmacy_licence_no: ep, superintendent_name: sn, superintendent_reg_no: sr, licence_year: yr } }); toast('Saved. If it was approved, it needs approving again.'); route(); });
+  monAll('[data-pe]', 'click', async (el) => { const p = ph.pharmacies.find((x) => x.id == el.dataset.pe); const a = (q, d) => prompt(q, d || ''); const n = a('Pharmacy name', p.pharmacy_name); if (n === null) return; const pl = a('Premises licence no.', p.premises_licence_no); if (pl === null) return; const ep = a('E-pharmacy licence no.', p.epharmacy_licence_no); if (ep === null) return; const sn = a('Superintendent pharmacist', p.superintendent_name); if (sn === null) return; const sr = a('Superintendent PCN reg. no.', p.superintendent_reg_no); if (sr === null) return; const yr = a('Licence year', p.licence_year || new Date().getFullYear()); if (yr === null) return; await P('/pharmacies/' + p.id, { method: 'PUT', body: { pharmacy_name: n, premises_licence_no: pl, epharmacy_licence_no: ep, superintendent_name: sn, superintendent_reg_no: sr, licence_year: yr } }); toast('Saved. If it was approved, it needs approving again.'); route(); });
   onAll('[data-pa]', 'click', async (el) => { await P(`/pharmacies/${el.dataset.pa}/approve`, { body: {} }); toast('Approved'); route(); });
   onAll('[data-ps]', 'click', async (el) => { const note = prompt('Reason for suspending:'); if (!note) return; await P(`/pharmacies/${el.dataset.ps}/suspend`, { body: { note } }); route(); });
   onAll('[data-ag]', 'change', async (el) => { const f = el.files[0]; if (!f) return; if (f.size > 8e6) return toast('That file is over 8 MB', 'bad'); const data = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); }); await P(`/pharmacies/${el.dataset.ag}/agreement`, { method: 'PUT', body: { data, name: f.name } }); toast('Agreement uploaded'); route(); });

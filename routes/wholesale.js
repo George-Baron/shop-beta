@@ -37,7 +37,7 @@ const rjson = express.json({ limit: '8mb' }), rraw = express.raw({ type: () => t
 const sendBuf = (res, buf, name, type) => { res.set({ 'Content-Type': type, 'Content-Disposition': `attachment; filename="${String(name).replace(/[^\w.\- ()]/g, '_')}"`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' }); res.send(Buffer.from(buf)); };
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 router.get('/rfq', ah(async (req, res) => res.json(await R.mine(req.user))));
-router.get('/rfq/template.xlsx', (req, res) => sendBuf(res, R.template(), 'shop-beta-rfq-template.xlsx', XLSX));
+router.get('/rfq/template.xlsx', (req, res) => sendBuf(res, R.template(), 'velto-mart-rfq-template.xlsx', XLSX));
 router.post('/rfq/parse', A.limiter('rfq-parse', 60, 3600000), rraw, ah(async (req, res) => { await W.approvedAccount(req.user); if (!Buffer.isBuffer(req.body) || !req.body.length) S.fail(400, 'Please choose a file.'); res.json(R.parseSheet(req.body, String(req.query.filename || ''))); }));
 router.post('/rfq', A.limiter('rfq-save', 120, 3600000), ah(async (req, res) => res.json({ ok: true, ref: await R.save(req.user, null, req.body || {}) })));
 router.get('/rfq/:ref', ah(async (req, res) => res.json({ request: await R.mineOne(req.user, req.params.ref) })));

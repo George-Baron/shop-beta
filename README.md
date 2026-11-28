@@ -1,4 +1,4 @@
-# Shop-Beta
+# VELTO-MART
 
 A full online store: six department homepages (Fashion, Supermarket, Beauty, Electronics, Pharmacy, Food), search and filters, product pages with sizes and colours, cart, checkout, customer accounts, wishlist, reviews, order tracking, and an admin dashboard. Prices are in Naira. Delivery fees are set per state. Customers pay with Paystack or pay on delivery.
 
@@ -51,7 +51,7 @@ Run it behind HTTPS (hosts do this for you). Turn on Supabase backups and keep y
 ### Run it on your computer
 
 1. Install Node 22.13 or newer and PostgreSQL 14 or newer.
-2. Create an empty database: `createdb shopbeta_dev`.
+2. Create an empty database: `createdb veltomart_dev`.
 3. Copy `.env.example` to `.env` and set `DATABASE_URL` (the default points at a local database).
 4. `npm install`, then `npm start`. The tables are created automatically on first start (files in `migrations/`).
 5. `npm test` runs the full checkout and admin test against a throwaway database. Set `TEST_DATABASE_URL` to a server where it may create databases (default `postgres://postgres@127.0.0.1:5432/postgres`).

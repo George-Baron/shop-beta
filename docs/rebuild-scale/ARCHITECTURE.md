@@ -1,4 +1,4 @@
-# Shop-Beta architecture
+# VELTO-MART architecture
 
 > Sections 1 to 11 describe the code **before** the rebuild (step 1 snapshot, SQLite). **Section 12 describes what step 2 changed** (PostgreSQL). Where they disagree, section 12 wins.
 

@@ -42,9 +42,9 @@ Keep an extra copy outside Supabase: once a week download a backup and keep it i
 ## 5. Restore (tested)
 Restore **always into an empty database first** to check it, never straight onto the live one.
 1. Get the file: Admin > Jobs & backups > Download (or Supabase Storage > db-backups > download).
-2. Check it is whole (touches no database): `node scripts/restore-backup.js shop-beta-XXXX.ndjson.gz --check`
+2. Check it is whole (touches no database): `node scripts/restore-backup.js velto-mart-XXXX.ndjson.gz --check`
 3. Create an empty Postgres database (a new Supabase project on the free plan is fine for a rehearsal) and put its connection string (session or direct, not the transaction pooler) in `DATABASE_URL`.
-4. Restore: `DATABASE_URL='postgres://...' node scripts/restore-backup.js shop-beta-XXXX.ndjson.gz --confirm <the-database-host-name>`
+4. Restore: `DATABASE_URL='postgres://...' node scripts/restore-backup.js velto-mart-XXXX.ndjson.gz --confirm <the-database-host-name>`
    - `--confirm` must equal the host name in the URL, so you cannot hit the wrong database by accident.
    - It runs the migrations, then loads everything in **one transaction**: either all of it or nothing.
    - It refuses if the target already has users, orders or products. To overwrite on purpose add `--replace` (this deletes what is there).

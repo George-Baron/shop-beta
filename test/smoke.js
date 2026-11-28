@@ -234,7 +234,7 @@ async function test(name, fn) {
     const c = (await admin.get('/api/admin/categories')).json; assert.strictEqual(c.stores.length, 6);
     await admin.post('/api/admin/categories', { store: 'beauty', name: 'Nails', icon: '💅' });
     assert.ok((await admin.get('/api/admin/categories')).json.categories.some((x) => x.name === 'Nails' && x.slug === 'beauty-nails'));
-    assert.strictEqual((await admin.put('/api/admin/stores/beauty', { name: 'Shop-Beta Beauty', tab_label: 'Beauty', icon: '💄', hero_title: 'Glow Up', active: true })).status, 200);
+    assert.strictEqual((await admin.put('/api/admin/stores/beauty', { name: 'VELTO-MART Beauty', tab_label: 'Beauty', icon: '💄', hero_title: 'Glow Up', active: true })).status, 200);
     assert.strictEqual((await guest.get('/api/home/beauty')).json.store.hero_title, 'Glow Up');
     assert.strictEqual((await admin.post('/api/admin/coupons', { code: 'x', type: 'percent', value: 10 })).status, 400);
     assert.strictEqual((await admin.post('/api/admin/coupons', { code: 'save500', type: 'fixed', value: 500, min_spend: 1000, active: true })).status, 200);

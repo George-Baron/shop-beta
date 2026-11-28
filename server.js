@@ -1,5 +1,5 @@
 'use strict';
-// Shop-Beta server: serves the single-page storefront + admin, and the JSON API behind them.
+// VELTO-MART server: serves the single-page storefront + admin, and the JSON API behind them.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -94,7 +94,13 @@ app.get('/health', (req, res) => {
 /* ---------- API ---------- */
 // Request bodies are small by default. The photo upload is the one exception, and it reads its larger body only AFTER the admin check (see routes/admin.js).
 const smallJson = express.json({ limit: '100kb', verify: (req, res, buf) => { req.rawBody = buf; } });
-app.use('/api', (req, res, next) => (req.path === '/admin/upload' || req.path === '/partner/upload' || req.path === '/rider/photo' || req.path === '/admin/rider-ops/upload' || req.path === '/partner/photos' || /^\/orders\/[A-Za-z0-9-]+\/return\/\d+\/photos$/.test(req.path) || (req.method === 'POST' && /^\/(admin|partner)\/catalog\/(parse|validate|commit)$/.test(req.path)) || /^\/(wholesale|admin)\/rfq\/(parse|[A-Z0-9-]+\/files)$/.test(req.path) || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) || /^\/admin\/dropship\/(suppliers\/\d+\/documents|trade\/shipments\/\d+\/files|import\/(preview|commit))$/.test(req.path) ? next() : smallJson(req, res, next)));
+app.use('/api', (req, res, next) => (req.path === '/admin/upload' || (req.method === 'POST' && /^\/admin\/trade\/products\/import\/(preview|commit)$/.test(req.path)) || (req.method === 'POST' && /^\/admin\/trade\/(suppliers|purchase-orders|imports|orders)\/[^/]+\/documents$/.test(req.path)) || req.path === '/partner/upload' || req.path === '/rider/photo' || req.path === '/admin/rider-ops/upload' || req.path === '/partner/photos' || /^\/orders\/[A-Za-z0-9-]+\/return\/\d+\/photos$/.test(req.path) || (req.method === 'POST' && /^\/(admin|partner)\/catalog\/(parse|validate|commit)$/.test(req.path)) || /^\/(wholesale|admin)\/rfq\/(parse|[A-Z0-9-]+\/files)$/.test(req.path) || (req.method === 'POST' && req.path === '/pharmacy/prescriptions') || /^\/admin\/pharmacy\/pharmacies\/\d+\/agreement$/.test(req.path) || /^\/admin\/dropship\/(suppliers\/\d+\/documents|trade\/shipments\/\d+\/files|import\/(preview|commit))$/.test(req.path) ? next() : smallJson(req, res, next)));
+// A NUL character is never valid text and makes the database fail with a server error, so it is refused up front.
+app.use('/api', (req, res, next) => {
+  const bad = (v, d = 0) => (typeof v === 'string' ? v.includes('\u0000') : d < 6 && v && typeof v === 'object' ? Object.entries(v).some(([k, x]) => k.includes('\u0000') || bad(x, d + 1)) : false);
+  if (/%00/i.test(req.url) || bad(req.query) || bad(req.body)) return res.status(400).json({ error: 'That request contains characters we cannot accept.' });
+  next();
+});
 app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin) {
@@ -121,6 +127,7 @@ app.use('/api/admin/pharmacy', require('./routes/pharmacy-admin'));
 app.use('/api/admin/rider-ops', require('./routes/rider-admin'));
 app.use('/api/admin/ops-ai', require('./routes/ops-ai'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/trade', require('./routes/trade-public'));
 app.use('/api/pharmacy', require('./routes/pharmacy'));
 app.use('/api/rider', require('./routes/rider'));
 app.use('/api/partner', require('./routes/partner'));
@@ -313,6 +320,10 @@ let server;
   await migrate();      // creates or updates the tables (safe to run on every start, and by two instances at once)
   await seed();
   await require('./lib/staff').seedRoles();
+  await require('./lib/trade/reference').seedReference();
+  await require('./lib/trade/reference').ensureTradeRoles();
+  await require('./lib/trade/reference').ensureManualProvider();
+  await require('./lib/trade/carriers').ensureProviders();
   await bootstrapAdmin();
   cache.watch(); // notice edits made on other instances
   server = app.listen(PORT, process.env.HOST || '0.0.0.0', async () => {

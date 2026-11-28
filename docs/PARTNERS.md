@@ -1,6 +1,6 @@
 # Partner stores
 
-Many stores can sell on Shop-Beta. Each has its own page (`/store/<name>`), up to **3 departments**, and its own login at `/partner`.
+Many stores can sell on VELTO-MART. Each has its own page (`/store/<name>`), up to **3 departments**, and its own login at `/partner`.
 
 ## How a store joins
 1. The store applies at `/sell` (business name, CAC number, address, departments, password). Status: **evaluating**. Customers cannot see it.

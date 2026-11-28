@@ -28,7 +28,7 @@ const call = async (method, url, body, cookie) => {
 const login = async (email, password) => { const r = await call('POST', '/api/auth/login', { email, password }); assert.strictEqual(r.s, 200, 'login ' + r.t); return r.c; };
 const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
 const xlsxB64 = async (rows) => { const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Products'); rows.forEach((r) => ws.addRow(r)); return Buffer.from(await wb.xlsx.writeBuffer()).toString('base64'); };
-// what the browser does after the mapping step: turn each file row into the Shop-Beta fields
+// what the browser does after the mapping step: turn each file row into the VELTO-MART fields
 const canon = (parsed, mapping = parsed.mapping) => parsed.rows.map((r) => { const o = { line: r.__line }; for (const [k, h] of Object.entries(mapping)) o[k] = h ? r[h] : ''; return o; });
 
 (async () => {

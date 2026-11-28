@@ -2,7 +2,7 @@
 # Details and the reason for each value: DEPLOY.md.
 services:
   - type: web
-    name: shop-beta
+    name: shop-beta   # kept: renaming the service in a blueprint would create a second Render service (the display brand is VELTO-MART)
     runtime: node
     region: frankfurt            # put this in the SAME region as your Supabase project (see DEPLOY.md)
     plan: starter                # change to a bigger plan under load; plans and prices: https://render.com/pricing
@@ -34,7 +34,7 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: MAIL_FROM
-        sync: false              # Shop-Beta <orders@yourdomain.com>
+        sync: false              # VELTO-MART <orders@yourdomain.com>
       - key: GEOAPIFY_API_KEY
         sync: false
       - key: ANTHROPIC_API_KEY

@@ -70,7 +70,7 @@ const nowS = () => Math.floor(Date.now() / 1000);
   const rows = await q("SELECT id FROM products WHERE active=1 AND stock>=30 AND id NOT IN (SELECT product_id FROM variants) ORDER BY id LIMIT 2");
   const PA = Number(rows[0].id); await q('UPDATE products SET stock=500 WHERE id=$1', [PA]);
   await call('PUT', '/api/admin/settings', { settings: { open_hour: 0, cutoff_hour: 24, prep_minutes: 20, max_distance_km: 60 } }, admin);
-  await call('POST', '/api/admin/partners', { name: 'Shop-Beta Main Store', address: 'Ikeja, Lagos', state: 'Lagos', phone: '08000000001', lat: MAIN[0], lng: MAIN[1], radius_km: 40, is_default: true }, admin);
+  await call('POST', '/api/admin/partners', { name: 'VELTO-MART Main Store', address: 'Ikeja, Lagos', state: 'Lagos', phone: '08000000001', lat: MAIN[0], lng: MAIN[1], radius_km: 40, is_default: true }, admin);
 
   let seq = 0;
   const mk = async (name, extra = {}) => {
@@ -242,8 +242,8 @@ const nowS = () => Math.floor(Date.now() / 1000);
     const c = offers[0]; assert.strictEqual(c.ref, o1.ref); assert.ok(c.pickup.name && c.pickup_km >= 0 && c.delivery_km > 0 && c.fee >= 0 && c.package.length === 1);
     assert.ok(!JSON.stringify(c).includes('1 Road Street') && !/080\d{8}/.test(JSON.stringify(c)), 'no street address or phone before acceptance');
     assert.strictEqual((await rc(r1, 'GET', '/offers')).j.offers.length, 1);
-    const th = (await rc(r1, 'GET', '/messages')).j; assert.strictEqual(th.ai_name, 'Shopbeta AI Operations Manager');
-    const m = th.messages.find((x) => x.type === 'assignment'); assert.strictEqual(m.from, 'ai'); assert.strictEqual(m.sender, 'Shopbeta AI Operations Manager'); assert.match(m.text, new RegExp(o1.ref));
+    const th = (await rc(r1, 'GET', '/messages')).j; assert.strictEqual(th.ai_name, 'VELTO-MART AI Operations Manager');
+    const m = th.messages.find((x) => x.type === 'assignment'); assert.strictEqual(m.from, 'ai'); assert.strictEqual(m.sender, 'VELTO-MART AI Operations Manager'); assert.match(m.text, new RegExp(o1.ref));
     assert.ok(Number((await q("SELECT COUNT(*) n FROM rider_ops_log WHERE action='offer' AND order_id=$1", [o1.id]))[0].n) === 1, 'the AI action is logged');
   });
   await test('only one live assignment can exist per order: a second AI offer is refused, and the database itself rejects a duplicate', async () => {
@@ -330,7 +330,7 @@ const nowS = () => Math.floor(Date.now() / 1000);
     await setCfg({ rider_stale_s: 60, rider_ack_s: 30 });
     await q('UPDATE rider_latest_location SET received_at=$2 WHERE rider_id=$1', [r1.id, nowS() - 400]);
     await runJob('cron.riderWatch');
-    const th = (await rc(r1, 'GET', '/messages')).j.messages; const ask = th.find((x) => /have not received your location/.test(x.text)); assert.ok(ask && ask.from === 'ai' && ask.sender === 'Shopbeta AI Operations Manager');
+    const th = (await rc(r1, 'GET', '/messages')).j.messages; const ask = th.find((x) => /have not received your location/.test(x.text)); assert.ok(ask && ask.from === 'ai' && ask.sender === 'VELTO-MART AI Operations Manager');
     assert.strictEqual(Number((await q("SELECT COUNT(*) n FROM notifications WHERE title LIKE 'GPS lost%'"))[0].n), 0, 'not yet: the rider has time to answer');
     await runJob('cron.riderWatch'); assert.strictEqual((await rc(r1, 'GET', '/messages')).j.messages.filter((x) => /have not received your location/.test(x.text)).length, 1, 'the question is not repeated');
     await q("UPDATE rider_followups SET created_at=$2 WHERE order_id=$1 AND kind='gps_ask'", [od.id, nowS() - 100]);

@@ -138,7 +138,7 @@ async function listProducts(q) {
   // Which stores the matching products come from (before the store filter is applied), so the customer can pick a store.
   const fromBase = `FROM products p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN vendors vd ON vd.id = p.vendor_id ${RATING_JOIN}`;
   const storeFacet = (words.length || store || category) && !q.nostores
-    ? (await all(`SELECT COALESCE(vd.slug,'') AS slug, COALESCE(vd.name,'') AS name, COUNT(*) AS n ${fromBase} WHERE ${where.join(' AND ')} GROUP BY 1,2 ORDER BY n DESC, 2 LIMIT 12`, ...args)).map((r) => ({ slug: r.slug, name: r.name || 'Shop-Beta', n: Number(r.n) })) : [];
+    ? (await all(`SELECT COALESCE(vd.slug,'') AS slug, COALESCE(vd.name,'') AS name, COUNT(*) AS n ${fromBase} WHERE ${where.join(' AND ')} GROUP BY 1,2 ORDER BY n DESC, 2 LIMIT 12`, ...args)).map((r) => ({ slug: r.slug, name: r.name || 'VELTO-MART', n: Number(r.n) })) : [];
   const vslug = str(q.vendor, 80);
   if (vslug === 'ours') where.push('p.vendor_id IS NULL'); else if (vslug === 'partners') where.push('p.vendor_id IS NOT NULL'); else if (vslug) { where.push('vd.slug=?'); args.push(vslug); }
   const from = `${fromBase} WHERE ${where.join(' AND ')}`;
@@ -414,6 +414,7 @@ router.post('/paystack/webhook', ah(async (req, res) => {
     const ref = str(ev.data.reference, 40).toUpperCase();
     await queue.enqueue('paystack.settle', { ref }, { key: 'paystack:' + ref });
   }
+  if (/^refund\./.test(String(ev.event || ''))) { try { await require('../lib/trade/payments').onRefundEvent(ev); } catch (e) { console.error('[paystack refund webhook]', e.message); } }
   res.json({ ok: true });
 }));
 // Flutterwave tells us a wallet top-up finished. Only the reference is taken from it; the worker asks Flutterwave for the real status, currency and amount.

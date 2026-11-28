@@ -36,7 +36,7 @@ const goods = (o = {}) => ({ name: 'Honey Beans 1kg', store: 'supermarket', pric
   const A = (m, u, b) => call(m, u, b, admin);
   let v1, v1c, prod1, v2, v2c;
   // Delivery needs our own pickup point (for our products) and a rider covering the state, exactly as in the live shop.
-  assert.strictEqual((await A('POST', '/api/admin/partners', { name: 'Shop-Beta Main Store', address: 'Ikeja, Lagos', state: 'Lagos', phone: '08000000001', lat: 6.6018, lng: 3.3515, radius_km: 40, is_default: true })).s, 200);
+  assert.strictEqual((await A('POST', '/api/admin/partners', { name: 'VELTO-MART Main Store', address: 'Ikeja, Lagos', state: 'Lagos', phone: '08000000001', lat: 6.6018, lng: 3.3515, radius_km: 40, is_default: true })).s, 200);
   assert.strictEqual((await A('POST', '/api/admin/riders', { name: 'Rider One', email: 'rider1@example.com', phone: '08033334444', password: 'RiderPass12345', coverage: 'Lagos' })).s, 200);
 
   console.log('\nApplying');
