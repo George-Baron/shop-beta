@@ -16,3 +16,6 @@ Every in-app notification (money added, refund, points earned or expiring, order
 ## Limits
 - This is browser/PWA push. iPhone needs the site added to the Home Screen first (Safari rule). A native phone app needs its own Firebase/APNs setup and is not part of this.
 - Tested against a stand-in push service (`npm run test:push`): the real browser services (Google, Mozilla, Apple) were not reachable here. After enabling, switch alerts on in your own phone and send yourself a test (Admin > Notifications > announcement to employees).
+
+## Staff alerts
+Owner and staff get the same **Alerts on this device** switch on the Notifications page. Staff with Wallet & rewards (view) and the owner are alerted when a top-up does not match what the gateway reports (reference, currency or amount) and when a single top-up is ₦500,000 or more (`BIG_TOPUP` in `lib/wallet.js`).

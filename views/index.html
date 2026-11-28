@@ -3116,11 +3116,35 @@ views.cards = async () => {
 };
 
 /* ---------------- notifications and announcements ---------------- */
+// "Alerts on this device" for staff (same as the customer one).
+async function aPush() {
+  const wrap = $('#pushbox'), btn = $('#pushbtn'); if (!wrap || !btn) return;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
+  let st; try { st = await api('/api/notifications/push'); } catch { return; } if (!st.enabled) return;
+  const u8 = (b64) => Uint8Array.from(atob(b64.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - b64.length % 4) % 4)), (c) => c.charCodeAt(0));
+  const reg = await navigator.serviceWorker.register('/sw.js').catch(() => null); if (!reg) return;
+  const paint = async () => { const sub = await reg.pushManager.getSubscription(); btn.textContent = sub ? 'Turn off alerts on this device' : 'Turn on alerts'; btn.dataset.on = sub ? '1' : ''; };
+  wrap.hidden = false; await paint();
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      const cur = await reg.pushManager.getSubscription();
+      if (cur) { await api('/api/notifications/push/unsubscribe', { body: { endpoint: cur.endpoint } }); await cur.unsubscribe(); toast('Alerts are off on this device'); }
+      else {
+        if ((await Notification.requestPermission()) !== 'granted') { toast('Alerts are blocked in this browser. Allow notifications for this site first.', 'bad'); return; }
+        const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: u8(st.key) });
+        await api('/api/notifications/push/subscribe', { body: { subscription: sub.toJSON() } }); toast('Alerts are on for this device');
+      }
+    } catch (er) { toast(er.message || 'Could not change alerts', 'bad'); } finally { btn.disabled = false; await paint(); }
+  });
+}
 views.notifications = async () => {
   const d = await api('/api/notifications?limit=40');
   mn(hd('Notifications', '<button class="btn ghost sm" id="nall">Mark all as read</button>') + `${can('marketing', true) ? `<div class="panel"><h3 style="margin-top:0">Send an announcement</h3><div class="grid2"><label class="f">To<select id="aud"><option value="partners">All partner stores</option><option value="wholesale">Approved wholesale buyers</option><option value="staff">Employees</option></select></label><label class="f">Title<input id="att" maxlength="140"></label></div><label class="f">Message<textarea id="abd" rows="2" maxlength="600"></textarea></label><label class="chk"><input type="checkbox" id="aem"> Also send it by email</label><div style="margin-top:8px"><button class="btn" id="asend">Send announcement</button></div></div>` : ''}
+    <div class="panel" id="pushbox" hidden><h3 style="margin-top:0">Alerts on this device</h3><p class="mu" style="margin-top:0">Get new orders, wallet warnings and other alerts on this phone or computer, even when the back office is closed.</p><button class="btn sm" id="pushbtn">Turn on alerts</button></div>
     <div class="panel">${d.notifications.map((n) => `<a class="ntfa ${n.read ? '' : 'new'}" href="${e(n.link ? (n.link.startsWith('/admin') ? n.link.replace('/admin', '') || '#/' : n.link) : '#')}" data-nid="${n.id}" ${n.link && !n.link.startsWith('/admin') ? 'target="_blank"' : ''}><b>${e(n.title)}</b>${n.body ? `<div class="mu">${e(n.body)}</div>` : ''}<div class="mu2">${dt(n.created)}</div></a>`).join('') || '<p class="mu">Nothing yet.</p>'}</div>`);
   onAll('[data-nid]', 'click', async (el) => { api('/api/notifications/read', { body: { id: Number(el.dataset.nid) } }).catch(() => {}); });
+  aPush();
   on('#nall', 'click', async () => { await api('/api/notifications/read', { body: { all: true } }); route(); });
   on('#asend', 'click', async () => { const r = await api('/api/admin/announce', { body: { audience: $('#aud').value, title: $('#att').value, body: $('#abd').value, email: $('#aem').checked } }); toast(`Sent to ${r.sent} people`); $('#att').value = ''; $('#abd').value = ''; });
 };
