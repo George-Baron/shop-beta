@@ -63,3 +63,6 @@ Employees get a new area, **Wallet & rewards**, in Employees & roles (role or cu
 | Owner only, always | Balance adjustments (money or points), wallet/rewards/card switches and limits, tiers, campaigns, points-expiry run |
 
 Every freeze, unfreeze and block is recorded with the staff member's name in the staff-actions log. Changing a person's permissions signs them out at once. Their menu shows Wallet & rewards and VELTO-MART CARD only when their role includes the area, and the owner-only controls are hidden for them.
+
+## Monthly PDF statement
+Account > Wallet > Transactions: pick a month and press **PDF** (`GET /api/wallet/statement.pdf?month=YYYY-MM`). It shows opening balance, money in and out, every entry with its running balance, and the closing balance, for the calendar month in West Africa Time. Only the signed-in customer's own entries are included. The CSV statement is still there for any date range.
